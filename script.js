@@ -130,6 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Pricing Toggle
     const toggleBtns = document.querySelectorAll('.toggle-btn');
     const priceTags = document.querySelectorAll('.price-tag');
+    const pricingSection = document.getElementById('pricing');
 
     toggleBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -139,6 +140,12 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.classList.add('active');
 
             const period = btn.dataset.period;
+
+            // Toggle section class
+            if (pricingSection) {
+                pricingSection.classList.remove('monthly', 'yearly');
+                pricingSection.classList.add(period);
+            }
 
             priceTags.forEach(tag => {
                 const price = tag.getAttribute(`data-${period}`);
@@ -270,5 +277,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     } else {
         console.error('Buttons not found!');
+    }
+
+    // Gender Select Color Handling
+    const genderSelect = document.querySelector('.custom-select');
+    if (genderSelect) {
+        genderSelect.addEventListener('change', function () {
+            if (this.value !== "") {
+                this.style.color = "#fff";
+            } else {
+                this.style.color = "#aaa";
+            }
+        });
     }
 });

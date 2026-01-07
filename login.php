@@ -18,60 +18,74 @@ $error = "";
 
 // Handle Login
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
-    $email = mysqli_real_escape_string($link, $_POST['email']);
+    $email = mysqli_real_escape_string($link, trim($_POST['email']));
     $password = $_POST['password'];
 
-    $sql = "SELECT id, full_name, email, password, role FROM users WHERE email = '$email'";
-    $result = mysqli_query($link, $sql);
-    if ($row = mysqli_fetch_assoc($result)) {
-        if (password_verify($password, $row['password'])) {
-            $_SESSION["loggedin"] = true;
-            $_SESSION["id"] = $row['id'];
-            $_SESSION["full_name"] = $row['full_name'];
-            $_SESSION["email"] = $row['email'];
-            $_SESSION["role"] = $row['role'];
-
-            if ($row['role'] == "admin") {
-                header("location: dashboard_admin.php");
-            } elseif ($row['role'] == "staff") {
-                header("location: dashboard_staff.php");
-            } else {
-                header("location: dashboard_member.php");
-            }
-            exit;
-        } else {
-            $error = "Invalid password.";
-        }
+    if (empty($email) || empty($password)) {
+        $error = "Please enter both email and password.";
     } else {
-        $error = "No account found with that email.";
+        $sql = "SELECT id, full_name, email, password, role FROM users WHERE email = '$email'";
+        $result = mysqli_query($link, $sql);
+        if ($row = mysqli_fetch_assoc($result)) {
+            if (password_verify($password, $row['password'])) {
+                $_SESSION["loggedin"] = true;
+                $_SESSION["id"] = $row['id'];
+                $_SESSION["full_name"] = $row['full_name'];
+                $_SESSION["email"] = $row['email'];
+                $_SESSION["role"] = $row['role'];
+
+                if ($row['role'] == "admin") {
+                    header("location: dashboard_admin.php");
+                } elseif ($row['role'] == "staff") {
+                    header("location: dashboard_staff.php");
+                } else {
+                    header("location: dashboard_member.php");
+                }
+                exit;
+            } else {
+                $error = "Invalid password.";
+            }
+        } else {
+            $error = "No account found with that email.";
+        }
     }
 }
 
 // Handle Registration
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register'])) {
-    $full_name = mysqli_real_escape_string($link, $_POST['full_name']);
-    $email = mysqli_real_escape_string($link, $_POST['email']);
-    $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
+    $full_name = mysqli_real_escape_string($link, trim($_POST['full_name']));
+    $email = mysqli_real_escape_string($link, trim($_POST['email']));
+    $password_raw = $_POST['password'];
     $role = 'member'; // Default role for new signups
 
-    // Check if email already exists to avoid fatal error
-    $check_email = mysqli_query($link, "SELECT id FROM users WHERE email = '$email'");
-    if (mysqli_num_rows($check_email) > 0) {
-        $error = "This email is already registered. Please sign in instead.";
+    if (empty($full_name) || empty($email) || empty($password_raw)) {
+        $error = "All fields are required.";
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $error = "Invalid email format.";
+    } elseif (strlen($password_raw) < 6) {
+        $error = "Password must be at least 6 characters long.";
     } else {
-        $sql = "INSERT INTO users (full_name, email, password, role) VALUES ('$full_name', '$email', '$password', '$role')";
-        if (mysqli_query($link, $sql)) {
-            // Automatically login after registration
-            $last_id = mysqli_insert_id($link);
-            $_SESSION["loggedin"] = true;
-            $_SESSION["id"] = $last_id;
-            $_SESSION["full_name"] = $full_name;
-            $_SESSION["email"] = $email;
-            $_SESSION["role"] = $role;
-            header("location: dashboard_member.php");
-            exit;
+        $password = password_hash($password_raw, PASSWORD_DEFAULT);
+
+        // Check if email already exists to avoid fatal error
+        $check_email = mysqli_query($link, "SELECT id FROM users WHERE email = '$email'");
+        if (mysqli_num_rows($check_email) > 0) {
+            $error = "This email is already registered. Please sign in instead.";
         } else {
-            $error = "Registration failed. Please try again later.";
+            $sql = "INSERT INTO users (full_name, email, password, role) VALUES ('$full_name', '$email', '$password', '$role')";
+            if (mysqli_query($link, $sql)) {
+                // Automatically login after registration
+                $last_id = mysqli_insert_id($link);
+                $_SESSION["loggedin"] = true;
+                $_SESSION["id"] = $last_id;
+                $_SESSION["full_name"] = $full_name;
+                $_SESSION["email"] = $email;
+                $_SESSION["role"] = $role;
+                header("location: dashboard_member.php");
+                exit;
+            } else {
+                $error = "Registration failed. Please try again later.";
+            }
         }
     }
 }

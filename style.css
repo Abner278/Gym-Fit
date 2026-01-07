@@ -1037,6 +1037,15 @@ body {
     color: #555;
 }
 
+/* Pricing Visibility Toggling */
+.pricing-section.monthly .yearly-only {
+    display: none !important;
+}
+
+.pricing-section.yearly .monthly-only {
+    display: none !important;
+}
+
 .pricing-card.popular {
     border: 2px solid var(--primary-color);
     background: linear-gradient(145deg, rgba(30, 30, 40, 0.9), rgba(10, 10, 10, 0.9));
@@ -1246,6 +1255,22 @@ body {
 .form-input:focus {
     border-color: var(--primary-color);
     box-shadow: 0 0 10px rgba(206, 255, 0, 0.1);
+}
+
+.custom-select {
+    cursor: pointer;
+    color: #aaa;
+    /* Default placeholder-like color */
+}
+
+.custom-select:not([value=""]) {
+    color: #fff;
+}
+
+.custom-select option {
+    background: #111;
+    color: #fff;
+    padding: 10px;
 }
 
 .form-row {

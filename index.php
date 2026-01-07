@@ -1,4 +1,23 @@
-<?php session_start(); ?>
+<?php
+require_once 'config.php';
+session_start();
+
+$contact_msg = "";
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['send_query'])) {
+    $name = mysqli_real_escape_string($link, $_POST['name']);
+    $email = mysqli_real_escape_string($link, $_POST['email']);
+    $phone = mysqli_real_escape_string($link, $_POST['phone']);
+    $gender = mysqli_real_escape_string($link, $_POST['gender']);
+    $message = mysqli_real_escape_string($link, $_POST['message']);
+
+    $sql = "INSERT INTO member_queries (name, email, phone, gender, message) VALUES ('$name', '$email', '$phone', '$gender', '$message')";
+    if (mysqli_query($link, $sql)) {
+        $contact_msg = "Message sent successfully!";
+    } else {
+        $contact_msg = "Error sending message.";
+    }
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 
@@ -402,7 +421,7 @@
     </section>
 
     <!-- Pricing Section -->
-    <section id="pricing" class="section pricing-section">
+    <section id="pricing" class="section pricing-section monthly">
         <div class="pricing-toggle">
             <button class="toggle-btn active" data-period="monthly">Monthly</button>
             <button class="toggle-btn" data-period="yearly">Yearly</button>
@@ -418,7 +437,8 @@
                     <li>Free Locker <i class="fa-solid fa-check check"></i></li>
                     <li>Group Class <i class="fa-solid fa-check check"></i></li>
                     <li>Personal Trainer <i class="fa-solid fa-xmark cross"></i></li>
-                    <li>Protein Drinks <i class="fa-solid fa-xmark cross"></i></li>
+                    <li class="monthly-only">Protein Drinks <i class="fa-solid fa-xmark cross"></i></li>
+                    <li class="yearly-only">1 Guest Pass/Mo <i class="fa-solid fa-check check"></i></li>
                 </ul>
                 <a href="#" class="btn-primary">Join Now</a>
             </div>
@@ -432,7 +452,9 @@
                     <li>Free Locker <i class="fa-solid fa-check check"></i></li>
                     <li>Group Class <i class="fa-solid fa-check check"></i></li>
                     <li>Personal Trainer <i class="fa-solid fa-check check"></i></li>
-                    <li>Protein Drinks <i class="fa-solid fa-xmark cross"></i></li>
+                    <li class="monthly-only">Protein Drinks <i class="fa-solid fa-xmark cross"></i></li>
+                    <li class="yearly-only">Protein Drinks <i class="fa-solid fa-check check"></i></li>
+                    <li class="yearly-only">Nutrition Guide <i class="fa-solid fa-check check"></i></li>
                 </ul>
                 <a href="#" class="btn-primary">Join Now</a>
             </div>
@@ -447,6 +469,8 @@
                     <li>Personal Trainer <i class="fa-solid fa-check check"></i></li>
                     <li>Protein Drinks <i class="fa-solid fa-check check"></i></li>
                     <li>Customized Workout Plan <i class="fa-solid fa-check check"></i></li>
+                    <li class="yearly-only">Diet Consultation <i class="fa-solid fa-check check"></i></li>
+                    <li class="yearly-only">Personal Locker <i class="fa-solid fa-check check"></i></li>
                 </ul>
                 <a href="#" class="btn-primary">Join Now</a>
             </div>
@@ -461,20 +485,24 @@
             </div>
             <div class="contact-form-wrapper">
                 <h2>Get In Touch</h2>
-                <form class="contact-form">
+                <?php if (!empty($contact_msg)): ?>
+                    <p style="color: #a1d423; margin-bottom: 15px; text-align: center;"><?php echo $contact_msg; ?></p>
+                <?php endif; ?>
+                <form class="contact-form" method="POST" action="#contact">
+                    <input type="hidden" name="send_query" value="1">
                     <div class="form-row">
-                        <input type="text" placeholder="Name" class="form-input">
-                        <input type="text" placeholder="Enter Number" class="form-input">
+                        <input type="text" name="name" placeholder="Name" class="form-input" required>
+                        <input type="text" name="phone" placeholder="Enter Number" class="form-input">
                     </div>
                     <div class="form-row">
-                        <input type="email" placeholder="Enter Email" class="form-input">
-                        <select class="form-input" style="color: #aaa;">
+                        <input type="email" name="email" placeholder="Enter Email" class="form-input" required>
+                        <select name="gender" class="form-input custom-select">
                             <option value="">Select Gender</option>
                             <option value="male">Male</option>
                             <option value="female">Female</option>
                         </select>
                     </div>
-                    <textarea placeholder="Enter Message" class="form-input"></textarea>
+                    <textarea name="message" placeholder="Enter Message" class="form-input" required></textarea>
                     <button type="submit" class="btn-skew">Send Message</button>
                 </form>
             </div>

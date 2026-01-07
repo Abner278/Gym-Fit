@@ -71,10 +71,17 @@ $trans_sql = "CREATE TABLE IF NOT EXISTS transactions (
     plan_name VARCHAR(50) NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
     payment_method VARCHAR(50) NOT NULL,
+    status ENUM('completed', 'failed', 'pending') DEFAULT 'completed',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 )";
 mysqli_query($link, $trans_sql);
+
+// Add status column if it doesn't exist
+$check_trans_status = mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'status'");
+if (mysqli_num_rows($check_trans_status) == 0) {
+    mysqli_query($link, "ALTER TABLE transactions ADD status ENUM('completed', 'failed', 'pending') DEFAULT 'completed' AFTER payment_method");
+}
 
 // Create completed_workouts table for progress tracking
 $workouts_sql = "CREATE TABLE IF NOT EXISTS completed_workouts (
@@ -95,6 +102,29 @@ $reset_sql = "CREATE TABLE IF NOT EXISTS password_resets (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 )";
 mysqli_query($link, $reset_sql);
+
+// Create trainers table
+$trainers_sql = "CREATE TABLE IF NOT EXISTS trainers (
+    id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    image VARCHAR(255) DEFAULT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)";
+mysqli_query($link, $trainers_sql);
+
+// Create member_queries table
+$queries_sql = "CREATE TABLE IF NOT EXISTS member_queries (
+    id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) NOT NULL,
+    phone VARCHAR(20) DEFAULT NULL,
+    gender VARCHAR(10) DEFAULT NULL,
+    message TEXT NOT NULL,
+    reply TEXT DEFAULT NULL,
+    status ENUM('pending', 'resolved') DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)";
+mysqli_query($link, $queries_sql);
 
 // Create some default users for testing if they don't exist
 $check_admin = "SELECT * FROM users WHERE role='admin' LIMIT 1";

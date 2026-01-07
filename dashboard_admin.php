@@ -1,9 +1,101 @@
 <?php
+require_once 'config.php';
 session_start();
 if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "admin") {
     header("location: login.php");
     exit;
 }
+
+$message = "";
+$message_type = "";
+
+// HANDLE TRAINER ADDITION
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_trainer'])) {
+    $name = mysqli_real_escape_string($link, $_POST['trainer_name']);
+    $image_path = "";
+
+    if (isset($_FILES['trainer_image']) && $_FILES['trainer_image']['error'] == 0) {
+        $target_dir = "assets/images/trainers/";
+        if (!file_exists($target_dir)) {
+            mkdir($target_dir, 0777, true);
+        }
+        $file_ext = pathinfo($_FILES["trainer_image"]["name"], PATHINFO_EXTENSION);
+        $file_name = time() . "_" . uniqid() . "." . $file_ext;
+        $target_file = $target_dir . $file_name;
+
+        if (move_uploaded_file($_FILES["trainer_image"]["tmp_name"], $target_file)) {
+            $image_path = $target_file;
+        }
+    }
+
+    $sql = "INSERT INTO trainers (name, image) VALUES ('$name', '$image_path')";
+    if (mysqli_query($link, $sql)) {
+        $message = "Trainer added successfully!";
+        $message_type = "success";
+    } else {
+        $message = "Error adding trainer: " . mysqli_error($link);
+        $message_type = "error";
+    }
+}
+
+// HANDLE TRAINER EDITING
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_trainer'])) {
+    $id = (int) $_POST['trainer_id'];
+    $name = mysqli_real_escape_string($link, $_POST['trainer_name']);
+    $image_update = "";
+
+    if (isset($_FILES['trainer_image']) && $_FILES['trainer_image']['error'] == 0) {
+        $target_dir = "assets/images/trainers/";
+        if (!file_exists($target_dir)) {
+            mkdir($target_dir, 0777, true);
+        }
+        $file_ext = pathinfo($_FILES["trainer_image"]["name"], PATHINFO_EXTENSION);
+        $file_name = time() . "_" . uniqid() . "." . $file_ext;
+        $target_file = $target_dir . $file_name;
+
+        if (move_uploaded_file($_FILES["trainer_image"]["tmp_name"], $target_file)) {
+            // Delete old image
+            $img_res = mysqli_query($link, "SELECT image FROM trainers WHERE id = $id");
+            $img_data = mysqli_fetch_assoc($img_res);
+            if ($img_data && !empty($img_data['image']) && file_exists($img_data['image'])) {
+                unlink($img_data['image']);
+            }
+            $image_update = ", image = '$target_file'";
+        }
+    }
+
+    $sql = "UPDATE trainers SET name = '$name' $image_update WHERE id = $id";
+    if (mysqli_query($link, $sql)) {
+        $message = "Trainer updated successfully!";
+        $message_type = "success";
+    } else {
+        $message = "Error updating trainer.";
+        $message_type = "error";
+    }
+}
+
+// HANDLE TRAINER DELETION
+if (isset($_GET['delete_trainer'])) {
+    $id = (int) $_GET['delete_trainer'];
+
+    // Get image path to delete file
+    $img_res = mysqli_query($link, "SELECT image FROM trainers WHERE id = $id");
+    $img_data = mysqli_fetch_assoc($img_res);
+    if ($img_data && !empty($img_data['image']) && file_exists($img_data['image'])) {
+        unlink($img_data['image']);
+    }
+
+    if (mysqli_query($link, "DELETE FROM trainers WHERE id = $id")) {
+        $message = "Trainer deleted successfully!";
+        $message_type = "success";
+    } else {
+        $message = "Error deleting trainer.";
+        $message_type = "error";
+    }
+}
+
+// FETCH TRAINERS
+$trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_at DESC");
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -227,6 +319,29 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "admin") {
 
 <body>
 
+    <?php if (!empty($message)): ?>
+        <div style="position: fixed; top: 20px; right: 20px; background: <?php echo $message_type == 'success' ? '#27ae60' : '#e74c3c'; ?>; color: #fff; padding: 15px 25px; border-radius: 8px; z-index: 10000; box-shadow: 0 5px 15px rgba(0,0,0,0.3); animation: slideIn 0.5s ease-out;"
+            id="admin-toast">
+            <i class="fa-solid <?php echo $message_type == 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'; ?>"
+                style="margin-right: 10px;"></i>
+            <?php echo $message; ?>
+        </div>
+        <script>setTimeout(() => { document.getElementById('admin-toast').style.opacity = '0'; setTimeout(() => document.getElementById('admin-toast').remove(), 500); }, 3000);</script>
+        <style>
+            @keyframes slideIn {
+                from {
+                    transform: translateX(100%);
+                    opacity: 0;
+                }
+
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+        </style>
+    <?php endif; ?>
+
     <div class="sidebar">
         <a href="index.php" class="logo">GYMFIT ADMIN</a>
         <ul class="sidebar-menu">
@@ -238,6 +353,7 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "admin") {
             <li><a href="#" onclick="showSection('users')"><i class="fa-solid fa-user-shield"></i> Staff & Users</a>
             </li>
             <li><a href="#" onclick="showSection('plans')"><i class="fa-solid fa-tags"></i> Membership Plans</a></li>
+            <li><a href="#" onclick="showSection('trainers')"><i class="fa-solid fa-dumbbell"></i> Trainers</a></li>
             <li><a href="#" onclick="showSection('financials')"><i class="fa-solid fa-money-bill-trend-up"></i>
                     Financial Records</a></li>
             <li><a href="#" onclick="showSection('schedule')"><i class="fa-solid fa-calendar-check"></i> Class
@@ -482,6 +598,110 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "admin") {
             </div>
         </div>
 
+        <!-- Trainers -->
+        <div id="trainers" class="dashboard-section">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Trainer Management</h3>
+                    <button class="btn-add"
+                        onclick="document.getElementById('add-trainer-modal').style.display='flex'">+ Add
+                        Trainer</button>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Image</th>
+                            <th>Name</th>
+                            <th>Date Added</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (mysqli_num_rows($trainers_query) > 0): ?>
+                            <?php while ($trainer = mysqli_fetch_assoc($trainers_query)): ?>
+                                <tr>
+                                    <td>
+                                        <img src="<?php echo $trainer['image'] ? $trainer['image'] : 'https://ui-avatars.com/api/?name=' . urlencode($trainer['name']) . '&background=ceff00&color=1a1a2e'; ?>"
+                                            style="width: 50px; height: 50px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary-color);">
+                                    </td>
+                                    <td><?php echo htmlspecialchars($trainer['name']); ?></td>
+                                    <td><?php echo date('M d, Y', strtotime($trainer['created_at'])); ?></td>
+                                    <td>
+                                        <button class="btn-action btn-view"
+                                            onclick="openEditTrainerModal(<?php echo $trainer['id']; ?>, '<?php echo addslashes(htmlspecialchars($trainer['name'])); ?>')">Edit</button>
+                                        <a href="?delete_trainer=<?php echo $trainer['id']; ?>" class="btn-action btn-delete"
+                                            onclick="return confirm('Are you sure you want to delete this trainer?')">Delete</a>
+                                    </td>
+                                </tr>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <tr>
+                                <td colspan="4" style="text-align: center; color: var(--text-gray);">No trainers found. Add
+                                    your first trainer!</td>
+                            </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Add Trainer Modal -->
+        <div id="add-trainer-modal"
+            style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1100; align-items:center; justify-content:center; backdrop-filter: blur(5px);">
+            <div class="card"
+                style="width:100%; max-width:450px; background: var(--secondary-color); border: 1px solid rgba(255,255,255,0.1);">
+                <div class="card-header">
+                    <h3>Add New Trainer</h3>
+                    <button onclick="document.getElementById('add-trainer-modal').style.display='none'"
+                        style="background:none; border:none; color:#fff; cursor:pointer; font-size:1.5rem;">&times;</button>
+                </div>
+                <form method="POST" enctype="multipart/form-data">
+                    <div style="margin-bottom: 20px;">
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Trainer Name</label>
+                        <input type="text" name="trainer_name" required
+                            style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
+                    </div>
+                    <div style="margin-bottom: 25px;">
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Trainer Image</label>
+                        <input type="file" name="trainer_image" accept="image/*" style="width:100%; color:#fff;">
+                        <small style="color: var(--text-gray); display:block; margin-top:5px;">Upload a professional
+                            photo for the trainer profile.</small>
+                    </div>
+                    <button type="submit" name="add_trainer" class="btn-add" style="width:100%;">Save Trainer</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Edit Trainer Modal -->
+        <div id="edit-trainer-modal"
+            style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1100; align-items:center; justify-content:center; backdrop-filter: blur(5px);">
+            <div class="card"
+                style="width:100%; max-width:450px; background: var(--secondary-color); border: 1px solid rgba(255,255,255,0.1);">
+                <div class="card-header">
+                    <h3>Edit Trainer</h3>
+                    <button onclick="document.getElementById('edit-trainer-modal').style.display='none'"
+                        style="background:none; border:none; color:#fff; cursor:pointer; font-size:1.5rem;">&times;</button>
+                </div>
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="trainer_id" id="edit-trainer-id">
+                    <div style="margin-bottom: 20px;">
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Trainer Name</label>
+                        <input type="text" name="trainer_name" id="edit-trainer-name" required
+                            style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
+                    </div>
+                    <div style="margin-bottom: 25px;">
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Trainer Image
+                            (Optional)</label>
+                        <input type="file" name="trainer_image" accept="image/*" style="width:100%; color:#fff;">
+                        <small style="color: var(--text-gray); display:block; margin-top:5px;">Upload a new photo only
+                            if you want to change the current one.</small>
+                    </div>
+                    <button type="submit" name="edit_trainer" class="btn-add" style="width:100%;">Update
+                        Trainer</button>
+                </form>
+            </div>
+        </div>
+
     </div>
 
     <script>
@@ -494,6 +714,12 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "admin") {
             if (event && event.currentTarget) {
                 event.currentTarget.classList.add('active');
             }
+        }
+
+        function openEditTrainerModal(id, name) {
+            document.getElementById('edit-trainer-id').value = id;
+            document.getElementById('edit-trainer-name').value = name;
+            document.getElementById('edit-trainer-modal').style.display = 'flex';
         }
 
         // Initialize Revenue Chart

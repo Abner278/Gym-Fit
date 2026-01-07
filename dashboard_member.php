@@ -43,6 +43,9 @@ $_SESSION["full_name"] = $user_data["full_name"];
 $_SESSION["email"] = $user_data["email"];
 $profile_image = $user_data["profile_image"];
 
+// FETCH TRAINERS
+$trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_at DESC");
+
 
 // HANDLE PROFILE UPDATE
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
@@ -256,6 +259,61 @@ foreach ($all_videos as $v) {
     }
 }
 
+// --- FETCH CUSTOM SCHEDULED WORKOUTS (STAFF UPLOADED) ---
+$custom_workouts = [];
+$start_date = "$view_year-" . sprintf('%02d', $view_month) . "-01";
+$end_date = "$view_year-" . sprintf('%02d', $view_month) . "-31";
+
+$custom_res = mysqli_query($link, "SELECT * FROM daily_workouts WHERE date BETWEEN '$start_date' AND '$end_date'");
+while ($cw = mysqli_fetch_assoc($custom_res)) {
+    // Key by date YYYY-MM-DD
+    $custom_workouts[$cw['date']] = [
+        'id' => 'custom-' . $cw['id'], // Unique ID for our internal logic
+        'real_id' => $cw['video_url'], // The actual URL/ID
+        'title' => $cw['title'],
+        'duration' => '', // Staff Pick removed
+        'type' => 'Daily Challenge',
+        'content' => $cw['description'],
+        'is_custom' => true
+    ];
+}
+
+// --- BEGINNER TIMELINE DATA & LOGIC ---
+$beginner_weeks = [
+    1 => [
+        'title' => 'Foundation Phase',
+        'goal' => 'Get used to the gym',
+        'activities' => ['Light cardio (treadmill, cycling)', 'Full-body stretching', 'Basic bodyweight moves', 'Squats', 'Wall push-ups', 'Planks'],
+        'topics' => ['Gym introduction for beginners', 'Warm-up & stretching routine', 'Common beginner gym mistakes']
+    ],
+    2 => [
+        'title' => 'Light Weight Introduction',
+        'goal' => 'Learn form, not heavy lifting',
+        'activities' => ['Machine-based workouts', 'Very light weights', 'Full-body workout (3 days/week)'],
+        'topics' => ['How to start lifting weights safely', 'Machine workouts for beginners', 'Proper breathing during exercises']
+    ],
+    3 => [
+        'title' => 'Split Training Begins',
+        'goal' => 'Muscle awareness & consistency',
+        'activities' => ['Upper body / Lower body split', 'Dumbbells + machines', 'Core workouts'],
+        'topics' => ['Back & biceps beginner workout', 'Chest & triceps beginner workout', 'Abs workout for beginners']
+    ],
+    4 => [
+        'title' => 'Strength & Confidence',
+        'goal' => 'Build routine & strength',
+        'activities' => ['Push / Pull / Legs split', 'Slightly increased weights', 'Proper rest & recovery'],
+        'topics' => ['Beginner to intermediate transition guide', 'How to increase weights safely', 'Recovery, rest days & sleep importance']
+    ]
+];
+
+// Check Beginner Progress
+$beg_res = mysqli_query($link, "SELECT video_id FROM completed_workouts WHERE user_id = $user_id AND video_id LIKE 'beg_week_%'");
+$completed_weeks = [];
+while ($row = mysqli_fetch_assoc($beg_res)) {
+    $completed_weeks[] = $row['video_id'];
+}
+$is_beginner_completed = count($completed_weeks) >= 4;
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -292,6 +350,9 @@ foreach ($all_videos as $v) {
             display: flex;
             flex-direction: column;
             border-right: 1px solid rgba(255, 255, 255, 0.1);
+            flex-shrink: 0;
+            /* Prevent sidebar from shrinking */
+            z-index: 100;
         }
 
         .sidebar .logo {
@@ -342,6 +403,29 @@ foreach ($all_videos as $v) {
             align-items: center;
             gap: 10px;
             padding: 12px 15px;
+        }
+
+        #plan-selector {
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white' width='18px' height='18px'%3e%3cpath d='M7 10l5 5 5-5z'/%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+
+        #plan-selector:hover,
+        #plan-selector:focus {
+            border-color: var(--primary-color) !important;
+            outline: none;
+            box-shadow: 0 0 10px rgba(206, 255, 0, 0.1);
+        }
+
+        #plan-selector option {
+            background-color: var(--secondary-color);
+            color: #fff;
+            padding: 12px;
         }
 
         /* Main Content */
@@ -746,8 +830,8 @@ foreach ($all_videos as $v) {
             font-family: 'Font Awesome 6 Free';
             font-weight: 900;
             position: absolute;
-            top: 8px;
-            right: 8px;
+            bottom: 5px;
+            right: 5px;
             font-size: 0.8rem;
             color: #00ff00;
         }
@@ -827,6 +911,44 @@ foreach ($all_videos as $v) {
             text-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
         }
 
+        /* Trainer Cards */
+        .trainer-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .trainer-card {
+            background: var(--card-bg);
+            border-radius: 15px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: 0.3s;
+            text-align: center;
+        }
+
+        .trainer-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--primary-color);
+        }
+
+        .trainer-img {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+        }
+
+        .trainer-info {
+            padding: 15px;
+        }
+
+        .trainer-info h4 {
+            font-family: 'Oswald', sans-serif;
+            font-size: 1.2rem;
+            margin-bottom: 5px;
+            color: var(--primary-color);
+        }
+
         /* Responsive Dashboard */
         @media (max-width: 992px) {
             body {
@@ -878,6 +1000,16 @@ foreach ($all_videos as $v) {
                 grid-template-columns: 1fr !important;
             }
         }
+        }
+
+        /* Essential utility for icon buttons */
+        .icon-btn.edit {
+            color: var(--primary-color);
+        }
+
+        .icon-btn.edit:hover {
+            background: rgba(206, 255, 0, 0.1);
+        }
     </style>
 </head>
 
@@ -900,6 +1032,7 @@ foreach ($all_videos as $v) {
             <li><a href="#" onclick="showSection('workouts')"><i class="fa-solid fa-play"></i> Workout Videos</a></li>
             <li><a href="#" onclick="showSection('todo')"><i class="fa-solid fa-list-check"></i> Daily To-Do</a></li>
             <li><a href="#" onclick="showSection('membership')"><i class="fa-solid fa-id-card"></i> Membership</a></li>
+            <li><a href="#" onclick="showSection('trainers')"><i class="fa-solid fa-dumbbell"></i> Trainers</a></li>
             <li><a href="#" onclick="showSection('profile')"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
             </li>
         </ul>
@@ -920,8 +1053,8 @@ foreach ($all_videos as $v) {
             </div>
         </div>
 
-        <!-- Overview Section -->
         <div id="overview" class="dashboard-section active">
+
             <div class="welcome-text" style="margin-bottom: 30px;">
                 <h1>Hello, <?php echo htmlspecialchars($_SESSION["full_name"]); ?>!</h1>
                 <p>Welcome back to your fitness portal.</p>
@@ -960,128 +1093,219 @@ foreach ($all_videos as $v) {
             <div style="margin-bottom: 30px;">
                 <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Workout Journey</h2>
 
-                <!-- Attractive Month Selector (Tabs) -->
-                <div class="month-selector-tabs"
-                    style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none;">
-                    <?php
-                    for ($m = 1; $m <= 12; $m++) {
-                        $month_name = date('M', mktime(0, 0, 0, $m, 1));
-                        $is_active = ($m == $view_month);
-                        $url = "?m=$m&y=$view_year";
-                        ?>
-                        <a href="<?php echo $url; ?>"
-                            style="flex: 0 0 auto; padding: 10px 20px; border-radius: 30px; background: <?php echo $is_active ? 'var(--primary-color)' : 'rgba(255,255,255,0.05)'; ?>; color: <?php echo $is_active ? 'var(--secondary-color)' : '#fff'; ?>; text-decoration: none; font-family: 'Oswald'; font-weight: bold; transition: 0.3s; border: 1px solid <?php echo $is_active ? 'var(--primary-color)' : 'rgba(255,255,255,0.1)'; ?>;">
-                            <?php echo strtoupper($month_name); ?>
-                        </a>
+                <!-- BEGINNER TIMELINE SECTION -->
+                <div id="beginner-timeline"
+                    style="margin-bottom: 40px; background: rgba(255,255,255,0.02); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
+                        <h3 style="font-family: 'Oswald'; color: var(--primary-color);">🟢 Beginner Gym Timeline (0–4
+                            Weeks)</h3>
+                        <?php // Badge removed as per user request ?>
+                    </div>
+
+                    <?php if (!$is_beginner_completed): ?>
+                        <p style="color: var(--text-gray); margin-bottom: 20px;">Complete this foundation phase to unlock
+                            Daily Challenges.</p>
+                    <?php endif; ?>
+
+                    <div class="timeline-weeks" style="display: flex; flex-direction: column; gap: 15px;">
+                        <?php foreach ($beginner_weeks as $num => $week):
+                            $week_id = "beg_week_$num";
+                            $is_done = in_array($week_id, $completed_weeks);
+                            $opacity = $is_done ? '0.6' : '1';
+                            ?>
+                            <div class="week-card"
+                                style="background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden; opacity: <?php echo $opacity; ?>;">
+                                <div class="week-header" onclick="toggleWrapper('week-content-<?php echo $num; ?>')"
+                                    style="padding: 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2);">
+                                    <strong style="font-size: 1.1rem;">Week <?php echo $num; ?>:
+                                        <?php echo $week['title']; ?></strong>
+                                    <div>
+                                        <?php if ($is_done): ?>
+                                            <i class="fa-solid fa-circle-check" style="color: var(--primary-color);"></i>
+                                        <?php else: ?>
+                                            <i class="fa-solid fa-chevron-down"></i>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                                <div id="week-content-<?php echo $num; ?>"
+                                    style="display: <?php echo $is_done ? 'none' : 'block'; ?>; padding: 15px; border-top: 1px solid rgba(255,255,255,0.05);">
+                                    <p style="color: #fff; margin-bottom: 10px;"><strong>Goal:</strong>
+                                        <?php echo $week['goal']; ?></p>
+
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                                        <div>
+                                            <h5 style="color: var(--primary-color); margin-bottom: 8px;">Activities</h5>
+                                            <ul
+                                                style="list-style: none; padding-left: 0; font-size: 0.9rem; color: var(--text-gray);">
+                                                <?php foreach ($week['activities'] as $act): ?>
+                                                    <li style="margin-bottom: 5px;"><i class="fa-solid fa-angle-right"
+                                                            style="color: var(--primary-color); margin-right: 5px;"></i>
+                                                        <?php echo $act; ?></li>
+                                                <?php endforeach; ?>
+                                            </ul>
+                                        </div>
+                                        <div>
+                                            <h5 style="color: var(--primary-color); margin-bottom: 8px;">Video Topics</h5>
+                                            <ul
+                                                style="list-style: none; padding-left: 0; font-size: 0.9rem; color: var(--text-gray);">
+                                                <?php foreach ($week['topics'] as $topic): ?>
+                                                    <li style="margin-bottom: 5px;"><i class="fa-solid fa-play"
+                                                            style="font-size: 0.7rem; color: var(--primary-color); margin-right: 5px;"></i>
+                                                        <?php echo $topic; ?></li>
+                                                <?php endforeach; ?>
+                                            </ul>
+                                        </div>
+                                    </div>
+
+                                    <?php if (!$is_done): ?>
+                                        <button onclick="markBeginnerWeek('<?php echo $week_id; ?>')" class="btn-action"
+                                            style="margin-top: 15px; width: auto; padding: 8px 20px; font-size: 0.9rem;">
+                                            Mark Week as Complete <i class="fa-solid fa-check"></i>
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <!-- DAILY CHALLENGES WRAPPER (Gated) -->
+                <?php if (!$is_beginner_completed): ?>
+                    <div
+                        style="text-align: center; padding: 40px; background: rgba(0,0,0,0.3); border-radius: 12px; border: 1px dashed var(--text-gray);">
+                        <i class="fa-solid fa-lock"
+                            style="font-size: 3rem; color: var(--text-gray); margin-bottom: 15px;"></i>
+                        <h3>Daily Challenges Locked</h3>
+                        <p style="color: var(--text-gray);">Please complete the Beginner Gym Timeline to unlock your daily
+                            workout schedule.</p>
+                    </div>
+                <?php else: ?>
+
+                    <!-- Attractive Month Selector (Tabs) -->
+                    <div class="month-selector-tabs"
+                        style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none;">
                         <?php
-                    }
-                    ?>
-                </div>
-            </div>
-
-
-            <!-- Calendar Strip -->
-            <div class="calendar-strip" id="calendar-strip">
-                <?php
-                for ($d = 1; $d <= $days_in_month; $d++):
-                    $date_str = "$view_year-" . sprintf('%02d', $view_month) . "-" . sprintf('%02d', $d);
-                    $day_name = date('D', strtotime($date_str));
-                    $is_completed = mysqli_query($link, "SELECT id FROM completed_workouts WHERE user_id = $user_id AND DATE(completed_at) = '$date_str'")->num_rows > 0;
-                    ?>
-                    <div class="calendar-day <?php echo ($d === $today_day) ? 'active' : ''; ?> <?php echo $is_completed ? 'completed' : ''; ?>"
-                        onclick="selectDay(<?php echo $d; ?>)" id="day-<?php echo $d; ?>"
-                        data-date="<?php echo $date_str; ?>">
-                        <span class="day-name"><?php echo $day_name; ?></span>
-                        <span class="day-num"><?php echo $d; ?></span>
-                    </div>
-                <?php endfor; ?>
-            </div>
-
-            <div class="dashboard-grid" style="grid-template-columns: 2fr 1fr;">
-                <div class="video-main-area">
-                    <div id="video-player-container">
-                        <iframe id="video-iframe" width="100%" height="100%" src="" frameborder="0"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowfullscreen></iframe>
-                        <div id="video-completion-overlay"
-                            style="display:none; position:absolute; bottom:20px; right:20px; gap: 10px; z-index: 10;">
-                            <button type="button" id="mark-finished-btn" onclick="markVideoFinished('complete')"
-                                class="btn-action" style="width:auto; padding:10px 20px;">
-                                <i class="fa-solid fa-check"></i> Mark as Finished
-                            </button>
-                            <button type="button" id="redo-workout-btn" onclick="markVideoFinished('redo')"
-                                class="btn-action"
-                                style="width:auto; padding:10px 20px; background: #333; color: #fff; display: none;">
-                                <i class="fa-solid fa-rotate-right"></i> Redo Workout
-                            </button>
-                        </div>
+                        for ($m = 1; $m <= 12; $m++) {
+                            $month_name = date('M', mktime(0, 0, 0, $m, 1));
+                            $is_active = ($m == $view_month);
+                            $url = "?m=$m&y=$view_year";
+                            ?>
+                            <a href="<?php echo $url; ?>"
+                                style="flex: 0 0 auto; padding: 10px 20px; border-radius: 30px; background: <?php echo $is_active ? 'var(--primary-color)' : 'rgba(255,255,255,0.05)'; ?>; color: <?php echo $is_active ? 'var(--secondary-color)' : '#fff'; ?>; text-decoration: none; font-family: 'Oswald'; font-weight: bold; transition: 0.3s; border: 1px solid <?php echo $is_active ? 'var(--primary-color)' : 'rgba(255,255,255,0.1)'; ?>;">
+                                <?php echo strtoupper($month_name); ?>
+                            </a>
+                            <?php
+                        }
+                        ?>
                     </div>
 
-                    <div class="dashboard-card" style="margin-bottom: 0;">
-                        <h3 id="playlist-title">Today's Routine</h3>
-                        <div class="video-list" id="video-list-container">
-                            <!-- Videos will be injected here by JS -->
-                        </div>
+
+
+                    <!-- Calendar Strip -->
+                    <div class="calendar-strip" id="calendar-strip">
+                        <?php
+                        for ($d = 1; $d <= $days_in_month; $d++):
+                            $date_str = "$view_year-" . sprintf('%02d', $view_month) . "-" . sprintf('%02d', $d);
+                            $day_name = date('D', strtotime($date_str));
+                            $is_completed = mysqli_query($link, "SELECT id FROM completed_workouts WHERE user_id = $user_id AND DATE(completed_at) = '$date_str'")->num_rows > 0;
+                            ?>
+                            <div class="calendar-day <?php echo ($d === $today_day) ? 'active' : ''; ?> <?php echo $is_completed ? 'completed' : ''; ?>"
+                                onclick="selectDay(<?php echo $d; ?>)" id="day-<?php echo $d; ?>"
+                                data-date="<?php echo $date_str; ?>">
+                                <span class="day-name"><?php echo $day_name; ?></span>
+                                <span class="day-num"><?php echo $d; ?></span>
+                            </div>
+                        <?php endfor; ?>
                     </div>
-                </div>
 
-                <div class="side-info">
-                    <div class="dashboard-card" style="height: 100%; position: relative;">
-                        <button onclick="markVideoFinished('reset_all')" title="Reset Month"
-                            style="position: absolute; top: 20px; right: 20px; background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 0.8rem; opacity: 0.6; transition: 0.3s;">
-                            <i class="fa-solid fa-trash-can"></i> Reset All
-                        </button>
-                        <h3>Monthly Summary</h3>
-                        <p style="color: var(--text-gray); font-size: 0.9rem;">Target: Complete videos daily for full
-                            progress.</p>
-
-                        <div class="progress-bar-container">
-                            <div class="progress-bar-fill" id="monthly-progress-bar"
-                                style="width: <?php echo $progress_percent; ?>%;"></div>
-                        </div>
-                        <p
-                            style="text-align: right; font-size: 0.9rem; font-weight: bold; color: var(--primary-color);">
-                            <span id="completed-days-text"><?php echo $completed_this_month; ?></span> / <span
-                                id="total-days-text"><?php echo $total_videos_target; ?></span> Days Completed (<span
-                                id="progress-percent-text"><?php echo round($progress_percent); ?></span>%)
-                        </p>
-
-                        <div style="margin-top:25px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 20px;">
-                            <h4
-                                style="font-family:'Oswald'; font-size: 0.9rem; margin-bottom:10px; color: var(--text-gray);">
-                                Dates Completed:</h4>
-                            <div id="completed-dates-badges" style="display:flex; flex-wrap:wrap; gap:8px;">
-                                <?php if (empty($recent_completed_dates)): ?>
-                                    <p style="font-size: 0.8rem; color: #555;">No workouts completed yet.</p>
-                                <?php else: ?>
-                                    <?php foreach ($recent_completed_dates as $rd_label): ?>
-                                        <span
-                                            style="background: rgba(0,255,0,0.1); color: #00ff00; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; border: 1px solid rgba(0,255,0,0.2);">
-                                            <i class="fa-solid fa-check" style="font-size: 0.6rem;"></i>
-                                            <?php echo $rd_label; ?>
-                                        </span>
-                                    <?php endforeach; ?>
-                                <?php endif; ?>
+                    <div class="dashboard-grid" style="grid-template-columns: 2fr 1fr;">
+                        <div class="video-main-area">
+                            <!-- Video Player Container -->
+                            <div id="video-player-container">
+                                <iframe id="video-iframe" width="100%" height="100%" src="" frameborder="0"
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                    allowfullscreen></iframe>
+                                <!-- Overlay controls removed for simplicity in this step, can be re-added if needed -->
+                            </div>
+                            <!-- <div id="video-completion-overlay" ... (kept hidden logic if needed later) -->
+                            <div id="video-completion-overlay"
+                                style="display:none; position:absolute; bottom:20px; right:20px; gap: 10px; z-index: 10;">
+                                <button type="button" id="mark-finished-btn" onclick="markVideoFinished('complete')"
+                                    class="btn-action" style="width:auto; padding:10px 20px;">
+                                    <i class="fa-solid fa-check"></i> Mark as Finished
+                                </button>
+                                <button type="button" id="redo-workout-btn" onclick="markVideoFinished('redo')"
+                                    class="btn-action"
+                                    style="width:auto; padding:10px 20px; background: #333; color: #fff; display: none;">
+                                    <i class="fa-solid fa-rotate-right"></i> Redo Workout
+                                </button>
                             </div>
                         </div>
 
-                        <div style="margin-top:30px;">
-                            <h4 style="font-family:'Oswald'; margin-bottom:15px;">Achievement Medals</h4>
-                            <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-                                <i class="fa-solid fa-medal" title="Half Month Master"
-                                    style="font-size: 2.5rem; color: <?php echo $progress_percent >= 50 ? '#ffd700' : '#333'; ?>;"></i>
-                                <i class="fa-solid fa-trophy" title="Month Master"
-                                    style="font-size: 2.5rem; color: <?php echo $progress_percent >= 100 ? '#ceff00' : '#333'; ?>;"></i>
-                                <i class="fa-solid fa-fire" title="Dedication"
-                                    style="font-size: 2.5rem; color: <?php echo $progress_percent >= 75 ? '#ff4500' : '#333'; ?>;"></i>
+                        <div class="dashboard-card" style="margin-bottom: 0;">
+                            <h3 id="playlist-title">Today's Routine</h3>
+                            <div class="video-list" id="video-list-container">
+                                <!-- Videos will be injected here by JS -->
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
 
+                    <div class="side-info">
+                        <div class="dashboard-card" style="height: 100%; position: relative;">
+                            <button onclick="markVideoFinished('reset_all')" title="Reset Month"
+                                style="position: absolute; top: 20px; right: 20px; background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 0.8rem; opacity: 0.6; transition: 0.3s;">
+                                <i class="fa-solid fa-trash-can"></i> Reset All
+                            </button>
+                            <h3>Monthly Summary</h3>
+                            <p style="color: var(--text-gray); font-size: 0.9rem;">Target: Complete videos daily for full
+                                progress.</p>
 
+                            <div class="progress-bar-container">
+                                <div class="progress-bar-fill" id="monthly-progress-bar"
+                                    style="width: <?php echo $progress_percent; ?>%;"></div>
+                            </div>
+                            <p
+                                style="text-align: right; font-size: 0.9rem; font-weight: bold; color: var(--primary-color);">
+                                <span id="completed-days-text"><?php echo $completed_this_month; ?></span> / <span
+                                    id="total-days-text"><?php echo $total_videos_target; ?></span> Days Completed (<span
+                                    id="progress-percent-text"><?php echo round($progress_percent); ?></span>%)
+                            </p>
+
+                            <div style="margin-top:25px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 20px;">
+                                <h4
+                                    style="font-family:'Oswald'; font-size: 0.9rem; margin-bottom:10px; color: var(--text-gray);">
+                                    Dates Completed:</h4>
+                                <div id="completed-dates-badges" style="display:flex; flex-wrap:wrap; gap:8px;">
+                                    <?php if (empty($recent_completed_dates)): ?>
+                                        <p style="font-size: 0.8rem; color: #555;">No workouts completed yet.</p>
+                                    <?php else: ?>
+                                        <?php foreach ($recent_completed_dates as $rd_label): ?>
+                                            <span
+                                                style="background: rgba(0,255,0,0.1); color: #00ff00; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; border: 1px solid rgba(0,255,0,0.2);">
+                                                <i class="fa-solid fa-check" style="font-size: 0.6rem;"></i>
+                                                <?php echo $rd_label; ?>
+                                            </span>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+
+                            <div style="margin-top:30px;">
+                                <h4 style="font-family:'Oswald'; margin-bottom:15px;">Achievement Medals</h4>
+                                <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                                    <i id="medal-half" class="fa-solid fa-medal" title="Half Month Master"
+                                        style="font-size: 2.5rem; color: <?php echo $progress_percent >= 50 ? '#ffd700' : '#333'; ?>;"></i>
+                                    <i id="medal-full" class="fa-solid fa-trophy" title="Month Master"
+                                        style="font-size: 2.5rem; color: <?php echo $progress_percent >= 100 ? '#ceff00' : '#333'; ?>;"></i>
+                                    <i id="medal-fire" class="fa-solid fa-fire" title="Dedication"
+                                        style="font-size: 2.5rem; color: <?php echo $progress_percent >= 75 ? '#ff4500' : '#333'; ?>;"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div> <!-- Close side-info (line 1188) -->
+                <?php endif; // End Beginner Check ?>
+            </div> <!-- Close wrapper (line 1028) or grid? Let's check -->
+        </div> <!-- Close workouts section (line 1027) -->
 
         <!-- To-Do Section -->
         <div id="todo" class="dashboard-section">
@@ -1137,6 +1361,10 @@ foreach ($all_videos as $v) {
                                     <?php echo htmlspecialchars($row['task_name']); ?>
                                 </span>
                                 <div style="display: flex; gap: 5px;">
+                                    <button type="button" class="icon-btn edit"
+                                        onclick="openEditTask(<?php echo $row['id']; ?>, '<?php echo addslashes(htmlspecialchars($row['task_name'])); ?>')">
+                                        <i class="fa-solid fa-pen"></i>
+                                    </button>
                                     <button type="button" class="icon-btn delete"
                                         onclick="deleteTask(<?php echo $row['id']; ?>)">
                                         <i class="fa-solid fa-trash"></i>
@@ -1207,7 +1435,7 @@ foreach ($all_videos as $v) {
                             style="display: block; font-size: 0.9rem; color: var(--text-gray); margin-bottom: 8px;">Select
                             New Plan</label>
                         <select id="plan-selector"
-                            style="width: 100%; padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #333;">
+                            style="width: 100%; padding: 12px 40px 12px 15px; border-radius: 8px; background-color: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); font-family: 'Roboto', sans-serif;">
                             <option value="399">Basic - ₹399/mo</option>
                             <option value="899" selected>Standard - ₹899/mo</option>
                             <option value="999">Premium - ₹999/mo</option>
@@ -1240,16 +1468,14 @@ foreach ($all_videos as $v) {
                                             • <?php echo $txn['payment_method']; ?>
                                         </p>
                                     </div>
-                                    <div style="display:flex; align-items:center; gap:10px;">
+                                    <div style="display:flex; align-items:center; gap:12px;">
                                         <span style="color: var(--primary-color); font-weight: bold;">-
                                             ₹<?php echo number_format($txn['amount'], 2); ?></span>
-                                        <form method="POST" style="display:inline;">
-                                            <input type="hidden" name="trans_id" value="<?php echo $txn['id']; ?>">
-                                            <button type="submit" name="delete_transaction" class="icon-btn delete"
-                                                onclick="return confirm('Remove from history?')">
-                                                <i class="fa-solid fa-xmark"></i>
-                                            </button>
-                                        </form>
+                                        <a href="invoice.php?tid=<?php echo $txn['id']; ?>" target="_blank"
+                                            style="color: var(--primary-color); font-size: 1.1rem;"
+                                            title="Download / Print Invoice">
+                                            <i class="fa-solid fa-file-pdf"></i>
+                                        </a>
                                     </div>
                                 </div>
                             <?php endwhile; ?>
@@ -1278,23 +1504,36 @@ foreach ($all_videos as $v) {
                 </div>
 
                 <div id="card-fields">
-                    <input type="text" placeholder="Card Number (XXXX XXXX XXXX XXXX)"
+                    <input type="text" id="card-num" placeholder="Card Number (16 digits)" maxlength="16"
                         style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff;">
-                    <div style="display:flex; gap:10px;">
-                        <input type="text" placeholder="MM/YY"
+                    <div style="display:flex; gap:10px; margin-bottom:15px;">
+                        <input type="text" id="card-exp" placeholder="MM/YY" maxlength="5"
                             style="width:60%; padding:12px; border-radius:8px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff;">
-                        <input type="text" placeholder="CVV"
+                        <input type="text" id="card-cvv" placeholder="CVV" maxlength="3"
                             style="width:40%; padding:12px; border-radius:8px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff;">
                     </div>
                 </div>
 
                 <div id="gpay-fields" style="display:none; text-align:center; padding:20px;">
-                    <p>Scan QR or enter UPI ID</p>
-                    <i class="fa-solid fa-qrcode"
-                        style="font-size:4rem; margin:20px 0; color:var(--primary-color);"></i>
-                    <input type="text" placeholder="username@upi"
+                    <p style="margin-bottom: 15px; color: var(--text-gray);">Scan QR to pay with GPay or any UPI App</p>
+                    <div
+                        style="background: #fff; padding: 15px; border-radius: 12px; display: inline-block; margin-bottom: 10px;">
+                        <img id="upi-qr-code" src="" alt="UPI QR Code"
+                            style="width: 180px; height: 180px; display: block;">
+                    </div>
+                    <p style="font-size: 0.75rem; color: var(--text-gray); margin-bottom: 15px; cursor: help;"
+                        title="Make sure your phone is on the same Wi-Fi and your computer's firewall allows incoming connections on port <?php echo $_SERVER['SERVER_PORT']; ?>.">
+                        <i class="fa-solid fa-circle-info"></i> Trouble scanning?
+                    </p>
+                    <p style="font-size: 0.8rem; color: var(--text-gray); margin-bottom: 10px;">Or enter your UPI ID</p>
+                    <input type="text" id="upi-id-input" placeholder="username@upi"
                         style="width:100%; padding:12px; border-radius:8px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff;">
                 </div>
+
+
+                <p id="payment-error"
+                    style="color:#ff4d4d; font-size:0.85rem; text-align:center; margin-top:15px; display:none;"></p>
+
 
                 <button type="button" class="btn-action" style="margin-top:30px;" onclick="startProcessing()">Confirm &
                     Pay</button>
@@ -1311,16 +1550,81 @@ foreach ($all_videos as $v) {
             </div>
 
             <div class="modal-content" id="payment-success"
-                style="display:none; text-align:center; background: var(--secondary-color); padding: 40px; border-radius: 20px; width: 100%; max-width: 450px; border: 1px solid rgba(255,255,255,0.1);">
-                <i class="fa-solid fa-circle-check" style="font-size:5rem; color:#00ff00; margin-bottom:20px;"></i>
-                <h2 style="font-family:'Oswald'; margin-bottom:10px;">Payment Successful!</h2>
-                <p style="opacity:0.7; margin-bottom:30px;">Your membership has been renewed.</p>
+                style="display:none; text-align:center; background: var(--secondary-color); padding: 50px 40px; border-radius: 20px; width: 100%; max-width: 450px; border: 1px solid rgba(255,255,255,0.1); position: relative; overflow: hidden;">
+                <!-- GPay Success Aura -->
+                <div
+                    style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(0, 255, 133, 0.05) 0%, transparent 70%); pointer-events: none;">
+                </div>
+
+                <div
+                    style="width: 100px; height: 100px; background: #008577; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 25px; box-shadow: 0 10px 30px rgba(0,133,119,0.3); animation: popIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+                    <i class="fa-solid fa-check" style="font-size: 3.5rem; color: #fff;"></i>
+                </div>
+
+                <h2 style="font-family:'Oswald'; color: #fff; margin-bottom: 5px; font-size: 1.8rem;">₹ <span
+                        id="success-amt-display">0.00</span></h2>
+                <p
+                    style="color: #00ff85; font-weight: bold; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 1px; font-size: 0.9rem;">
+                    Payment Successful</p>
+
+                <div
+                    style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; margin-bottom: 30px; text-align: left; border: 1px solid rgba(255,255,255,0.05);">
+                    <p style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.9rem;">
+                        <span style="color: var(--text-gray);">To:</span>
+                        <span style="color: #fff; font-weight: 500;">GymFit Membership</span>
+                    </p>
+                    <p style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.9rem;">
+                        <span style="color: var(--text-gray);">Ref No:</span>
+                        <span
+                            style="color: #fff; font-weight: 500;"><?php echo strtoupper(bin2hex(random_bytes(4))); ?></span>
+                    </p>
+                    <p style="display: flex; justify-content: space-between; font-size: 0.9rem;">
+                        <span style="color: var(--text-gray);">Method:</span>
+                        <span id="success-method-display" style="color: #fff; font-weight: 500;">UPI</span>
+                    </p>
+                </div>
+
                 <form method="POST" id="confirm-payment-form">
                     <input type="hidden" name="plan_name" id="final-plan">
                     <input type="hidden" name="amount" id="final-amt">
                     <input type="hidden" name="method" id="final-method">
-                    <button type="submit" name="complete_payment" class="btn-action">Back to Dashboard</button>
+                    <button type="submit" name="complete_payment" class="btn-action"
+                        style="width: 100%; border-radius: 30px;">
+                        Done
+                    </button>
                 </form>
+
+                <p style="margin-top: 20px; font-size: 0.75rem; color: var(--text-gray);">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/Google_Pay_%28GPay%29_Logo.svg"
+                        alt="GPay" style="height: 15px; vertical-align: middle; margin-right: 5px; opacity: 0.6;">
+                    Securely processed by GPay Demo
+                </p>
+            </div>
+
+        </div>
+
+        <!-- Trainers Section -->
+        <div id="trainers" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Our Expert Trainers</h2>
+            <div class="trainer-grid">
+                <?php if (mysqli_num_rows($trainers_query) > 0): ?>
+                    <?php while ($trainer = mysqli_fetch_assoc($trainers_query)): ?>
+                        <div class="trainer-card">
+                            <img src="<?php echo $trainer['image'] ? $trainer['image'] : 'https://ui-avatars.com/api/?name=' . urlencode($trainer['name']) . '&background=ceff00&color=1a1a2e'; ?>"
+                                alt="<?php echo htmlspecialchars($trainer['name']); ?>" class="trainer-img">
+                            <div class="trainer-info">
+                                <h4><?php echo htmlspecialchars($trainer['name']); ?></h4>
+                            </div>
+                        </div>
+                    <?php endwhile; ?>
+                <?php else: ?>
+                    <div
+                        style="grid-column: 1 / -1; text-align: center; padding: 50px; background: var(--card-bg); border-radius: 15px;">
+                        <i class="fa-solid fa-users-slash"
+                            style="font-size: 3rem; color: var(--text-gray); margin-bottom: 15px;"></i>
+                        <p style="color: var(--text-gray);">No trainers available at the moment.</p>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -1363,7 +1667,8 @@ foreach ($all_videos as $v) {
                             style="display: block; font-size: 0.85rem; color: var(--text-gray); margin-bottom: 8px;">Change
                             Password (leave blank to keep current)</label>
                         <div style="position: relative;">
-                            <input type="password" name="new_password" id="new_password_input" placeholder="Enter new password"
+                            <input type="password" name="new_password" id="new_password_input"
+                                placeholder="Enter new password"
                                 style="width: 100%; padding: 12px; padding-right: 40px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #333;">
                             <i class="fa-solid fa-eye" id="toggle-password"
                                 style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #aaa;"></i>
@@ -1491,7 +1796,9 @@ foreach ($all_videos as $v) {
 
         // VIDEO Logic
         const allVideos = <?php echo json_encode($all_videos); ?>;
+        const customWorkouts = <?php echo json_encode($custom_workouts); ?>;
         const viewMonth = <?php echo $view_month; ?>;
+        const viewYear = <?php echo $view_year; ?>;
         let selectedVideoId = null;
         let selectedDate = null;
 
@@ -1503,43 +1810,133 @@ foreach ($all_videos as $v) {
                 selectedDate = dayEl.getAttribute('data-date');
             }
 
-            // Unique video per month/day cycle
-            const videoIdx = (day - 1 + (viewMonth * 5)) % allVideos.length;
-            const video = allVideos[videoIdx];
+            // Construct date string YYYY-MM-DD for lookup
+            // Ensure zero-padding
+            const m = viewMonth < 10 ? '0' + viewMonth : viewMonth;
+            const d = day < 10 ? '0' + day : day;
+            const fullDate = `${viewYear}-${m}-${d}`;
+
+            let video;
+            let isCustom = false;
+
+            // 1. Check if Staff has uploaded a specific video for this date
+            if (customWorkouts[fullDate]) {
+                video = customWorkouts[fullDate];
+                isCustom = true;
+            } else {
+                // 2. Fallback to default array
+                const videoIdx = (day - 1 + (viewMonth * 5)) % allVideos.length;
+                video = allVideos[videoIdx];
+                isCustom = false;
+            }
 
             document.getElementById('playlist-title').innerText = `Day ${day}: ${video.title}`;
-            renderVideoList(video, day);
+            renderVideoList(video, day, isCustom);
 
-            // Automatically play/load the video when a day is selected
-            setTimeout(() => {
-                const videoItem = document.getElementById('current-video-item');
-                if (videoItem) {
-                    playVideo(videoItem, `https://www.youtube.com/embed/${video.id}`, video.id);
+            // If it is a custom video (Staff uploaded), assume it has a valid link and play it
+            // If it is a custom video (Staff uploaded), assume it has a valid link and play it
+            if (isCustom) {
+                // Determine if it's a raw YouTube URL or ID
+                let rawInput = video.real_id.trim();
+                let videoId = null;
+
+                // Comprehensive Regex for YouTube IDs (Supports watch, embed, youtu.be, shorts, live)
+                // Matches 11-char ID after various prefixes
+                const regExp = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts|live)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+                const match = rawInput.match(regExp);
+
+                if (match && match[1]) {
+                    videoId = match[1];
+                } else {
+                    // Fallback: If no URL pattern found, assume the input itself is the ID
+                    // but check it doesn't contain a slash, preventing malformed URLs from breaking
+                    if (rawInput.length > 5 && !rawInput.includes('/') && !rawInput.includes('.')) {
+                        videoId = rawInput;
+                    }
                 }
-            }, 50);
+
+                let finalEmbedUrl = "";
+                if (videoId) {
+                    finalEmbedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=0&mute=0`;
+                } else {
+                    // Last resort: If user pasted a FULL embed link manually (e.g. from Share -> Embed)
+                    if (rawInput.includes("embed/")) {
+                        finalEmbedUrl = rawInput;
+                    } else if (rawInput.includes("http")) {
+                        finalEmbedUrl = rawInput;
+                    }
+                }
+
+                // Set global selected ID for the "Finish" button to work
+                selectedVideoId = video.real_id;
+
+                // Show player and the "Finished" button overlay
+                const playerContainer = document.getElementById('video-player-container');
+                const iframe = document.getElementById('video-iframe');
+                const overlay = document.getElementById('video-completion-overlay');
+
+                iframe.src = finalEmbedUrl;
+                playerContainer.style.display = 'block';
+                playerContainer.classList.add('active');
+
+                // Show completion controls - REMOVED (Moved to renderVideoList)
+                if (overlay) overlay.style.display = 'none';
+
+            } else {
+                // Hide player for default videos
+                const playerContainer = document.getElementById('video-player-container');
+                playerContainer.style.display = 'none';
+                playerContainer.classList.remove('active');
+                document.getElementById('video-iframe').src = '';
+            }
         }
 
-        function renderVideoList(video, day) {
+        function renderVideoList(video, day, isCustom) {
             const container = document.getElementById('video-list-container');
             const dayEl = document.getElementById('day-' + day);
             const isDone = dayEl.classList.contains('completed');
 
+            // Icon: Use Play icon if custom/playable, otherwise dumbbell
+            const iconClass = isCustom ? (isDone ? 'fa-check-circle' : 'fa-play') : (isDone ? 'fa-check-circle' : 'fa-dumbbell');
+            const cursorStyle = isCustom ? 'pointer' : 'default';
+
+            // Buttons Logic
+            let buttonsHtml = '';
+            if (isCustom) {
+                if (isDone) {
+                    buttonsHtml = `
+                    <div style="margin-top: 15px; text-align: right;">
+                        <button type="button" onclick="markVideoFinished('redo')" class="btn-action" style="width: auto; padding: 10px 20px; background: #333; color: #fff; display: inline-flex;">
+                            <i class="fa-solid fa-rotate-right"></i> Redo Workout
+                        </button>
+                    </div>`;
+                } else {
+                    buttonsHtml = `
+                    <div style="margin-top: 15px; text-align: right;">
+                        <button type="button" onclick="markVideoFinished('complete')" class="btn-action" style="width: auto; padding: 10px 20px; display: inline-flex;">
+                            <i class="fa-solid fa-check"></i> Mark as Finished
+                        </button>
+                    </div>`;
+                }
+            }
+
             container.innerHTML = `
-                <div class="video-item ${isDone ? 'video-done' : ''}" id="current-video-item" onclick="playVideo(this, 'https://www.youtube.com/embed/${video.id}', '${video.id}')">
-                    <div class="video-thumb" style="background-image: url('https://img.youtube.com/vi/${video.id}/0.jpg')">
-                        <i class="fa-solid ${isDone ? 'fa-check-circle' : 'fa-play'}"></i>
+                <div class="video-item ${isDone ? 'video-done' : ''}" id="current-video-item" style="cursor: ${cursorStyle};">
+                    <div class="video-thumb" style="background: rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: center;">
+                        <i class="fa-solid ${iconClass}" style="font-size: 2rem; color: var(--text-gray);"></i>
                     </div>
                     <div style="flex-grow: 1;">
                         <h4 class="v-title">${video.title}</h4>
-                        <p style="font-size: 0.8rem; color: var(--text-gray);">${video.duration} • ${video.type}</p>
+                        <p style="font-size: 0.8rem; color: var(--text-gray);">${video.duration ? video.duration + ' • ' : ''}${video.type}</p>
                     </div>
                     ${isDone ? '<i class="fa-solid fa-circle-check check-icon" style="color: var(--primary-color);"></i>' : ''}
                 </div>
                 <div style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.03); border-radius: 10px;">
                     <h5 style="color: var(--primary-color); font-family: 'Oswald'; margin-bottom: 5px;">Instructor's Tip:</h5>
-                    <p style="font-size: 0.9rem; line-height: 1.4; color: var(--text-gray);">
+                    <p style="font-size: 0.9rem; line-height: 1.4; color: var(--text-gray); white-space: pre-line;">
                         ${video.content}
                     </p>
+                    ${buttonsHtml}
                 </div>
             `;
         }
@@ -1645,12 +2042,13 @@ foreach ($all_videos as $v) {
                         }
 
                         // Achievement Medal Color Updates
-                        document.querySelectorAll('.fa-medal, .fa-trophy, .fa-fire').forEach(icon => {
-                            const title = icon.getAttribute('title');
-                            if (title === 'Half Month Master') icon.style.color = data.percent >= 50 ? '#ffd700' : '#333';
-                            if (title === 'Month Master') icon.style.color = data.percent >= 100 ? '#ceff00' : '#333';
-                            if (title === 'Dedication') icon.style.color = data.percent >= 75 ? '#ff4500' : '#333';
-                        });
+                        const p = parseInt(data.percent);
+                        document.getElementById('medal-half').style.color = p >= 50 ? '#ffd700' : '#333';
+                        document.getElementById('medal-fire').style.color = p >= 75 ? '#ff4500' : '#333';
+                        document.getElementById('medal-full').style.color = p >= 100 ? '#ceff00' : '#333';
+
+                        // Refresh the view to update buttons (Mark Finished <-> Redo)
+                        selectDay(dayNum);
                     }
                 });
         }
@@ -1819,10 +2217,33 @@ foreach ($all_videos as $v) {
         if (planSelector) {
             planSelector.addEventListener('change', function () {
                 document.getElementById('payment-amt-display').innerText = "₹" + this.value + ".00";
+                updateUPI_QR();
             });
         }
 
+        function updateUPI_QR() {
+            const amt = document.getElementById('plan-selector').value;
+            const plan = document.getElementById('plan-selector').options[document.getElementById('plan-selector').selectedIndex].text.split(' - ')[0];
+
+            let host = window.location.hostname;
+            let port = window.location.port ? ':' + window.location.port : '';
+
+            // If on localhost, use the server's internal IP so mobile can reach it
+            if (host === 'localhost' || host === '127.0.0.1') {
+                host = '<?php echo gethostbyname(gethostname()); ?>';
+            }
+
+            const baseUrl = window.location.protocol + "//" + host + port + window.location.pathname.replace('dashboard_member.php', '');
+            const mockUrl = `${baseUrl}gpay_mock.php?amt=${amt}&plan=${encodeURIComponent(plan)}`;
+
+            // Generate QR
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(mockUrl)}`;
+            const qrImg = document.getElementById('upi-qr-code');
+            if (qrImg) qrImg.src = qrUrl;
+        }
+
         function openPaymentModal() {
+            updateUPI_QR();
             document.getElementById('payment-modal').style.display = 'flex';
         }
 
@@ -1838,6 +2259,7 @@ foreach ($all_videos as $v) {
             if (method === 'GPay') {
                 document.getElementById('card-fields').style.display = 'none';
                 document.getElementById('gpay-fields').style.display = 'block';
+                updateUPI_QR();
             } else {
                 document.getElementById('card-fields').style.display = 'block';
                 document.getElementById('gpay-fields').style.display = 'none';
@@ -1845,6 +2267,39 @@ foreach ($all_videos as $v) {
         }
 
         function startProcessing() {
+            const errorEl = document.getElementById('payment-error');
+            errorEl.style.display = 'none';
+
+            // Validation
+            if (currentMethod === 'Credit Card') {
+                const cardNum = document.getElementById('card-num').value.trim();
+                const cardExp = document.getElementById('card-exp').value.trim();
+                const cardCvv = document.getElementById('card-cvv').value.trim();
+
+                if (cardNum.length !== 16 || isNaN(cardNum)) {
+                    errorEl.innerText = "Please enter a valid 16-digit card number.";
+                    errorEl.style.display = 'block';
+                    return;
+                }
+                if (!/^\d{2}\/\d{2}$/.test(cardExp)) {
+                    errorEl.innerText = "Please enter expiry in MM/YY format.";
+                    errorEl.style.display = 'block';
+                    return;
+                }
+                if (cardCvv.length !== 3 || isNaN(cardCvv)) {
+                    errorEl.innerText = "Please enter a valid 3-digit CVV.";
+                    errorEl.style.display = 'block';
+                    return;
+                }
+            } else {
+                const upiId = document.getElementById('upi-id-input').value.trim();
+                if (!upiId.includes('@') || upiId.length < 5) {
+                    errorEl.innerText = "Please enter a valid UPI ID (e.g., user@bank).";
+                    errorEl.style.display = 'block';
+                    return;
+                }
+            }
+
             document.getElementById('payment-form-area').style.display = 'none';
             document.getElementById('processing-payment').style.display = 'block';
 
@@ -1858,18 +2313,64 @@ foreach ($all_videos as $v) {
                 document.getElementById('final-plan').value = planName;
                 document.getElementById('final-amt').value = amt;
                 document.getElementById('final-method').value = currentMethod;
+
+                // Update Success UI
+                document.getElementById('success-amt-display').innerText = parseFloat(amt).toFixed(2);
+                document.getElementById('success-method-display').innerText = currentMethod;
             }, 2500);
         }
+
+        // Add popIn animation for success screen
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes popIn {
+                0% { transform: scale(0); opacity: 0; }
+                80% { transform: scale(1.1); }
+                100% { transform: scale(1); opacity: 1; }
+            }
+        `;
+        document.head.appendChild(style);
         // Toggle Password Visibility
         const togglePassword = document.getElementById('toggle-password');
         const passwordInput = document.getElementById('new_password_input');
         if (togglePassword && passwordInput) {
-            togglePassword.addEventListener('click', function() {
+            togglePassword.addEventListener('click', function () {
                 const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
                 passwordInput.setAttribute('type', type);
                 this.classList.toggle('fa-eye');
                 this.classList.toggle('fa-eye-slash');
             });
+        }
+
+        // Beginner Timeline Functions
+        function toggleWrapper(id) {
+            const el = document.getElementById(id);
+            if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function markBeginnerWeek(weekId) {
+            if (!confirm('Are you sure you have completed all activities for this week?')) return;
+
+            const formData = new FormData();
+            formData.append('finish_workout_ajax', 1);
+            formData.append('video_id', weekId);
+            formData.append('action_type', 'complete');
+            // Use a unique date for tracking if needed, or today
+            formData.append('custom_date', new Date().toISOString().split('T')[0]);
+
+            fetch('dashboard_member.php', {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Reload to update UI and unlock if done
+                        location.reload();
+                    } else {
+                        alert('Error updating progress.');
+                    }
+                });
         }
     </script>
 </body>
