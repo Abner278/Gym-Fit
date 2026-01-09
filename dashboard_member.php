@@ -9,6 +9,10 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "member") {
 
 $user_id = $_SESSION["id"];
 $message = "";
+if (isset($_SESSION['flash_message'])) {
+    $message = $_SESSION['flash_message'];
+    unset($_SESSION['flash_message']);
+}
 // --- AJAX TASK HANDLING ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_action'])) {
     header('Content-Type: application/json');
@@ -27,6 +31,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_action'])) {
     } elseif ($_POST['ajax_action'] == 'delete_transaction') {
         $trans_id = (int) $_POST['trans_id'];
         if (mysqli_query($link, "DELETE FROM transactions WHERE id = $trans_id AND user_id = $user_id")) {
+            $res = ["success" => true];
+        }
+    } elseif ($_POST['ajax_action'] == 'delete_task') {
+        $task_id = (int) $_POST['task_id'];
+        if (mysqli_query($link, "DELETE FROM tasks WHERE id = $task_id AND user_id = $user_id")) {
+            $res = ["success" => true];
+        }
+    } elseif ($_POST['ajax_action'] == 'edit_task') {
+        $task_id = (int) $_POST['task_id'];
+        $task_name = mysqli_real_escape_string($link, $_POST['task_name']);
+        if (mysqli_query($link, "UPDATE tasks SET task_name = '$task_name' WHERE id = $task_id AND user_id = $user_id")) {
             $res = ["success" => true];
         }
     }
@@ -90,8 +105,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
         if (mysqli_query($link, $update_sql)) {
             $_SESSION["full_name"] = $full_name;
             $_SESSION["email"] = $email;
-            $message = "Profile updated successfully!";
-            $message_type = "success";
+            $_SESSION['flash_message'] = "Profile updated successfully!";
+            header("Location: dashboard_member.php");
+            exit;
         } else {
             $message = "Error: Failed to update profile. Please try again.";
             $message_type = "error";
@@ -135,16 +151,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['finish_workout_ajax'])
             mysqli_query($link, "INSERT INTO completed_workouts (user_id, video_id, completed_at) VALUES ($user_id, '$video_id', '$custom_date')");
         }
     } elseif ($action_type == 'reset_all') {
-        mysqli_query($link, "DELETE FROM completed_workouts WHERE user_id = $user_id AND completed_at BETWEEN '$start_m 00:00:00' AND '$end_m 23:59:59'");
+        mysqli_query($link, "DELETE FROM completed_workouts WHERE user_id = $user_id AND video_id NOT LIKE 'beg_week_%' AND completed_at BETWEEN '$start_m 00:00:00' AND '$end_m 23:59:59'");
     } else {
         // Redo action: Remove all records for this specific date and user to ensure progress resets to 0 for that day
-        mysqli_query($link, "DELETE FROM completed_workouts WHERE user_id = $user_id AND DATE(completed_at) = '$custom_date'");
+        mysqli_query($link, "DELETE FROM completed_workouts WHERE user_id = $user_id AND DATE(completed_at) = '$custom_date' AND video_id NOT LIKE 'beg_week_%'");
     }
 
-    $cnt_query = mysqli_query($link, "SELECT COUNT(DISTINCT DATE(completed_at)) as count FROM completed_workouts WHERE user_id = $user_id AND completed_at BETWEEN '$start_m 00:00:00' AND '$end_m 23:59:59'");
+    $cnt_query = mysqli_query($link, "SELECT COUNT(DISTINCT DATE(completed_at)) as count FROM completed_workouts WHERE user_id = $user_id AND video_id NOT LIKE 'beg_week_%' AND completed_at BETWEEN '$start_m 00:00:00' AND '$end_m 23:59:59'");
     $cnt = $cnt_query->fetch_assoc()['count'];
 
-    $dates_res = mysqli_query($link, "SELECT DISTINCT DATE(completed_at) as cdate FROM completed_workouts WHERE user_id = $user_id AND completed_at BETWEEN '$start_m 00:00:00' AND '$end_m 23:59:59' ORDER BY completed_at DESC LIMIT 5");
+    $dates_res = mysqli_query($link, "SELECT DISTINCT DATE(completed_at) as cdate FROM completed_workouts WHERE user_id = $user_id AND video_id NOT LIKE 'beg_week_%' AND completed_at BETWEEN '$start_m 00:00:00' AND '$end_m 23:59:59' ORDER BY completed_at DESC LIMIT 5");
     $dates = [];
     while ($rd = mysqli_fetch_assoc($dates_res))
         $dates[] = date('M d', strtotime($rd['cdate']));
@@ -170,11 +186,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['complete_payment'])) {
     // Update User Table
     $update_user = "UPDATE users SET membership_plan = '$plan_name', membership_status = 'Active', membership_expiry = '$new_expiry' WHERE id = $user_id";
     if (mysqli_query($link, $update_user)) {
-        $message = "Plan $plan_name renewed successfully until " . date('M d, Y', strtotime($new_expiry)) . "!";
-        // Refresh local data for display
-        $membership_plan = $plan_name;
-        $membership_status = 'Active';
-        $membership_expiry = $new_expiry;
+        $_SESSION['flash_message'] = "Plan $plan_name renewed successfully until " . date('M d, Y', strtotime($new_expiry)) . "!";
+        header("Location: dashboard_member.php");
+        exit;
     }
 }
 
@@ -209,11 +223,11 @@ if ($next_month > 12) {
 $start_of_view_month = "$view_year-" . sprintf('%02d', $view_month) . "-01";
 $end_of_view_month = "$view_year-" . sprintf('%02d', $view_month) . "-$days_in_month";
 
-$completed_this_month_res = mysqli_query($link, "SELECT COUNT(DISTINCT DATE(completed_at)) as count FROM completed_workouts WHERE user_id = $user_id AND completed_at BETWEEN '$start_of_view_month 00:00:00' AND '$end_of_view_month 23:59:59'");
+$completed_this_month_res = mysqli_query($link, "SELECT COUNT(DISTINCT DATE(completed_at)) as count FROM completed_workouts WHERE user_id = $user_id AND video_id NOT LIKE 'beg_week_%' AND completed_at BETWEEN '$start_of_view_month 00:00:00' AND '$end_of_view_month 23:59:59'");
 $completed_this_month = $completed_this_month_res->fetch_assoc()['count'];
 
 // Also fetch specific completed dates for a 'Recently completed' list
-$completed_dates_res = mysqli_query($link, "SELECT DISTINCT DATE(completed_at) as cdate FROM completed_workouts WHERE user_id = $user_id AND completed_at BETWEEN '$start_of_view_month 00:00:00' AND '$end_of_view_month 23:59:59' ORDER BY completed_at DESC LIMIT 5");
+$completed_dates_res = mysqli_query($link, "SELECT DISTINCT DATE(completed_at) as cdate FROM completed_workouts WHERE user_id = $user_id AND video_id NOT LIKE 'beg_week_%' AND completed_at BETWEEN '$start_of_view_month 00:00:00' AND '$end_of_view_month 23:59:59' ORDER BY completed_at DESC LIMIT 5");
 $recent_completed_dates = [];
 while ($rd = mysqli_fetch_assoc($completed_dates_res)) {
     $recent_completed_dates[] = date('M d', strtotime($rd['cdate']));
@@ -861,19 +875,42 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             opacity: 0.8;
         }
 
-        .calendar-day.completed {
-            border-color: #00ff00;
-            background: rgba(0, 255, 0, 0.05);
+        .calendar-day:hover {
+            background: rgba(255, 255, 255, 0.08);
         }
 
+        /* "Today" styling - FIXED bright color */
+        .calendar-day.today {
+            background: var(--primary-color);
+            color: #000;
+            box-shadow: 0 0 15px rgba(206, 255, 0, 0.4);
+        }
+
+        /* Completed overrides Today's background - becomes border only */
+        .calendar-day.completed,
+        .calendar-day.today.completed {
+            border-color: var(--primary-color);
+            background: transparent !important;
+            color: #fff !important;
+            /* Reset text for completed */
+            box-shadow: none;
+        }
+
+        /* Selection Styling (Active) - distinct from "Today" */
         .calendar-day.active {
-            background: var(--primary-color) !important;
-            color: var(--secondary-color) !important;
-            box-shadow: 0 0 15px var(--primary-color);
+            border: 1px solid #fff;
+            /* No background change for selection, just border */
+        }
+
+        /* Keep the bright background if it is active AND today AND NOT completed */
+        .calendar-day.active.today:not(.completed) {
+            border: 2px solid #fff;
+            /* White border on top of yellow bg */
         }
 
         .calendar-day.active.completed {
-            border-color: #00ff00;
+            background: rgba(206, 255, 0, 0.1) !important;
+            border-color: var(--primary-color);
         }
 
         .calendar-day.completed::after {
@@ -884,11 +921,11 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             bottom: 5px;
             right: 5px;
             font-size: 0.8rem;
-            color: #00ff00;
+            color: var(--primary-color);
         }
 
         .calendar-day.active.completed::after {
-            color: var(--secondary-color);
+            color: var(--primary-color);
         }
 
 
@@ -1120,8 +1157,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     <p style="margin-bottom: 20px;">Status:
                         <span
                             class="status-badge <?php echo (strtotime($membership_expiry) < time()) ? 'status-expired' : 'status-active'; ?>"
-                            style="background: <?php echo (strtotime($membership_expiry) < time()) ? 'rgba(255, 77, 77, 0.1)' : 'rgba(0, 255, 0, 0.1)'; ?>; 
-                                     color: <?php echo (strtotime($membership_expiry) < time()) ? '#ff4d4d' : '#00ff00'; ?>; 
+                            style="background: <?php echo (strtotime($membership_expiry) < time()) ? 'rgba(255, 77, 77, 0.1)' : 'rgba(0, 255, 0, 0.1)'; ?>;
+                                     color: <?php echo (strtotime($membership_expiry) < time()) ? '#ff4d4d' : '#00ff00'; ?>;
                                      padding: 5px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold;">
                             <?php echo (strtotime($membership_expiry) < time()) ? 'EXPIRED' : strtoupper($membership_status); ?>
                         </span>
@@ -1269,7 +1306,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         <div style="position: relative; width: 300px;">
                             <i class="fa-solid fa-magnifying-glass"
                                 style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
-                            <input type="text" id="video-search-input" placeholder="Search workouts (e.g. Kettlebell)..."
+                            <input type="text" id="video-search-input" placeholder="Search workouts"
                                 style="width: 100%; padding: 12px 15px 12px 45px; border-radius: 30px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;"
                                 onkeyup="searchVideos(this.value)">
 
@@ -1288,9 +1325,10 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         for ($d = 1; $d <= $days_in_month; $d++):
                             $date_str = "$view_year-" . sprintf('%02d', $view_month) . "-" . sprintf('%02d', $d);
                             $day_name = date('D', strtotime($date_str));
-                            $is_completed = mysqli_query($link, "SELECT id FROM completed_workouts WHERE user_id = $user_id AND DATE(completed_at) = '$date_str'")->num_rows > 0;
+                            $is_completed = mysqli_query($link, "SELECT id FROM completed_workouts WHERE user_id = $user_id AND DATE(completed_at) = '$date_str' AND video_id NOT LIKE 'beg_week_%'")->num_rows > 0;
+                            $is_today = ($d == date('d') && $view_month == date('n') && $view_year == date('Y'));
                             ?>
-                            <div class="calendar-day <?php echo ($d === $today_day) ? 'active' : ''; ?> <?php echo $is_completed ? 'completed' : ''; ?>"
+                            <div class="calendar-day <?php echo ($d === $today_day) ? 'active' : ''; ?> <?php echo $is_completed ? 'completed' : ''; ?> <?php echo $is_today ? 'today' : ''; ?>"
                                 onclick="selectDay(<?php echo $d; ?>)" id="day-<?php echo $d; ?>"
                                 data-date="<?php echo $date_str; ?>">
                                 <span class="day-name"><?php echo $day_name; ?></span>
@@ -1474,15 +1512,14 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             <div class="modal-content"
                 style="background: var(--secondary-color); padding: 30px; border-radius: 15px; width:100%; max-width:400px;">
                 <h3 style="margin-bottom:20px; font-family:'Oswald';">Edit Task</h3>
-                <form method="POST">
-                    <input type="hidden" name="action" value="edit_task">
-                    <input type="hidden" name="task_id" id="edit-task-id">
-                    <input type="text" name="task_name" id="edit-task-name" required
+                <form onsubmit="saveEditedTask(event)">
+                    <input type="hidden" id="edit-task-id">
+                    <input type="text" id="edit-task-name" required
                         style="width:100%; padding:12px; border-radius:8px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; margin-bottom:20px;">
                     <div style="display:flex; gap:10px;">
                         <button type="submit" class="btn-action">Save Changes</button>
                         <button type="button" class="btn-action" style="background:#333; color:#fff;"
-                            onclick="this.parentElement.parentElement.parentElement.parentElement.style.display='none'">Cancel</button>
+                            onclick="document.getElementById('edit-task-modal').style.display='none'">Cancel</button>
                     </div>
                 </form>
             </div>
@@ -1804,18 +1841,29 @@ $is_beginner_completed = count($completed_weeks) >= 4;
 
     <script>
         function showSection(sectionId) {
+            localStorage.setItem('activeSection', sectionId);
             document.querySelectorAll('.dashboard-section').forEach(section => section.classList.remove('active'));
             document.querySelectorAll('.sidebar-menu a').forEach(link => link.classList.remove('active'));
 
             const targetSection = document.getElementById(sectionId);
             if (targetSection) targetSection.classList.add('active');
 
-            if (event && event.currentTarget) {
+            // Sidebar Highlighting Logic
+            let found = false;
+
+            // 1. If triggered by a user click on a sidebar link
+            if (typeof event !== 'undefined' && event && event.type === 'click' && event.currentTarget && event.currentTarget.classList && event.currentTarget.closest('.sidebar-menu')) {
                 event.currentTarget.classList.add('active');
-            } else {
-                // Find matching link if called manually
+                found = true;
+            }
+
+            // 2. Fallback: Search for the link (e.g. on page load)
+            if (!found) {
                 document.querySelectorAll('.sidebar-menu a').forEach(a => {
-                    if (a.getAttribute('onclick').includes(sectionId)) a.classList.add('active');
+                    const attr = a.getAttribute('onclick');
+                    if (attr && attr.includes(sectionId)) {
+                        a.classList.add('active');
+                    }
                 });
             }
         }
@@ -1846,6 +1894,9 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                             <input type="checkbox" onchange="toggleTask(${data.id})">
                             <span style="flex-grow: 1;">${data.name}</span>
                             <div style="display: flex; gap: 5px;">
+                                <button type="button" class="icon-btn edit" onclick="openEditTask(${data.id}, '${data.name.replace(/'/g, "\\'")}')">
+                                    <i class="fa-solid fa-pen"></i>
+                                </button>
                                 <button type="button" class="icon-btn delete" onclick="deleteTask(${data.id})">
                                     <i class="fa-solid fa-trash"></i>
                                 </button>
@@ -1913,6 +1964,35 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             document.getElementById('edit-task-modal').style.display = 'flex';
         }
 
+        function saveEditedTask(e) {
+            e.preventDefault();
+            const id = document.getElementById('edit-task-id').value;
+            const name = document.getElementById('edit-task-name').value;
+
+            const formData = new FormData();
+            formData.append('ajax_action', 'edit_task');
+            formData.append('task_id', id);
+            formData.append('task_name', name);
+
+            fetch(window.location.href, { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        // Update UI without reload
+                        const taskSpan = document.querySelector(`#task-${id} span`);
+                        if (taskSpan) taskSpan.innerText = name;
+
+                        // Update the onclick of the edit button too, so next edit has new name
+                        const editBtn = document.querySelector(`#task-${id} .edit`);
+                        if (editBtn) {
+                            editBtn.setAttribute('onclick', `openEditTask(${id}, '${name.replace(/'/g, "\\'")}')`);
+                        }
+
+                        document.getElementById('edit-task-modal').style.display = 'none';
+                    }
+                });
+        }
+
         // PROFILE
         function previewImage(input) {
             if (input.files && input.files[0]) {
@@ -1933,17 +2013,11 @@ $is_beginner_completed = count($completed_weeks) >= 4;
         let selectedDate = null;
 
         // HELPERS
-        function getYoutubeEmbedUrl(rawInput) {
+        function getYoutubeEmbedUrl(rawInput, autoplay = false) {
             if (!rawInput) return '';
             let videoId = null;
-            let finalEmbedUrl = "";
 
-            // If it already looks like an embed URL, use it
-            if (rawInput.includes("youtube.com/embed/")) {
-                return rawInput.includes("?") ? rawInput : rawInput + "?autoplay=1";
-            }
-
-            // Comprehensive Regex for YouTube IDs
+            // 1. Extract Video ID first
             const regExp = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts|live)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
             const match = rawInput.trim().match(regExp);
 
@@ -1953,12 +2027,33 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 videoId = rawInput.trim();
             }
 
+            // 2. Build URL with params for clean playback
+            // rel=0: Show related videos from same channel only (stops random videos)
+            // modestbranding=1: Remove logo
+            // iv_load_policy=3: Hide annotations
             if (videoId) {
-                finalEmbedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-            } else if (rawInput.includes("http")) {
-                finalEmbedUrl = rawInput;
+                let params = ['rel=0', 'modestbranding=1', 'iv_load_policy=3'];
+                if (autoplay) params.push('autoplay=1');
+
+                return `https://www.youtube.com/embed/${videoId}?${params.join('&')}`;
             }
-            return finalEmbedUrl;
+
+            // 3. Fallback for existing embed URLs
+            if (rawInput.includes("youtube.com/embed/")) {
+                let url = rawInput;
+                // Append params if missing
+                if (!url.includes('rel=0')) url += (url.includes('?') ? '&' : '?') + 'rel=0';
+                if (!url.includes('modestbranding=1')) url += '&modestbranding=1';
+
+                if (autoplay) {
+                    if (!url.includes('autoplay=1')) url += '&autoplay=1';
+                } else {
+                    url = url.replace('autoplay=1', 'autoplay=0');
+                }
+                return url;
+            }
+
+            return rawInput.includes("http") ? rawInput : '';
         }
 
         // VIDEO SEARCH LOGIC
@@ -1989,7 +2084,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     let sourceLabel = v.source === 'custom' ? 'SCHEDULED' : 'LIBRARY';
                     let sourceColor = v.source === 'custom' ? '#ff4d4d' : 'var(--primary-color)';
                     let sourceBg = v.source === 'custom' ? 'rgba(255, 77, 77, 0.15)' : 'rgba(206, 255, 0, 0.15)';
-                    
+
                     return `
                         <div class="video-item" onclick="playSearchedVideo('${v.id}', '${v.source}')" style="padding: 12px; margin-bottom: 8px; border-radius: 12px; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 15px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);">
                             <div style="width: 45px; height: 45px; border-radius: 10px; background: ${sourceBg}; display: flex; align-items: center; justify-content: center; color: ${sourceColor}; border: 1px solid ${sourceColor}44;">
@@ -2031,9 +2126,9 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             const iframe = document.getElementById('video-iframe');
 
             selectedVideoId = source === 'custom' ? video.real_id : video.id;
-            selectedDate = source === 'custom' ? video.date : null; 
+            selectedDate = source === 'custom' ? video.date : null;
 
-            iframe.src = getYoutubeEmbedUrl(source === 'custom' ? video.real_id : video.id);
+            iframe.src = getYoutubeEmbedUrl(source === 'custom' ? video.real_id : video.id, true);
             playerContainer.style.display = 'block';
             playerContainer.classList.add('active');
 
@@ -2091,6 +2186,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             if (dayEl) {
                 dayEl.classList.add('active');
                 selectedDate = dayEl.getAttribute('data-date');
+                // Save state
+                localStorage.setItem('lastSelectedDay', day);
             }
 
             // Construct date string YYYY-MM-DD for lookup
@@ -2123,7 +2220,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 const playerContainer = document.getElementById('video-player-container');
                 const iframe = document.getElementById('video-iframe');
 
-                iframe.src = getYoutubeEmbedUrl(video.real_id);
+                iframe.src = getYoutubeEmbedUrl(video.real_id, false);
                 playerContainer.style.display = 'block';
                 playerContainer.classList.add('active');
             } else {
@@ -2163,8 +2260,12 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 }
             }
 
+            // Calculate URL for onclick handler
+            const rawId = isCustom ? video.real_id : video.id;
+            const embedUrl = getYoutubeEmbedUrl(rawId, false);
+
             container.innerHTML = `
-                <div class="video-item ${isDone ? 'video-done' : ''}" id="current-video-item" style="cursor: ${cursorStyle};">
+                <div class="video-item ${isDone ? 'video-done' : ''}" id="current-video-item" style="cursor: pointer;" onclick="playVideo(this, '${embedUrl}', '${video.id}')">
                     <div class="video-thumb" style="background: rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: center;">
                         <i class="fa-solid ${iconClass}" style="font-size: 2rem; color: var(--text-gray);"></i>
                     </div>
@@ -2195,7 +2296,9 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             document.querySelectorAll('.video-item').forEach(item => item.classList.remove('playing'));
             element.classList.add('playing');
 
-            iframe.src = videoUrl + "?autoplay=1";
+            // Robustly append autoplay
+            const finalUrl = videoUrl + (videoUrl.includes('?') ? '&' : '?') + "autoplay=1";
+            iframe.src = finalUrl;
             playerContainer.classList.add('active');
             overlay.style.display = 'flex';
 
@@ -2439,16 +2542,33 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             // Keep section persistent on month change
             const urlParams = new URLSearchParams(window.location.search);
             const isMonthChange = urlParams.has('m');
-            if (isMonthChange) {
+
+            // Check for temporary section redirect (e.g. from completion actions)
+            const tempSection = localStorage.getItem('temp_redirect_section');
+            localStorage.removeItem('temp_redirect_section'); // Clear immediately so normal refresh goes to Overview
+
+            if (tempSection) {
+                showSection(tempSection);
+            } else if (isMonthChange) {
                 showSection('workouts');
+            } else {
+                showSection('overview');
             }
 
-            selectDay(<?php echo $today_day; ?>);
+            // Restore last selected day (runs in background for Workouts tab)
+            const storedDay = localStorage.getItem('lastSelectedDay');
 
-            // Only auto-scroll on month change or first load, not on every section switch
-            const todayEl = document.getElementById('day-<?php echo $today_day; ?>');
-            if (todayEl && isMonthChange) {
-                todayEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            if (storedDay && document.getElementById('day-' + storedDay)) {
+                selectDay(parseInt(storedDay));
+            } else if (<?php echo $today_day; ?> > 0) {
+                selectDay(<?php echo $today_day; ?>);
+            }
+
+            // Only auto-scroll on month change
+            const activeDay = storedDay || <?php echo $today_day; ?>;
+            const scrollEl = document.getElementById('day-' + activeDay);
+            if (scrollEl && isMonthChange) {
+                scrollEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
             }
         });
 
@@ -2609,6 +2729,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 .then(data => {
                     if (data.success) {
                         // Reload to update UI and unlock if done
+                        localStorage.setItem('temp_redirect_section', 'workouts');
                         location.reload();
                     } else {
                         alert('Error updating progress.');
