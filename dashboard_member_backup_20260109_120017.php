@@ -29,6 +29,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_action'])) {
         if (mysqli_query($link, "DELETE FROM transactions WHERE id = $trans_id AND user_id = $user_id")) {
             $res = ["success" => true];
         }
+    } elseif ($_POST['ajax_action'] == 'delete_task') {
+        $task_id = (int) $_POST['task_id'];
+        if (mysqli_query($link, "DELETE FROM tasks WHERE id = $task_id AND user_id = $user_id")) {
+            $res = ["success" => true];
+        }
+    } elseif ($_POST['ajax_action'] == 'edit_task') {
+        $task_id = (int) $_POST['task_id'];
+        $task_name = mysqli_real_escape_string($link, $_POST['task_name']);
+        if (mysqli_query($link, "UPDATE tasks SET task_name = '$task_name' WHERE id = $task_id AND user_id = $user_id")) {
+            $res = ["success" => true, "id" => $task_id, "name" => $task_name];
+        }
     }
     echo json_encode($res);
     exit;
@@ -1061,6 +1072,197 @@ $is_beginner_completed = count($completed_weeks) >= 4;
         .icon-btn.edit:hover {
             background: rgba(206, 255, 0, 0.1);
         }
+
+        /* GymFit AI Chatbot Styles */
+        .chat-widget {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            z-index: 1000;
+            font-family: 'Roboto', sans-serif;
+        }
+
+        .chat-button {
+            width: 60px;
+            height: 60px;
+            background: var(--primary-color);
+            color: var(--secondary-color);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            cursor: pointer;
+            box-shadow: 0 10px 25px rgba(206, 255, 0, 0.3);
+            transition: 0.3s;
+            border: none;
+        }
+
+        .chat-button:hover {
+            transform: scale(1.1) rotate(5deg);
+        }
+
+        .chat-window {
+            position: absolute;
+            bottom: 80px;
+            right: 0;
+            width: 350px;
+            height: 500px;
+            background: #1a1a2e;
+            border-radius: 20px;
+            border: 1px solid rgba(206, 255, 0, 0.2);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5);
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .chat-header {
+            background: rgba(206, 255, 0, 0.1);
+            padding: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .chat-header img {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            padding: 5px;
+        }
+
+        .chat-header .status {
+            width: 8px;
+            height: 8px;
+            background: #00ff00;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .chat-messages {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            scrollbar-width: thin;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 15px;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .message.bot {
+            align-self: flex-start;
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+            border-bottom-left-radius: 2px;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: var(--primary-color);
+            color: var(--secondary-color);
+            border-bottom-right-radius: 2px;
+            font-weight: 500;
+        }
+
+        .typing-indicator {
+            align-self: flex-start;
+            padding: 10px 15px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 15px;
+            display: none;
+            gap: 5px;
+        }
+
+        .dot {
+            width: 6px;
+            height: 6px;
+            background: var(--text-gray);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            80%,
+            100% {
+                transform: scale(0);
+            }
+
+            40% {
+                transform: scale(1);
+            }
+        }
+
+        .chat-input-area {
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.2);
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input {
+            flex-grow: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 10px 15px;
+            border-radius: 25px;
+            color: #fff;
+            outline: none;
+            font-size: 0.9rem;
+        }
+
+        .chat-send {
+            background: var(--primary-color);
+            border: none;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            color: var(--secondary-color);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: 0.3s;
+        }
+
+        .chat-send:hover {
+            transform: scale(1.1);
+        }
     </style>
 </head>
 
@@ -1269,7 +1471,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         <div style="position: relative; width: 300px;">
                             <i class="fa-solid fa-magnifying-glass"
                                 style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
-                            <input type="text" id="video-search-input" placeholder="Search workouts (e.g. Kettlebell)..."
+                            <input type="text" id="video-search-input" placeholder="Search workouts"
                                 style="width: 100%; padding: 12px 15px 12px 45px; border-radius: 30px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;"
                                 onkeyup="searchVideos(this.value)">
 
@@ -1474,15 +1676,14 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             <div class="modal-content"
                 style="background: var(--secondary-color); padding: 30px; border-radius: 15px; width:100%; max-width:400px;">
                 <h3 style="margin-bottom:20px; font-family:'Oswald';">Edit Task</h3>
-                <form method="POST">
-                    <input type="hidden" name="action" value="edit_task">
-                    <input type="hidden" name="task_id" id="edit-task-id">
-                    <input type="text" name="task_name" id="edit-task-name" required
+                <form id="edit-task-form">
+                    <input type="hidden" id="edit-task-id">
+                    <input type="text" id="edit-task-name-input" required
                         style="width:100%; padding:12px; border-radius:8px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; margin-bottom:20px;">
                     <div style="display:flex; gap:10px;">
                         <button type="submit" class="btn-action">Save Changes</button>
                         <button type="button" class="btn-action" style="background:#333; color:#fff;"
-                            onclick="this.parentElement.parentElement.parentElement.parentElement.style.display='none'">Cancel</button>
+                            onclick="document.getElementById('edit-task-modal').style.display='none'">Cancel</button>
                     </div>
                 </form>
             </div>
@@ -1803,6 +2004,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
     </div>
 
     <script>
+
         function showSection(sectionId) {
             document.querySelectorAll('.dashboard-section').forEach(section => section.classList.remove('active'));
             document.querySelectorAll('.sidebar-menu a').forEach(link => link.classList.remove('active'));
@@ -1842,16 +2044,21 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                             const div = document.createElement('div');
                             div.className = 'todo-item';
                             div.id = 'task-' + data.id;
+                            // Re-escaping name for safety in the onclick attribute
+                            const escapedName = data.name.replace(/'/g, "\\'").replace(/"/g, "&quot;");
                             div.innerHTML = `
-                            <input type="checkbox" onchange="toggleTask(${data.id})">
-                            <span style="flex-grow: 1;">${data.name}</span>
-                            <div style="display: flex; gap: 5px;">
-                                <button type="button" class="icon-btn delete" onclick="deleteTask(${data.id})">
-                                    <i class="fa-solid fa-trash"></i>
-                                </button>
-                            </div>
-                        `;
-                            container.prepend(div);
+    <input type="checkbox" onchange="toggleTask(${data.id})">
+    <span style="flex-grow: 1;">${data.name}</span>
+    <div style="display: flex; gap: 5px;">
+        <button type="button" class="icon-btn edit" onclick="openEditTask(${data.id}, '${escapedName}')">
+            <i class="fa-solid fa-pen"></i>
+        </button>
+        <button type="button" class="icon-btn delete" onclick="deleteTask(${data.id})">
+            <i class="fa-solid fa-trash"></i>
+        </button>
+    </div>
+    `;
+                            container.appendChild(div);
                             nameInput.value = '';
                         }
                     });
@@ -1909,8 +2116,41 @@ $is_beginner_completed = count($completed_weeks) >= 4;
 
         function openEditTask(id, name) {
             document.getElementById('edit-task-id').value = id;
-            document.getElementById('edit-task-name').value = name;
+            document.getElementById('edit-task-name-input').value = name;
             document.getElementById('edit-task-modal').style.display = 'flex';
+        }
+
+        const editTaskForm = document.getElementById('edit-task-form');
+        if (editTaskForm) {
+            editTaskForm.addEventListener('submit', function (e) {
+                e.preventDefault();
+                const id = document.getElementById('edit-task-id').value;
+                const name = document.getElementById('edit-task-name-input').value;
+
+                const formData = new FormData();
+                formData.append('ajax_action', 'edit_task');
+                formData.append('task_id', id);
+                formData.append('task_name', name);
+
+                fetch(window.location.href, {
+                    method: 'POST',
+                    body: formData
+                })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            const taskEl = document.getElementById('task-' + id);
+                            if (taskEl) {
+                                taskEl.querySelector('span').innerText = data.name;
+                                // Update the edit button onclick with the new name
+                                const editBtn = taskEl.querySelector('.icon-btn.edit');
+                                const escapedName = data.name.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+                                editBtn.setAttribute('onclick', `openEditTask(${data.id}, '${escapedName}')`);
+                            }
+                            document.getElementById('edit-task-modal').style.display = 'none';
+                        }
+                    });
+            });
         }
 
         // PROFILE
@@ -1940,11 +2180,13 @@ $is_beginner_completed = count($completed_weeks) >= 4;
 
             // If it already looks like an embed URL, use it
             if (rawInput.includes("youtube.com/embed/")) {
-                return rawInput.includes("?") ? rawInput : rawInput + "?autoplay=1";
+                const glue = rawInput.includes("?") ? "&" : "?";
+                return rawInput + glue + "autoplay=0&enablejsapi=1&rel=0";
             }
 
             // Comprehensive Regex for YouTube IDs
-            const regExp = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts|live)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+            const regExp =
+                /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts|live)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
             const match = rawInput.trim().match(regExp);
 
             if (match && match[1]) {
@@ -1954,25 +2196,42 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             }
 
             if (videoId) {
-                finalEmbedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+                finalEmbedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=0&enablejsapi=1&rel=0`;
             } else if (rawInput.includes("http")) {
-                finalEmbedUrl = rawInput;
+                const glue = rawInput.includes("?") ? "&" : "?";
+                finalEmbedUrl = rawInput + glue + "autoplay=0&enablejsapi=1&rel=0";
             }
             return finalEmbedUrl;
         }
 
+        // YouTube IFrame API to reset video to start upon finishing
+        var player;
+        window.onYouTubeIframeAPIReady = function () {
+            player = new YT.Player('video-iframe', {
+                events: {
+                    'onStateChange': function (event) {
+                        if (event.data === YT.PlayerState.ENDED) {
+                            event.target.seekTo(0);
+                            event.target.pauseVideo();
+                        }
+                    }
+                }
+            });
+        };
+
+        // Load YouTube API script
+        (function () {
+            var tag = document.createElement('script');
+            tag.src = "https://www.youtube.com/iframe_api";
+            var firstScriptTag = document.getElementsByTagName('script')[0];
+            firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+        })();
+
         // VIDEO SEARCH LOGIC
         function searchVideos(query) {
             const dropdown = document.getElementById('search-results-dropdown');
-            if (!query || query.trim().length < 2) {
-                dropdown.style.display = 'none';
-                return;
-            }
-
-            const q = query.toLowerCase();
-
-            // PRIORITIZE Custom Uploads over Default Library in the search results
-            const searchPool = [
+            if (!query || query.trim().length < 2) { dropdown.style.display = 'none'; return; } const q = query.toLowerCase(); //
+        PRIORITIZE Custom Uploads over Default Library in the search results const searchPool = [
                 ...Object.values(customWorkouts).map(v => ({ ...v, source: 'custom' })),
                 ...allVideos.map(v => ({ ...v, source: 'default' }))
             ];
@@ -1985,25 +2244,35 @@ $is_beginner_completed = count($completed_weeks) >= 4;
 
             if (results.length > 0) {
                 dropdown.innerHTML = results.map(v => {
-                    let displayDate = v.source === 'custom' ? new Date(v.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+                    let displayDate = v.source === 'custom' ? new Date(v.date).toLocaleDateString('en-US', {
+                        month: 'short', day:
+                            'numeric', year: 'numeric'
+                    }) : '';
                     let sourceLabel = v.source === 'custom' ? 'SCHEDULED' : 'LIBRARY';
                     let sourceColor = v.source === 'custom' ? '#ff4d4d' : 'var(--primary-color)';
                     let sourceBg = v.source === 'custom' ? 'rgba(255, 77, 77, 0.15)' : 'rgba(206, 255, 0, 0.15)';
-                    
+
                     return `
-                        <div class="video-item" onclick="playSearchedVideo('${v.id}', '${v.source}')" style="padding: 12px; margin-bottom: 8px; border-radius: 12px; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 15px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);">
-                            <div style="width: 45px; height: 45px; border-radius: 10px; background: ${sourceBg}; display: flex; align-items: center; justify-content: center; color: ${sourceColor}; border: 1px solid ${sourceColor}44;">
-                                <i class="fa-solid ${v.source === 'custom' ? 'fa-calendar-check' : 'fa-play'}" style="font-size: 1.1rem;"></i>
-                            </div>
-                            <div style="flex-grow: 1;">
-                                <h5 style="font-size: 0.95rem; margin: 0 0 4px 0; color: #fff; font-family: 'Oswald'; letter-spacing: 0.5px;">${v.title}</h5>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-size: 0.7rem; font-weight: bold; color: ${sourceColor}; background: ${sourceBg}; padding: 2px 6px; border-radius: 4px; border: 1px solid ${sourceColor}33;">${sourceLabel}</span>
-                                    ${displayDate ? `<span style="font-size: 0.75rem; color: #fff; opacity: 0.8;">${displayDate}</span>` : `<span style="font-size: 0.75rem; color: var(--text-gray);">${v.type}</span>`}
-                                </div>
-                            </div>
-                        </div>
-                    `;
+        <div class="video-item" onclick="playSearchedVideo('${v.id}', '${v.source}')"
+            style="padding: 12px; margin-bottom: 8px; border-radius: 12px; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 15px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);">
+            <div
+                style="width: 45px; height: 45px; border-radius: 10px; background: ${sourceBg}; display: flex; align-items: center; justify-content: center; color: ${sourceColor}; border: 1px solid ${sourceColor}44;">
+                <i class="fa-solid ${v.source === 'custom' ? 'fa-calendar-check' : 'fa-play'}"
+                    style="font-size: 1.1rem;"></i>
+            </div>
+            <div style="flex-grow: 1;">
+                <h5
+                    style="font-size: 0.95rem; margin: 0 0 4px 0; color: #fff; font-family: 'Oswald'; letter-spacing: 0.5px;">
+                    ${v.title}</h5>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span
+                        style="font-size: 0.7rem; font-weight: bold; color: ${sourceColor}; background: ${sourceBg}; padding: 2px 6px; border-radius: 4px; border: 1px solid ${sourceColor}33;">${sourceLabel}</span>
+                    ${displayDate ? `<span style="font-size: 0.75rem; color: #fff; opacity: 0.8;">${displayDate}</span>`
+                            : `<span style="font-size: 0.75rem; color: var(--text-gray);">${v.type}</span>`}
+                </div>
+            </div>
+        </div>
+        `;
                 }).join('');
                 dropdown.style.display = 'block';
             } else {
@@ -2031,7 +2300,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             const iframe = document.getElementById('video-iframe');
 
             selectedVideoId = source === 'custom' ? video.real_id : video.id;
-            selectedDate = source === 'custom' ? video.date : null; 
+            selectedDate = source === 'custom' ? video.date : null;
 
             iframe.src = getYoutubeEmbedUrl(source === 'custom' ? video.real_id : video.id);
             playerContainer.style.display = 'block';
@@ -2039,152 +2308,142 @@ $is_beginner_completed = count($completed_weeks) >= 4;
 
             // Render video details in the right card
             const container = document.getElementById('video-list-container');
-            const displayDate = source === 'custom' ? new Date(video.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-            document.getElementById('playlist-title').innerText = source === 'custom' ? `Scheduled Workout` : `Library Workout`;
+            const displayDate = source === 'custom' ? new Date(video.date).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric', year: 'numeric'
+            }) : '';
+            document.getElementById('playlist-title').innerText = source === 'custom' ? `Scheduled Workout` : `Library
+        Workout`;
 
             // Mark as Finished button for custom videos in search
             let buttonsHtml = '';
             if (source === 'custom') {
                 buttonsHtml = `
-                <div style="margin-top: 15px; text-align: right;">
-                    <button type="button" onclick="markVideoFinished('complete')" class="btn-action" style="width: auto; padding: 10px 20px; display: inline-flex; background: var(--primary-color); color: var(--secondary-color);">
-                        <i class="fa-solid fa-check"></i> Mark Day Finished
-                    </button>
-                </div>`;
+        <div style="margin-top: 15px; text-align: right;">
+            <button type="button" onclick="markVideoFinished('complete')" class="btn-action"
+                style="width: auto; padding: 10px 20px; display: inline-flex; background: var(--primary-color); color: var(--secondary-color);">
+                <i class="fa-solid fa-check"></i> Mark Day Finished
+            </button>
+        </div>`;
             }
 
             container.innerHTML = `
-                <div class="video-item playing" style="cursor: pointer; border: 1px solid ${source === 'custom' ? '#ff4d4d' : 'var(--primary-color)'};">
-                    <div class="video-thumb" style="background: rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: center;">
-                        <i class="fa-solid fa-play" style="font-size: 2rem; color: ${source === 'custom' ? '#ff4d4d' : 'var(--primary-color)'};"></i>
-                    </div>
-                    <div style="flex-grow: 1;">
-                        <h4 class="v-title">${video.title}</h4>
-                        <p style="font-size: 0.8rem; color: var(--text-gray);">${source === 'custom' ? '<i class="fa-solid fa-calendar-day"></i> For ' + displayDate : (video.duration || '') + ' • ' + video.type}</p>
-                    </div>
-                </div>
-                <div style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.03); border-radius: 10px; border-left: 3px solid ${source === 'custom' ? '#ff4d4d' : 'var(--primary-color)'};">
-                    <h5 style="color: ${source === 'custom' ? '#ff4d4d' : 'var(--primary-color)'}; font-family: 'Oswald'; margin-bottom: 5px;">Instructor's Plan:</h5>
-                    <p style="font-size: 0.9rem; line-height: 1.4; color: #fff; white-space: pre-line;">
-                        ${video.content}
-                    </p>
-                    ${buttonsHtml}
-                    ${source === 'default' ? '<p style="font-size: 0.8rem; color: #ffcc00; margin-top: 10px;"><i class="fa-solid fa-circle-info"></i> Search mode active. Progress tracking is disabled for non-scheduled library workouts.</p>' : ''}
-                </div>
+        <div class="video-item playing"
+            style="cursor: pointer; border: 1px solid ${source === 'custom' ? '#ff4d4d' : 'var(--primary-color)'};">
+            <div class="video-thumb"
+                style="background: rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: center;">
+                <i class="fa-solid fa-play"
+                    style="font-size: 2rem; color: ${source === 'custom' ? '#ff4d4d' : 'var(--primary-color)'};"></i>
+            </div>
+            <div style="flex-grow: 1;">
+                <h4 class="v-title">${video.title}</h4>
+                <p style="font-size: 0.8rem; color: var(--text-gray);">${source === 'custom' ? '<i
+                        class="fa-solid fa-calendar-day" ></i > For ' + displayDate : (video.duration || '') + ' • ' +
+            video.type
+        }</p >
+            </div >
+        </div >
+            <div
+                style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.03); border-radius: 10px; border-left: 3px solid ${source === 'custom' ? '#ff4d4d' : 'var(--primary-color)'};">
+                <h5
+                    style="color: ${source === 'custom' ? '#ff4d4d' : 'var(--primary-color)'}; font-family: 'Oswald'; margin-bottom: 5px;">
+                    Instructor's Plan:</h5>
+                <p style="font-size: 0.9rem; line-height: 1.4; color: #fff; white-space: pre-line;">
+                    ${video.content}
+                </p>
+                ${buttonsHtml}
+                ${source === 'default' ? '<p style="font-size: 0.8rem; color: #ffcc00; margin-top: 10px;"><i
+                    class="fa-solid fa-circle-info"></i> Search mode active.Progress tracking is disabled for
+                non - scheduled library workouts.</p > ' : ''}
+        </div >
             `;
 
-            playerContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        playerContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
 
         // Close search list on click outside
         document.addEventListener('click', function (e) {
-            const dropdown = document.getElementById('search-results-dropdown');
-            const input = document.getElementById('video-search-input');
-            if (dropdown && e.target !== dropdown && e.target !== input && !dropdown.contains(e.target)) {
-                dropdown.style.display = 'none';
-            }
+        const dropdown = document.getElementById('search-results-dropdown');
+        const input = document.getElementById('video-search-input');
+        if (dropdown && e.target !== dropdown && e.target !== input && !dropdown.contains(e.target)) {
+        dropdown.style.display = 'none';
+        }
         });
 
         function selectDay(day) {
-            document.querySelectorAll('.calendar-day').forEach(d => d.classList.remove('active'));
-            const dayEl = document.getElementById('day-' + day);
-            if (dayEl) {
-                dayEl.classList.add('active');
-                selectedDate = dayEl.getAttribute('data-date');
-            }
-
-            // Construct date string YYYY-MM-DD for lookup
-            // Ensure zero-padding
-            const m = viewMonth < 10 ? '0' + viewMonth : viewMonth;
-            const d = day < 10 ? '0' + day : day;
-            const fullDate = `${viewYear}-${m}-${d}`;
-
-            let video;
-            let isCustom = false;
-
-            // 1. Check if Staff has uploaded a specific video for this date
-            if (customWorkouts[fullDate]) {
-                video = customWorkouts[fullDate];
-                isCustom = true;
-            } else {
-                // 2. Fallback to default array
-                const videoIdx = (day - 1 + (viewMonth * 5)) % allVideos.length;
-                video = allVideos[videoIdx];
-                isCustom = false;
-            }
-
-            document.getElementById('playlist-title').innerText = `Day ${day}: ${video.title}`;
-            renderVideoList(video, day, isCustom);
-
-            // If it is a custom video (Staff uploaded), assume it has a valid link and play it
-            // If it is a custom video (Staff uploaded), assume it has a valid link and play it
-            if (isCustom) {
-                selectedVideoId = video.real_id;
-                const playerContainer = document.getElementById('video-player-container');
-                const iframe = document.getElementById('video-iframe');
-
-                iframe.src = getYoutubeEmbedUrl(video.real_id);
-                playerContainer.style.display = 'block';
-                playerContainer.classList.add('active');
-            } else {
-                const playerContainer = document.getElementById('video-player-container');
-                playerContainer.style.display = 'none';
-                playerContainer.classList.remove('active');
-                document.getElementById('video-iframe').src = '';
-            }
+        document.querySelectorAll('.calendar-day').forEach(d => d.classList.remove('active'));
+        const dayEl = document.getElementById('day-' + day);
+        if (dayEl) {
+        dayEl.classList.add('active');
+        selectedDate = dayEl.getAttribute('data-date');
         }
 
-        function renderVideoList(video, day, isCustom) {
-            const container = document.getElementById('video-list-container');
-            const dayEl = document.getElementById('day-' + day);
-            const isDone = dayEl.classList.contains('completed');
-
-            // Icon: Use Play icon if custom/playable, otherwise dumbbell
-            const iconClass = isCustom ? (isDone ? 'fa-check-circle' : 'fa-play') : (isDone ? 'fa-check-circle' : 'fa-dumbbell');
-            const cursorStyle = isCustom ? 'pointer' : 'default';
-
-            // Buttons Logic
-            let buttonsHtml = '';
-            if (isCustom) {
-                if (isDone) {
-                    buttonsHtml = `
-                    <div style="margin-top: 15px; text-align: right;">
-                        <button type="button" onclick="markVideoFinished('redo')" class="btn-action" style="width: auto; padding: 10px 20px; background: #333; color: #fff; display: inline-flex;">
-                            <i class="fa-solid fa-rotate-right"></i> Redo Workout
-                        </button>
-                    </div>`;
-                } else {
-                    buttonsHtml = `
-                    <div style="margin-top: 15px; text-align: right;">
-                        <button type="button" onclick="markVideoFinished('complete')" class="btn-action" style="width: auto; padding: 10px 20px; display: inline-flex;">
-                            <i class="fa-solid fa-check"></i> Mark as Finished
-                        </button>
-                    </div>`;
-                }
+        // Construct date string YYYY-MM-DD for lookup
+        // Ensure zero-padding
+        const m = viewMonth < 10 ? '0' + viewMonth : viewMonth; const d=day < 10 ? '0' + day : day; const
+            fullDate=`${ viewYear } -${ m } -${ d } `; let video; let isCustom=false; // 1. Check if Staff has uploaded a
+            specific video for this date if (customWorkouts[fullDate]) { video=customWorkouts[fullDate]; isCustom=true;
+            } else { // 2. Fallback to default array const videoIdx=(day - 1 + (viewMonth * 5)) % allVideos.length;
+            video=allVideos[videoIdx]; isCustom=false; } document.getElementById('playlist-title').innerText=`Day
+            ${ day }: ${ video.title } `; renderVideoList(video, day, isCustom); // If it is a custom video (Staff uploaded),
+            assume it has a valid link and play it // If it is a custom video (Staff uploaded), assume it has a valid
+            link and play it if (isCustom) { selectedVideoId=video.real_id; const
+            playerContainer=document.getElementById('video-player-container'); const
+            iframe=document.getElementById('video-iframe'); iframe.src=getYoutubeEmbedUrl(video.real_id);
+            playerContainer.style.display='block' ; playerContainer.classList.add('active'); } else { const
+            playerContainer=document.getElementById('video-player-container'); playerContainer.style.display='none' ;
+            playerContainer.classList.remove('active'); document.getElementById('video-iframe').src='' ; } } function
+            renderVideoList(video, day, isCustom) { const container=document.getElementById('video-list-container');
+            const dayEl=document.getElementById('day-' + day); const isDone=dayEl.classList.contains('completed'); //
+            Icon: Use Play icon if custom/playable, otherwise dumbbell const iconClass=isCustom ? (isDone
+            ? 'fa-check-circle' : 'fa-play' ) : (isDone ? 'fa-check-circle' : 'fa-dumbbell' ); const
+            cursorStyle=isCustom ? 'pointer' : 'default' ; // Buttons Logic let buttonsHtml='' ; if (isCustom) { if
+            (isDone) { buttonsHtml=` < div style = "margin-top: 15px; text-align: right;" >
+            <button type="button" onclick="markVideoFinished('redo')" class="btn-action"
+                style="width: auto; padding: 10px 20px; background: #333; color: #fff; display: inline-flex;">
+                <i class="fa-solid fa-rotate-right"></i> Redo Workout
+            </button>
+            </div > `;
+            } else {
+            buttonsHtml = `
+            < div style = "margin-top: 15px; text-align: right;" >
+                <button type="button" onclick="markVideoFinished('complete')" class="btn-action"
+                    style="width: auto; padding: 10px 20px; display: inline-flex;">
+                    <i class="fa-solid fa-check"></i> Mark as Finished
+                </button>
+            </div > `;
+            }
             }
 
             container.innerHTML = `
-                <div class="video-item ${isDone ? 'video-done' : ''}" id="current-video-item" style="cursor: ${cursorStyle};">
-                    <div class="video-thumb" style="background: rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: center;">
-                        <i class="fa-solid ${iconClass}" style="font-size: 2rem; color: var(--text-gray);"></i>
-                    </div>
-                    <div style="flex-grow: 1;">
-                        <h4 class="v-title">${video.title}</h4>
-                        <p style="font-size: 0.8rem; color: var(--text-gray);">${video.duration ? video.duration + ' • ' : ''}${video.type}</p>
-                    </div>
-                    ${isDone ? '<i class="fa-solid fa-circle-check check-icon" style="color: var(--primary-color);"></i>' : ''}
+            < div class="video-item ${isDone ? 'video-done' : ''}" id = "current-video-item"
+        style = "cursor: ${cursorStyle};" >
+                <div class="video-thumb"
+                    style="background: rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: center;">
+                    <i class="fa-solid ${iconClass}" style="font-size: 2rem; color: var(--text-gray);"></i>
                 </div>
-                <div style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.03); border-radius: 10px;">
-                    <h5 style="color: var(--primary-color); font-family: 'Oswald'; margin-bottom: 5px;">Instructor's Tip:</h5>
-                    <p style="font-size: 0.9rem; line-height: 1.4; color: var(--text-gray); white-space: pre-line;">
-                        ${video.content}
-                    </p>
-                    ${buttonsHtml}
+                <div style="flex-grow: 1;">
+                    <h4 class="v-title">${video.title}</h4>
+                    <p style="font-size: 0.8rem; color: var(--text-gray);">${video.duration ? video.duration + ' • ' :
+                        ''}${video.type}</p>
                 </div>
-            `;
+                ${
+            isDone ? '<i class="fa-solid fa-circle-check check-icon" style="color: var(--primary-color);"></i>' :
+                ''
         }
+            </div >
+            <div style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.03); border-radius: 10px;">
+                <h5 style="color: var(--primary-color); font-family: 'Oswald'; margin-bottom: 5px;">Instructor's Tip:
+                </h5>
+                <p style="font-size: 0.9rem; line-height: 1.4; color: var(--text-gray); white-space: pre-line;">
+                    ${video.content}
+                </p>
+                ${buttonsHtml}
+            </div>
+        `;
+            }
 
-        function playVideo(element, videoUrl, videoId) {
+            function playVideo(element, videoUrl, videoId) {
             selectedVideoId = videoId;
             const playerContainer = document.getElementById('video-player-container');
             const iframe = document.getElementById('video-iframe');
@@ -2200,16 +2459,17 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             overlay.style.display = 'flex';
 
             if (element.classList.contains('video-done')) {
-                markBtn.style.display = 'none';
-                redoBtn.style.display = 'block';
+            markBtn.style.display = 'none';
+            redoBtn.style.display = 'block';
             } else {
-                markBtn.style.display = 'block';
-                redoBtn.style.display = 'none';
+            markBtn.style.display = 'block';
+            redoBtn.style.display = 'none';
             }
-        }
+            }
 
-        function markVideoFinished(type) {
-            if (type === 'reset_all' && !confirm('Are you sure you want to reset all progress for this month?')) return; if (type !== 'reset_all' && (!selectedVideoId || !selectedDate)) return;
+            function markVideoFinished(type) {
+            if (type === 'reset_all' && !confirm('Are you sure you want to reset all progress for this month?')) return;
+            if (type !== 'reset_all' && (!selectedVideoId || !selectedDate)) return;
             const formData = new FormData();
             formData.append('finish_workout_ajax', '1');
             formData.append('video_id', selectedVideoId);
@@ -2217,111 +2477,112 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             formData.append('custom_date', selectedDate);
 
             fetch(window.location.href, { method: 'POST', body: formData })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        const dayNum = parseInt(selectedDate.split('-')[2]);
-                        const dayEl = document.getElementById('day-' + dayNum);
-                        const videoItem = document.getElementById('current-video-item');
-                        const markBtn = document.getElementById('mark-finished-btn');
-                        const redoBtn = document.getElementById('redo-workout-btn');
+            .then(res => res.json())
+            .then(data => {
+            if (data.success) {
+            const dayNum = parseInt(selectedDate.split('-')[2]);
+            const dayEl = document.getElementById('day-' + dayNum);
+            const videoItem = document.getElementById('current-video-item');
+            const markBtn = document.getElementById('mark-finished-btn');
+            const redoBtn = document.getElementById('redo-workout-btn');
 
-                        if (type === 'complete') {
-                            dayEl.classList.add('completed');
-                            if (videoItem) {
-                                videoItem.classList.add('video-done');
-                                videoItem.querySelector('.fa-play')?.classList.replace('fa-play', 'fa-check-circle');
-                                if (!videoItem.querySelector('.check-icon')) {
-                                    const icon = document.createElement('i');
-                                    icon.className = 'fa-solid fa-circle-check check-icon';
-                                    icon.style.color = 'var(--primary-color)';
-                                    videoItem.appendChild(icon);
-                                }
-                            }
-                            markBtn.style.display = 'none';
-                            redoBtn.style.display = 'block';
-                        } else if (type === 'reset_all') {
-                            // Clear all calendar highlights
-                            document.querySelectorAll('.calendar-day.completed').forEach(el => el.classList.remove('completed'));
-                            // Reset current video UI if open
-                            if (videoItem) {
-                                videoItem.classList.remove('video-done');
-                                videoItem.querySelector('.fa-check-circle')?.classList.replace('fa-check-circle', 'fa-play');
-                                videoItem.querySelector('.check-icon')?.remove();
-                            }
-                            markBtn.style.display = 'block';
-                            redoBtn.style.display = 'none';
-                            resetTimer();
-                        } else {
-                            dayEl.classList.remove('completed');
-                            if (videoItem) {
-                                videoItem.classList.remove('video-done');
-                                videoItem.querySelector('.fa-check-circle')?.classList.replace('fa-check-circle', 'fa-play');
-                                videoItem.querySelector('.check-icon')?.remove();
-                            }
-                            markBtn.style.display = 'block';
-                            redoBtn.style.display = 'none';
-                            resetTimer(); // Reset timer on individual redo too
-                        }
+            if (type === 'complete') {
+            dayEl.classList.add('completed');
+            if (videoItem) {
+            videoItem.classList.add('video-done');
+            videoItem.querySelector('.fa-play')?.classList.replace('fa-play', 'fa-check-circle');
+            if (!videoItem.querySelector('.check-icon')) {
+            const icon = document.createElement('i');
+            icon.className = 'fa-solid fa-circle-check check-icon';
+            icon.style.color = 'var(--primary-color)';
+            videoItem.appendChild(icon);
+            }
+            }
+            markBtn.style.display = 'none';
+            redoBtn.style.display = 'block';
+            } else if (type === 'reset_all') {
+            // Clear all calendar highlights
+            document.querySelectorAll('.calendar-day.completed').forEach(el => el.classList.remove('completed'));
+            // Reset current video UI if open
+            if (videoItem) {
+            videoItem.classList.remove('video-done');
+            videoItem.querySelector('.fa-check-circle')?.classList.replace('fa-check-circle', 'fa-play');
+            videoItem.querySelector('.check-icon')?.remove();
+            }
+            markBtn.style.display = 'block';
+            redoBtn.style.display = 'none';
+            resetTimer();
+            } else {
+            dayEl.classList.remove('completed');
+            if (videoItem) {
+            videoItem.classList.remove('video-done');
+            videoItem.querySelector('.fa-check-circle')?.classList.replace('fa-check-circle', 'fa-play');
+            videoItem.querySelector('.check-icon')?.remove();
+            }
+            markBtn.style.display = 'block';
+            redoBtn.style.display = 'none';
+            resetTimer(); // Reset timer on individual redo too
+            }
 
-                        // Update Progress Bar
-                        document.getElementById('monthly-progress-bar').style.width = data.percent + '%';
-                        document.getElementById('completed-days-text').innerText = data.count || 0;
-                        document.getElementById('progress-percent-text').innerText = data.percent || 0;
-                        document.getElementById('monthly-progress-bar').style.width = (data.percent || 0) + '%';
+            // Update Progress Bar
+            document.getElementById('monthly-progress-bar').style.width = data.percent + '%';
+            document.getElementById('completed-days-text').innerText = data.count || 0;
+            document.getElementById('progress-percent-text').innerText = data.percent || 0;
+            document.getElementById('monthly-progress-bar').style.width = (data.percent || 0) + '%';
 
-                        // Update Completed Dates Badges
-                        const badgeContainer = document.getElementById('completed-dates-badges');
-                        if (badgeContainer && data.dates) {
-                            if (data.dates.length === 0) {
-                                badgeContainer.innerHTML = '<p style="font-size: 0.8rem; color: #555;">No workouts completed yet.</p>';
-                            } else {
-                                badgeContainer.innerHTML = data.dates.map(date => `
-                                    <span style="background: rgba(0,255,0,0.1); color: #00ff00; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; border: 1px solid rgba(0,255,0,0.2);">
-                                        <i class="fa-solid fa-check" style="font-size: 0.6rem;"></i> ${date}
-                                    </span>
-                                `).join('');
-                            }
-                        }
+            // Update Completed Dates Badges
+            const badgeContainer = document.getElementById('completed-dates-badges');
+            if (badgeContainer && data.dates) {
+            if (data.dates.length === 0) {
+            badgeContainer.innerHTML = '<p style="font-size: 0.8rem; color: #555;">No workouts completed yet.</p>';
+            } else {
+            badgeContainer.innerHTML = data.dates.map(date => `
+            < span
+        style = "background: rgba(0,255,0,0.1); color: #00ff00; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; border: 1px solid rgba(0,255,0,0.2);" >
+            <i class="fa-solid fa-check" style="font-size: 0.6rem;"></i> ${ date }
+            </span >
+            `).join('');
+            }
+            }
 
-                        // Achievement Medal Color Updates
-                        const p = parseInt(data.percent);
-                        document.getElementById('medal-half').style.color = p >= 50 ? '#ffd700' : '#333';
-                        document.getElementById('medal-fire').style.color = p >= 75 ? '#ff4500' : '#333';
-                        document.getElementById('medal-full').style.color = p >= 100 ? '#ceff00' : '#333';
+            // Achievement Medal Color Updates
+            const p = parseInt(data.percent);
+            document.getElementById('medal-half').style.color = p >= 50 ? '#ffd700' : '#333';
+            document.getElementById('medal-fire').style.color = p >= 75 ? '#ff4500' : '#333';
+            document.getElementById('medal-full').style.color = p >= 100 ? '#ceff00' : '#333';
 
-                        // Refresh the view to update buttons (Mark Finished <-> Redo)
-                        selectDay(dayNum);
-                    }
+            // Refresh the view to update buttons (Mark Finished <-> Redo)
+                selectDay(dayNum);
+                }
                 });
-        }
+                }
 
-        // Timer & Clock Logic
-        let timerSeconds = 0;
-        let timerInterval = null;
-        let isCountdown = false;
+                // Timer & Clock Logic
+                let timerSeconds = 0;
+                let timerInterval = null;
+                let isCountdown = false;
 
-        function updateClock() {
-            const now = new Date();
-            const h = now.getHours().toString().padStart(2, '0');
-            const m = now.getMinutes().toString().padStart(2, '0');
-            const s = now.getSeconds().toString().padStart(2, '0');
-            const timeStr = `${h}:${m}:${s}`;
+                function updateClock() {
+                const now = new Date();
+                const h = now.getHours().toString().padStart(2, '0');
+                const m = now.getMinutes().toString().padStart(2, '0');
+                const s = now.getSeconds().toString().padStart(2, '0');
+                const timeStr = `${ h }:${ m }:${ s } `;
 
-            const clockEl = document.getElementById('dashboard-clock');
-            if (clockEl) clockEl.innerText = timeStr;
-        }
-        setInterval(updateClock, 1000);
-        updateClock();
+                const clockEl = document.getElementById('dashboard-clock');
+                if (clockEl) clockEl.innerText = timeStr;
+                }
+                setInterval(updateClock, 1000);
+                updateClock();
 
-        function toggleTimer() {
-            const btn = document.getElementById('timer-btn');
-            const hInput = document.getElementById('timer-hours-input');
-            const mInput = document.getElementById('timer-minutes-input');
-            const sInput = document.getElementById('timer-seconds-input');
-            const display = document.getElementById('timer-display');
+                function toggleTimer() {
+                const btn = document.getElementById('timer-btn');
+                const hInput = document.getElementById('timer-hours-input');
+                const mInput = document.getElementById('timer-minutes-input');
+                const sInput = document.getElementById('timer-seconds-input');
+                const display = document.getElementById('timer-display');
 
-            if (timerInterval) {
+                if (timerInterval) {
                 // Pause
                 clearInterval(timerInterval);
                 timerInterval = null;
@@ -2329,20 +2590,20 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 hInput.disabled = false;
                 mInput.disabled = false;
                 sInput.disabled = false;
-            } else {
+                } else {
                 // Start
                 if (timerSeconds === 0) {
-                    const h = parseInt(hInput.value) || 0;
-                    const m = parseInt(mInput.value) || 0;
-                    const s = parseInt(sInput.value) || 0;
-                    const totalSecs = (h * 3600) + (m * 60) + s;
+                const h = parseInt(hInput.value) || 0;
+                const m = parseInt(mInput.value) || 0;
+                const s = parseInt(sInput.value) || 0;
+                const totalSecs = (h * 3600) + (m * 60) + s;
 
-                    if (totalSecs > 0) {
-                        timerSeconds = totalSecs;
-                        isCountdown = true;
-                    } else {
-                        isCountdown = false;
-                    }
+                if (totalSecs > 0) {
+                timerSeconds = totalSecs;
+                isCountdown = true;
+                } else {
+                isCountdown = false;
+                }
                 }
 
                 hInput.disabled = true;
@@ -2350,41 +2611,41 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 sInput.disabled = true;
 
                 timerInterval = setInterval(() => {
-                    if (isCountdown) {
-                        if (timerSeconds > 0) {
-                            timerSeconds--;
-                        } else {
-                            clearInterval(timerInterval);
-                            timerInterval = null;
-                            btn.innerHTML = '<i class="fa-solid fa-play"></i>';
-                            hInput.disabled = false;
-                            mInput.disabled = false;
-                            sInput.disabled = false;
-                            display.style.color = '#ff4d4d';
-                            display.classList.add('pulse');
-                            playAlarm();
-                            setTimeout(() => {
-                                display.style.color = '#fff';
-                                display.classList.remove('pulse');
-                            }, 5000);
-                            return;
-                        }
-                    } else {
-                        timerSeconds++;
-                    }
+                if (isCountdown) {
+                if (timerSeconds > 0) {
+                timerSeconds--;
+                } else {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                btn.innerHTML = '<i class="fa-solid fa-play"></i>';
+                hInput.disabled = false;
+                mInput.disabled = false;
+                sInput.disabled = false;
+                display.style.color = '#ff4d4d';
+                display.classList.add('pulse');
+                playAlarm();
+                setTimeout(() => {
+                display.style.color = '#fff';
+                display.classList.remove('pulse');
+                }, 5000);
+                return;
+                }
+                } else {
+                timerSeconds++;
+                }
 
-                    const hours = Math.floor(timerSeconds / 3600).toString().padStart(2, '0');
-                    const minutes = Math.floor((timerSeconds % 3600) / 60).toString().padStart(2, '0');
-                    const seconds = (timerSeconds % 60).toString().padStart(2, '0');
-                    display.innerText = `${hours}:${minutes}:${seconds}`;
+                const hours = Math.floor(timerSeconds / 3600).toString().padStart(2, '0');
+                const minutes = Math.floor((timerSeconds % 3600) / 60).toString().padStart(2, '0');
+                const seconds = (timerSeconds % 60).toString().padStart(2, '0');
+                display.innerText = `${ hours }:${ minutes }:${ seconds } `;
                 }, 1000);
                 btn.innerHTML = '<i class="fa-solid fa-pause"></i>';
-            }
-        }
+                }
+                }
 
-        function playAlarm() {
-            const context = new (window.AudioContext || window.webkitAudioContext)();
-            const playBeep = (time) => {
+                function playAlarm() {
+                const context = new (window.AudioContext || window.webkitAudioContext)();
+                const playBeep = (time) => {
                 const osc = context.createOscillator();
                 const gain = context.createGain();
                 osc.connect(gain);
@@ -2395,95 +2656,99 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
                 osc.start(time);
                 osc.stop(time + 0.5);
-            };
-            // Play 3 beeps
-            playBeep(context.currentTime);
-            playBeep(context.currentTime + 0.7);
-            playBeep(context.currentTime + 1.4);
-        }
+                };
+                // Play 3 beeps
+                playBeep(context.currentTime);
+                playBeep(context.currentTime + 0.7);
+                playBeep(context.currentTime + 1.4);
+                }
 
-        function resetTimer() {
-            clearInterval(timerInterval);
-            timerInterval = null;
-            timerSeconds = 0;
-            isCountdown = false;
-            const display = document.getElementById('timer-display');
-            display.innerText = '00:00:00';
-            display.style.color = '#fff';
-            display.classList.remove('pulse');
-            document.getElementById('timer-btn').innerHTML = '<i class="fa-solid fa-play"></i>';
+                function resetTimer() {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                timerSeconds = 0;
+                isCountdown = false;
+                const display = document.getElementById('timer-display');
+                display.innerText = '00:00:00';
+                display.style.color = '#fff';
+                display.classList.remove('pulse');
+                document.getElementById('timer-btn').innerHTML = '<i class="fa-solid fa-play"></i>';
 
-            const hInput = document.getElementById('timer-hours-input');
-            const mInput = document.getElementById('timer-minutes-input');
-            const sInput = document.getElementById('timer-seconds-input');
+                const hInput = document.getElementById('timer-hours-input');
+                const mInput = document.getElementById('timer-minutes-input');
+                const sInput = document.getElementById('timer-seconds-input');
 
-            hInput.disabled = false;
-            mInput.disabled = false;
-            sInput.disabled = false;
-            hInput.value = '';
-            mInput.value = '';
-            sInput.value = '';
-        }
+                hInput.disabled = false;
+                mInput.disabled = false;
+                sInput.disabled = false;
+                hInput.value = '';
+                mInput.value = '';
+                sInput.value = '';
+                }
 
-        function playNextVideoFromOverview(videoId) {
-            showSection('workouts');
-            setTimeout(() => {
+                function playNextVideoFromOverview(videoId) {
+                showSection('workouts');
+                setTimeout(() => {
                 selectDay(<?php echo $today_day; ?>);
                 const videoItems = document.querySelectorAll('.video-item');
                 if (videoItems.length) videoItems[0].click();
-            }, 300);
-        }
+                }, 300);
+                }
 
-        // Initialize today's workout
-        window.addEventListener('load', () => {
-            // Keep section persistent on month change
-            const urlParams = new URLSearchParams(window.location.search);
-            const isMonthChange = urlParams.has('m');
-            if (isMonthChange) {
+                // Initialize today's workout
+                window.addEventListener('load', () => {
+                // Keep section persistent on month change
+                const urlParams = new URLSearchParams(window.location.search);
+                const isMonthChange = urlParams.has('m');
+                if (isMonthChange) {
                 showSection('workouts');
-            }
+                }
 
-            selectDay(<?php echo $today_day; ?>);
+                selectDay(<?php echo $today_day; ?>);
 
-            // Only auto-scroll on month change or first load, not on every section switch
-            const todayEl = document.getElementById('day-<?php echo $today_day; ?>');
-            if (todayEl && isMonthChange) {
+                // Only auto-scroll on month change or first load, not on every section switch
+                const todayEl = document.getElementById('day-<?php echo $today_day; ?>');
+                if (todayEl && isMonthChange) {
                 todayEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-            }
-        });
+                }
+                });
 
 
-        // PAYMENT Logic
-        let currentMethod = 'Credit Card';
+                // PAYMENT Logic
+                let currentMethod = 'Credit Card';
 
-        const planSelector = document.getElementById('plan-selector');
-        if (planSelector) {
-            planSelector.addEventListener('change', function () {
+                const planSelector = document.getElementById('plan-selector');
+                if (planSelector) {
+                planSelector.addEventListener('change', function () {
                 document.getElementById('payment-amt-display').innerText = "₹" + this.value + ".00";
                 updateUPI_QR();
-            });
-        }
+                });
+                }
 
-        function updateUPI_QR() {
-            const amt = document.getElementById('plan-selector').value;
-            const plan = document.getElementById('plan-selector').options[document.getElementById('plan-selector').selectedIndex].text.split(' - ')[0];
+                function updateUPI_QR() {
+                const amt = document.getElementById('plan-selector').value;
+                const plan =
+                document.getElementById('plan-selector').options[document.getElementById('plan-selector').selectedIndex].text.split('
+                - ')[0];
 
-            let host = window.location.hostname;
-            let port = window.location.port ? ':' + window.location.port : '';
+                let host = window.location.hostname;
+                let port = window.location.port ? ':' + window.location.port : '';
 
-            // If on localhost, use the server's internal IP so mobile can reach it
-            if (host === 'localhost' || host === '127.0.0.1') {
+                // If on localhost, use the server's internal IP so mobile can reach it
+                if (host === 'localhost' || host === '127.0.0.1') {
                 host = '<?php echo gethostbyname(gethostname()); ?>';
-            }
+                }
 
-            const baseUrl = window.location.protocol + "//" + host + port + window.location.pathname.replace('dashboard_member.php', '');
-            const mockUrl = `${baseUrl}gpay_mock.php?amt=${amt}&plan=${encodeURIComponent(plan)}`;
+                const baseUrl = window.location.protocol + "//" + host + port +
+                window.location.pathname.replace('dashboard_member.php', '');
+                const mockUrl = `${ baseUrl } gpay_mock.php ? amt = ${ amt }& plan=${ encodeURIComponent(plan) } `;
 
-            // Generate QR
-            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(mockUrl)}`;
-            const qrImg = document.getElementById('upi-qr-code');
-            if (qrImg) qrImg.src = qrUrl;
-        }
+                // Generate QR
+                const qrUrl =
+                `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(mockUrl)}`;
+        const qrImg = document.getElementById('upi-qr-code');
+        if (qrImg) qrImg.src = qrUrl;
+                }
 
         function openPaymentModal() {
             updateUPI_QR();
@@ -2537,16 +2802,11 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             } else {
                 const upiId = document.getElementById('upi-id-input').value.trim();
                 if (!upiId.includes('@') || upiId.length < 5) {
-                    errorEl.innerText = "Please enter a valid UPI ID (e.g., user@bank).";
-                    errorEl.style.display = 'block';
+                    errorEl.innerText = "Please enter a valid UPI ID (e.g., user@bank)."; errorEl.style.display = 'block';
                     return;
                 }
-            }
-
-            document.getElementById('payment-form-area').style.display = 'none';
-            document.getElementById('processing-payment').style.display = 'block';
-
-            setTimeout(() => {
+            } document.getElementById('payment-form-area').style.display = 'none';
+            document.getElementById('processing-payment').style.display = 'block'; setTimeout(() => {
                 document.getElementById('processing-payment').style.display = 'none';
                 document.getElementById('payment-success').style.display = 'block';
 
@@ -2566,12 +2826,12 @@ $is_beginner_completed = count($completed_weeks) >= 4;
         // Add popIn animation for success screen
         const style = document.createElement('style');
         style.textContent = `
-            @keyframes popIn {
-                0% { transform: scale(0); opacity: 0; }
-                80% { transform: scale(1.1); }
-                100% { transform: scale(1); opacity: 1; }
-            }
-        `;
+                    @keyframes popIn {
+                    0% { transform: scale(0); opacity: 0; }
+                    80% { transform: scale(1.1); }
+                    100% { transform: scale(1); opacity: 1; }
+                    }
+                    `;
         document.head.appendChild(style);
         // Toggle Password Visibility
         const togglePassword = document.getElementById('toggle-password');
@@ -2615,6 +2875,106 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     }
                 });
         }
+    </script>
+    <!-- GymFit AI Chatbot UI -->
+    <div class="chat-widget">
+        <button class="chat-button" onclick="toggleChat()">
+            <i class="fa-solid fa-robot"></i>
+        </button>
+        <div class="chat-window" id="chat-window">
+            <div class="chat-header">
+                <div style="position: relative;">
+                    <img src="https://api.dicebear.com/7.x/bottts/svg?seed=GymFit" alt="AI">
+                    <span class="status"
+                        style="position: absolute; bottom: 0; right: 0; border: 2px solid #1a1a2e;"></span>
+                </div>
+                <div>
+                    <h4 style="margin: 0; font-family: 'Oswald'; font-size: 1rem; letter-spacing: 0.5px;">
+                        GymFit AI Assistant</h4>
+                    <p style="margin: 0; font-size: 0.7rem; color: var(--text-gray);">Online • Powered
+                        by GymFit</p>
+                </div>
+                <button onclick="toggleChat()"
+                    style="margin-left: auto; background: none; border: none; color: #fff; cursor: pointer; opacity: 0.5;">
+                    <i class="fa-solid fa-chevron-down"></i>
+                </button>
+            </div>
+            <div class="chat-messages" id="chat-messages">
+                <div class="message bot">
+                    👋 Hi! I'm your GymFit AI coach. Ask me about your routine, diet, or membership!
+                </div>
+            </div>
+            <div class="typing-indicator" id="typing-indicator">
+                <div class="dot" style="animation-delay: -0.32s"></div>
+                <div class="dot" style="animation-delay: -0.16s"></div>
+                <div class="dot"></div>
+            </div>
+            <form class="chat-input-area" id="chat-form">
+                <input type="text" class="chat-input" id="chat-input" placeholder="Type a message..."
+                    autocomplete="off">
+                <button type="submit" class="chat-send">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Chatbot Logic
+        function toggleChat() {
+            const window = document.getElementById('chat-window');
+            window.style.display = window.style.display === 'flex' ? 'none' : 'flex';
+        }
+
+        const chatForm = document.getElementById('chat-form');
+        const chatInput = document.getElementById('chat-input');
+        const chatMessages = document.getElementById('chat-messages');
+        const typingIndicator = document.getElementById('typing-indicator');
+
+        if (chatForm) {
+            chatForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const text = chatInput.value.trim();
+                if (!text) return;
+
+                // User Message
+                addMessage(text, 'user');
+                chatInput.value = '';
+
+                // Show Typing
+                typingIndicator.style.display = 'flex';
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+
+                try {
+                    const response = await fetch('chatbot_api.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: text })
+                    });
+                    const data = await response.json();
+
+                    // Artificial delay for realism
+                    setTimeout(() => {
+                        typingIndicator.style.display = 'none';
+                        addMessage(data.response, 'bot');
+                    }, 800);
+                } catch (err) {
+                    typingIndicator.style.display = 'none';
+                    addMessage("Sorry, I'm having trouble connecting to the trainer right now. Please try again!", 'bot');
+                }
+            });
+        }
+
+        function addMessage(text, side) {
+            const div = document.createElement('div');
+            div.className = `message ${side}`;
+            div.innerText = text;
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+
+
     </script>
 </body>
 
