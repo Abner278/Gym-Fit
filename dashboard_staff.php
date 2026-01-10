@@ -263,6 +263,51 @@ $payments_sql = "SELECT t.*, u.full_name, u.email as user_email
                 JOIN users u ON t.user_id = u.id 
                 ORDER BY t.created_at DESC";
 $payments_res = mysqli_query($link, $payments_sql);
+
+// Group by User for cleaner display
+$grouped_payments = [];
+while ($row = mysqli_fetch_assoc($payments_res)) {
+    $uid = $row['user_id'];
+    if (!isset($grouped_payments[$uid])) {
+        $grouped_payments[$uid] = [
+            'user' => $row,
+            'history' => []
+        ];
+    }
+    $grouped_payments[$uid]['history'][] = $row;
+}
+
+// --- STAFF ATTENDANCE LOGIC ---
+// 1. Handle Self-Attendance
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['mark_staff_attendance'])) {
+    $date = date('Y-m-d');
+    $check = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = $user_id AND date = '$date'");
+    if (mysqli_num_rows($check) == 0) {
+        if (mysqli_query($link, "INSERT INTO attendance (user_id, date, status) VALUES ($user_id, '$date', 'present')")) {
+            $_SESSION['msg'] = "Attendance marked successfully!";
+        }
+    } else {
+        $_SESSION['msg'] = "Attendance already marked for today.";
+    }
+    header("Location: dashboard_staff.php");
+    exit;
+}
+
+// 2. Fetch Own History
+$staff_att_res = mysqli_query($link, "SELECT date FROM attendance WHERE user_id = $user_id ORDER BY date DESC");
+$staff_dates = [];
+while ($r = mysqli_fetch_assoc($staff_att_res))
+    $staff_dates[] = $r['date'];
+$is_staff_present = in_array(date('Y-m-d'), $staff_dates);
+
+// 3. Member Daily Stats
+$today_date = date('Y-m-d');
+$mem_att_query = mysqli_query($link, "SELECT COUNT(*) as cnt FROM attendance a JOIN users u ON a.user_id = u.id WHERE u.role='member' AND a.date='$today_date'");
+$mem_present_count = $mem_att_query->fetch_assoc()['cnt'];
+
+$total_mem_query = mysqli_query($link, "SELECT COUNT(*) as cnt FROM users WHERE role='member'");
+$total_mem_count = $total_mem_query->fetch_assoc()['cnt'];
+$mem_absent_count = $total_mem_count - $mem_present_count;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -661,14 +706,20 @@ $payments_res = mysqli_query($link, $payments_sql);
             <li><a href="index.php"><i class="fa-solid fa-house"></i> Back to Website</a></li>
             <li style="border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 10px; padding-bottom: 10px;">
             </li>
+            <li><a href="#" onclick="showSection('attendance')"><i class="fa-solid fa-calendar-check"></i> Attendance
+                    </a></li>
             <li><a href="#" class="active" onclick="showSection('members')"><i class="fa-solid fa-users"></i>
                     Members</a></li>
+                     <li><a href="#" onclick="showSection('reports')"><i class="fa-solid fa-users-rectangle"></i> Member
+                    Attendance Reports</a></li>
             <li><a href="#" onclick="showSection('queries')"><i class="fa-solid fa-comments"></i> Member Queries</a>
             </li>
             <li><a href="#" onclick="showSection('content')"><i class="fa-solid fa-cloud-arrow-up"></i> Upload
                     Content</a></li>
             <li><a href="#" onclick="showSection('payments')"><i class="fa-solid fa-file-invoice-dollar"></i>
                     Payments</a></li>
+            
+           
             <li><a href="#" onclick="showSection('profile')"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
             </li>
         </ul>
@@ -1080,56 +1131,118 @@ $payments_res = mysqli_query($link, $payments_sql);
                         <thead>
                             <tr>
                                 <th>Member</th>
-                                <th>Plan</th>
-                                <th>Amount</th>
-                                <th>Method</th>
-                                <th>Date</th>
-                                <th>Status</th>
-                                <th style="text-align: right;">Invoice</th>
+                                <th>Latest Plan</th>
+                                <th>Last Payment</th>
+                                <th style="text-align: right;">Action</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php if (mysqli_num_rows($payments_res) > 0): ?>
-                                <?php while ($payment = mysqli_fetch_assoc($payments_res)): ?>
-                                    <tr>
+                            <?php if (count($grouped_payments) > 0): ?>
+                                <?php foreach ($grouped_payments as $uid => $data):
+                                    $latest = $data['history'][0]; // First item is latest
+                                    $count = count($data['history']);
+                                    ?>
+                                    <!-- Main User Row -->
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                                         <td>
                                             <div style="display: flex; flex-direction: column;">
                                                 <span
-                                                    style="font-weight: bold;"><?php echo htmlspecialchars($payment['full_name']); ?></span>
+                                                    style="font-weight: bold; font-size: 1rem; color: #fff;"><?php echo htmlspecialchars($data['user']['full_name']); ?></span>
                                                 <small
-                                                    style="color: var(--text-gray); font-size: 0.75rem;"><?php echo htmlspecialchars($payment['user_email']); ?></small>
+                                                    style="color: var(--text-gray); font-size: 0.8rem;"><?php echo htmlspecialchars($data['user']['user_email']); ?></small>
                                             </div>
                                         </td>
-                                        <td><?php echo htmlspecialchars($payment['plan_name']); ?></td>
-                                        <td style="color: var(--primary-color); font-weight: bold;">
-                                            ₹<?php echo number_format($payment['amount'], 2); ?></td>
-                                        <td style="text-transform: capitalize;">
-                                            <?php echo htmlspecialchars($payment['payment_method']); ?>
+                                        <td><span
+                                                style="color: var(--primary-color);"><?php echo htmlspecialchars($latest['plan_name']); ?></span>
                                         </td>
-                                        <td><?php echo date('M d, Y', strtotime($payment['created_at'])); ?></td>
                                         <td>
-                                            <span class="badge <?php
-                                            echo $payment['status'] == 'completed' ? 'badge-success' : ($payment['status'] == 'pending' ? 'badge-warning' : '');
-                                            ?>" style="background: <?php
-                                            echo $payment['status'] == 'failed' ? 'rgba(255, 77, 77, 0.1)' : '';
-                                            ?>; color: <?php
-                                            echo $payment['status'] == 'failed' ? '#ff4d4d' : '';
-                                            ?>;">
-                                                <?php echo ucfirst($payment['status']); ?>
+                                            <?php echo date('M d, Y', strtotime($latest['created_at'])); ?>
+                                            <span
+                                                class="badge <?php echo $latest['status'] == 'completed' ? 'badge-success' : ($latest['status'] == 'pending' ? 'badge-warning' : ''); ?>"
+                                                style="margin-left: 5px; font-size: 0.7rem;">
+                                                <?php echo ucfirst($latest['status']); ?>
                                             </span>
                                         </td>
                                         <td style="text-align: right;">
-                                            <a href="invoice.php?tid=<?php echo $payment['id']; ?>" target="_blank"
-                                                style="color: var(--primary-color); font-size: 1.1rem;"
-                                                title="Download Invoice">
-                                                <i class="fa-solid fa-file-pdf"></i>
-                                            </a>
+                                            <button onclick="toggleHistory(<?php echo $uid; ?>)" class="btn-sm"
+                                                style="background: rgba(255, 255, 255, 0.1); color: #fff; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border: 1px solid rgba(255,255,255,0.1);">
+                                                <i class="fa-solid fa-clock-rotate-left"></i> History (<?php echo $count; ?>) <i
+                                                    class="fa-solid fa-chevron-down" id="icon-<?php echo $uid; ?>"></i>
+                                            </button>
                                         </td>
                                     </tr>
-                                <?php endwhile; ?>
+
+                                    <!-- Hidden History Row -->
+                                    <tr id="history-<?php echo $uid; ?>" style="display: none; background: rgba(0,0,0,0.15);">
+                                        <td colspan="4" style="padding: 0;">
+                                            <div style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                <div style="background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden;">
+                                                    <table style="width: 100%; border-collapse: collapse;">
+                                                        <thead>
+                                                            <tr style="background: rgba(255,255,255,0.03);">
+                                                                <th
+                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                    Plan</th>
+                                                                <th
+                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                    Amount</th>
+                                                                <th
+                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                    Method</th>
+                                                                <th
+                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                    Date</th>
+                                                                <th
+                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                    Status</th>
+                                                                <th
+                                                                    style="font-size: 0.75rem; padding: 10px; text-align: right; color: var(--text-gray); text-transform: uppercase;">
+                                                                    Invoice</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <?php foreach ($data['history'] as $payment): ?>
+                                                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                                                                    <td style="padding: 10px; font-size: 0.9rem;">
+                                                                        <?php echo htmlspecialchars($payment['plan_name']); ?>
+                                                                    </td>
+                                                                    <td
+                                                                        style="padding: 10px; font-size: 0.9rem; color: var(--primary-color);">
+                                                                        ₹<?php echo number_format($payment['amount'], 2); ?></td>
+                                                                    <td
+                                                                        style="padding: 10px; font-size: 0.9rem; text-transform: capitalize;">
+                                                                        <?php echo htmlspecialchars($payment['payment_method']); ?>
+                                                                    </td>
+                                                                    <td style="padding: 10px; font-size: 0.9rem; color: #ddd;">
+                                                                        <?php echo date('M d, Y', strtotime($payment['created_at'])); ?>
+                                                                    </td>
+                                                                    <td style="padding: 10px;">
+                                                                        <span
+                                                                            class="badge <?php echo $payment['status'] == 'completed' ? 'badge-success' : ($payment['status'] == 'pending' ? 'badge-warning' : ''); ?>"
+                                                                            style="font-size: 0.65rem;">
+                                                                            <?php echo ucfirst($payment['status']); ?>
+                                                                        </span>
+                                                                    </td>
+                                                                    <td style="padding: 10px; text-align: right;">
+                                                                        <a href="invoice.php?tid=<?php echo $payment['id']; ?>"
+                                                                            target="_blank"
+                                                                            style="color: var(--text-gray); font-size: 1rem;"
+                                                                            title="Download Invoice">
+                                                                            <i class="fa-solid fa-file-pdf"></i>
+                                                                        </a>
+                                                                    </td>
+                                                                </tr>
+                                                            <?php endforeach; ?>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
                             <?php else: ?>
                                 <tr>
-                                    <td colspan="7" style="text-align: center; color: var(--text-gray); padding: 30px;">
+                                    <td colspan="4" style="text-align: center; color: var(--text-gray); padding: 30px;">
                                         <i class="fa-solid fa-receipt"
                                             style="font-size: 2rem; display: block; margin-bottom: 10px; opacity: 0.3;"></i>
                                         No payment records found.
@@ -1141,6 +1254,129 @@ $payments_res = mysqli_query($link, $payments_sql);
                 </div>
             </div>
         </div>
+        <!-- Attendance Section -->
+        <div id="attendance" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Attendance Management</h2>
+
+            <div class="dashboard-grid">
+                <!-- Staff Self Attendance -->
+                <div class="dashboard-card" style="padding: 40px;">
+                    <h3><i class="fa-solid fa-user-check"></i> My Attendance</h3>
+                    <div style="text-align: center; padding: 30px 0;">
+                        <h2 style="font-family:'Oswald'; margin-bottom:10px;">Daily Attendance</h2>
+                        <p style="color: var(--text-gray); margin-bottom: 20px;">Mark your daily attendance here.</p>
+                        <form method="POST" style="display:flex; justify-content:center;">
+                            <input type="hidden" name="mark_staff_attendance" value="1">
+                            <?php if ($is_staff_present): ?>
+                                <button type="button" class="btn-action"
+                                    style="width: auto; padding: 15px 40px; background:rgba(255,255,255,0.05); cursor:not-allowed; border: 1px solid var(--primary-color); color: var(--primary-color);">
+                                    <i class="fa-solid fa-check-double"></i> Checked In Today
+                                </button>
+                            <?php else: ?>
+                                <button type="submit" class="btn-action"
+                                    style="width: auto; padding: 15px 50px; font-size: 1.1rem; transform: scale(1.05);">
+                                    <i class="fa-solid fa-hand-point-up"></i> Check In Now
+                                </button>
+                            <?php endif; ?>
+                        </form>
+
+                        <div style="margin-top: 50px; padding-top: 30px; border-top: 1px solid rgba(255,255,255,0.05);">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                                <h4
+                                    style="font-size: 1rem; color: #fff; margin: 0; font-family: 'Oswald', sans-serif; letter-spacing: 1px;">
+                                    <i class="fa-solid fa-calendar-days"
+                                        style="color: var(--primary-color); margin-right: 10px;"></i>
+                                    ATTENDANCE HISTORY (<?php echo date('F Y'); ?>)
+                                </h4>
+                                <a href="staff_attendance_report.php" target="_blank"
+                                    style="font-size: 0.8rem; color: var(--primary-color); text-decoration: none; border: 1px solid var(--primary-color); padding: 6px 15px; border-radius: 4px; transition: 0.3s; background: rgba(206, 255, 0, 0.05);">
+                                    <i class="fa-solid fa-file-arrow-down"></i> Download PDF
+                                </a>
+                            </div>
+                            <div
+                                style="display: grid; grid-template-columns: repeat(auto-fill, minmax(45px, 1fr)); gap: 15px; justify-content: start;">
+                                <?php
+                                $s_month = date('m');
+                                $s_year = date('Y');
+                                $s_days = date('t');
+                                for ($d = 1; $d <= $s_days; $d++):
+                                    $s_date = sprintf('%04d-%02d-%02d', $s_year, $s_month, $d);
+                                    $s_is_pres = in_array($s_date, $staff_dates);
+                                    $s_is_fut = strtotime($s_date) > time();
+                                    $s_bg = $s_is_pres ? 'var(--primary-color)' : 'rgba(255,255,255,0.05)';
+                                    $s_col = $s_is_pres ? '#000' : '#fff';
+                                    $s_op = $s_is_fut ? '0.2' : '1';
+                                    $s_border = $s_is_pres ? 'none' : '1px solid rgba(255,255,255,0.1)';
+                                    ?>
+                                    <div style="height:45px; display:flex; align-items:center; justify-content:center; background:<?php echo $s_bg; ?>; color:<?php echo $s_col; ?>; border-radius:10px; font-weight:bold; font-size:0.9rem; opacity:<?php echo $s_op; ?>; border: <?php echo $s_border; ?>; transition: 0.3s;"
+                                        title="<?php echo $s_date; ?>">
+                                        <?php echo $d; ?>
+                                    </div>
+                                <?php endfor; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+
+
+            </div>
+        </div>
+
+        <!-- Member Reports Section -->
+        <div id="reports" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Member Attendance Reports</h2>
+            <div class="dashboard-card" style="padding: 40px;">
+                <h3 style="margin-bottom: 25px;"><i class="fa-solid fa-users-rectangle"></i> Select Member to View Report</h3>
+                
+                <div style="background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: rgba(0,0,0,0.2); text-align: left;">
+                                <th style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">Member Name</th>
+                                <th style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">Email</th>
+                                <th style="padding: 15px 20px; text-align: right; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $report_members_res = mysqli_query($link, "SELECT * FROM users WHERE role = 'member' ORDER BY full_name ASC");
+                            
+                            if (mysqli_num_rows($report_members_res) > 0):
+                                while ($m = mysqli_fetch_assoc($report_members_res)):
+                            ?>
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
+                                    <?php echo htmlspecialchars($m['full_name']); ?>
+                                </td>
+                                <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
+                                    <?php echo htmlspecialchars($m['email']); ?>
+                                </td>
+                                <td style="padding: 15px 20px; text-align: right;">
+                                    <a href="staff_view_member_report.php?uid=<?php echo $m['id']; ?>" target="_blank" 
+                                       style="display: inline-block; padding: 6px 12px; font-size: 0.8rem; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; text-decoration: none; transition: 0.3s; background: rgba(206, 255, 0, 0.05);">
+                                        <i class="fa-solid fa-file-invoice"></i> View Report
+                                    </a>
+                                </td>
+                            </tr>
+                            <?php 
+                                endwhile;
+                            else:
+                            ?>
+                            <tr>
+                                <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
+                                    No members found.
+                                </td>
+                            </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- Profile Section -->
         <div id="profile" class="dashboard-section">
             <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Profile Settings</h2>
@@ -1321,6 +1557,7 @@ $payments_res = mysqli_query($link, $payments_sql);
         }
 
         // Toggle Password for Profile
+        // Toggle Password for Profile
         const toggleProfilePass = document.getElementById('toggle-password-staff');
         if (toggleProfilePass) {
             toggleProfilePass.addEventListener('click', function () {
@@ -1330,6 +1567,21 @@ $payments_res = mysqli_query($link, $payments_sql);
                 this.classList.toggle('fa-eye');
                 this.classList.toggle('fa-eye-slash');
             });
+        }
+
+        function toggleHistory(uid) {
+            const row = document.getElementById('history-' + uid);
+            const icon = document.getElementById('icon-' + uid);
+
+            if (row.style.display === 'none' || row.style.display === '') {
+                row.style.display = 'table-row';
+                icon.classList.remove('fa-chevron-down');
+                icon.classList.add('fa-chevron-up');
+            } else {
+                row.style.display = 'none';
+                icon.classList.remove('fa-chevron-up');
+                icon.classList.add('fa-chevron-down');
+            }
         }
     </script>
 </body>

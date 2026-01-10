@@ -64,6 +64,42 @@ $membership_expiry = $user_data["membership_expiry"];
 // FETCH TRAINERS
 $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_at DESC");
 
+// Ensure attendance table exists
+$attendance_sql = "CREATE TABLE IF NOT EXISTS attendance (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    date DATE NOT NULL,
+    status VARCHAR(20) DEFAULT 'present',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_attendance (user_id, date)
+)";
+mysqli_query($link, $attendance_sql);
+
+// HANDLE ATTENDANCE
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['mark_attendance'])) {
+    $date = date('Y-m-d');
+    $check = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = $user_id AND date = '$date'");
+    if (mysqli_num_rows($check) == 0) {
+        if (mysqli_query($link, "INSERT INTO attendance (user_id, date, status) VALUES ($user_id, '$date', 'present')")) {
+            $_SESSION['flash_message'] = "Attendance marked for today!";
+        } else {
+            $_SESSION['flash_message'] = "Error marking attendance.";
+        }
+    } else {
+        $_SESSION['flash_message'] = "Attendance already marked for today.";
+    }
+    header("Location: dashboard_member.php");
+    exit;
+}
+
+// FETCH ATTENDANCE HISTORY
+$attendance_res = mysqli_query($link, "SELECT date FROM attendance WHERE user_id = $user_id ORDER BY date DESC");
+$attendance_dates = [];
+while ($row = mysqli_fetch_assoc($attendance_res)) {
+    $attendance_dates[] = $row['date'];
+}
+$is_present_today = in_array(date('Y-m-d'), $attendance_dates);
+
 
 // HANDLE PROFILE UPDATE
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
@@ -178,10 +214,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['complete_payment'])) {
     // Insert Transaction
     mysqli_query($link, "INSERT INTO transactions (user_id, plan_name, amount, payment_method) VALUES ($user_id, '$plan_name', $amount, '$method')");
 
-    // Calculate New Expiry (Extend by 30 days)
+    // Calculate New Expiry
     $current_exp = $user_data['membership_expiry'];
     $base_time = ($current_exp && strtotime($current_exp) > time()) ? strtotime($current_exp) : time();
-    $new_expiry = date('Y-m-d', strtotime('+30 days', $base_time));
+
+    // Check if Yearly
+    $duration = (strpos($plan_name, 'Yearly') !== false) ? '+1 year' : '+30 days';
+    $new_expiry = date('Y-m-d', strtotime($duration, $base_time));
 
     // Update User Table
     $update_user = "UPDATE users SET membership_plan = '$plan_name', membership_status = 'Active', membership_expiry = '$new_expiry' WHERE id = $user_id";
@@ -348,7 +387,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Member Dashboard - BeFit</title>
+    <title>Member Dashboard </title>
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto:wght@400;500&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -449,10 +488,17 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             box-shadow: 0 0 10px rgba(206, 255, 0, 0.1);
         }
 
-        #plan-selector option {
+        #plan-selector option,
+        #plan-selector optgroup {
             background-color: var(--secondary-color);
             color: #fff;
             padding: 12px;
+        }
+
+        #plan-selector optgroup {
+            color: var(--primary-color);
+            background-color: var(--secondary-color);
+            font-weight: bold;
         }
 
         /* Main Content */
@@ -1117,10 +1163,13 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     Back to Website</a></li>
             <li><a href="#" class="active" onclick="showSection('overview')"><i class="fa-solid fa-house"></i>
                     Overview</a></li>
+                    <li><a href="#" onclick="showSection('attendance')"><i class="fa-solid fa-calendar-check"></i>
+                    Attendance</a></li>
             <li><a href="#" onclick="showSection('workouts')"><i class="fa-solid fa-play"></i> Workout Videos</a></li>
             <li><a href="#" onclick="showSection('todo')"><i class="fa-solid fa-list-check"></i> Daily To-Do</a></li>
             <li><a href="#" onclick="showSection('membership')"><i class="fa-solid fa-id-card"></i> Membership</a></li>
             <li><a href="#" onclick="showSection('trainers')"><i class="fa-solid fa-dumbbell"></i> Trainers</a></li>
+            
             <li><a href="#" onclick="showSection('profile')"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
             </li>
         </ul>
@@ -1535,13 +1584,24 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                             <?php echo htmlspecialchars($membership_plan); ?>
                         </h2>
                         <p style="font-size: 1.2rem; opacity: 0.8;">₹<?php
-                        if ($membership_plan == 'Basic')
-                            echo '399';
-                        elseif ($membership_plan == 'Premium')
-                            echo '999';
-                        else
-                            echo '899';
-                        ?> / month</p>
+                        if (strpos($membership_plan, 'Yearly') !== false) {
+                            if (strpos($membership_plan, 'Basic') !== false)
+                                echo '3999';
+                            elseif (strpos($membership_plan, 'Premium') !== false)
+                                echo '9999';
+                            else
+                                echo '8999';
+                            echo ' / year';
+                        } else {
+                            if ($membership_plan == 'Basic')
+                                echo '399';
+                            elseif ($membership_plan == 'Premium')
+                                echo '999';
+                            else
+                                echo '899';
+                            echo ' / month';
+                        }
+                        ?></p>
                     </div>
                     <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 25px;">
                         <p style="display: flex; justify-content: space-between; margin-bottom: 12px;">
@@ -1567,9 +1627,16 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                             New Plan</label>
                         <select id="plan-selector"
                             style="width: 100%; padding: 12px 40px 12px 15px; border-radius: 8px; background-color: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); font-family: 'Roboto', sans-serif;">
-                            <option value="399">Basic - ₹399/mo</option>
-                            <option value="899" selected>Standard - ₹899/mo</option>
-                            <option value="999">Premium - ₹999/mo</option>
+                            <optgroup label="Monthly Plans">
+                                <option value="399">Basic - ₹399/mo</option>
+                                <option value="899" selected>Standard - ₹899/mo</option>
+                                <option value="999">Premium - ₹999/mo</option>
+                            </optgroup>
+                            <optgroup label="Yearly Plans">
+                                <option value="3999">Basic (Yearly) - ₹3999/yr</option>
+                                <option value="8999">Standard (Yearly) - ₹8999/yr</option>
+                                <option value="9999">Premium (Yearly) - ₹9999/yr</option>
+                            </optgroup>
                         </select>
                     </div>
                     <div id="payment-box" style="margin-top: 10px;">
@@ -1777,6 +1844,85 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         <p style="color: var(--text-gray);">No trainers available at the moment.</p>
                     </div>
                 <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- Attendance Section -->
+        <div id="attendance" class="dashboard-section">
+            <div class="dashboard-card" style="text-align:center; padding: 40px; margin-bottom: 25px;">
+                <h2 style="font-family:'Oswald'; margin-bottom:10px;">Daily Attendance</h2>
+                <p style="color:var(--text-gray); margin-bottom:30px;">Consistency is key! Mark your presence every day
+                    you workout.</p>
+
+                <form method="POST">
+                    <input type="hidden" name="mark_attendance" value="1">
+                    <?php if ($is_present_today): ?>
+                        <button type="button" class="btn-action"
+                            style="background:rgba(255,255,255,0.1); cursor:not-allowed; max-width:300px; margin:0 auto; color: var(--primary-color); border: 1px solid var(--primary-color);">
+                            <i class="fa-solid fa-check-double"></i> Attendance Marked
+                        </button>
+                        <p style="margin-top: 10px; font-size: 0.9rem; color: var(--primary-color);">You have marked
+                            attendance for today (<?php echo date('M d'); ?>).</p>
+                    <?php else: ?>
+                        <button type="submit" class="btn-action" style="max-width:300px; margin:0 auto;">
+                            <i class="fa-solid fa-hand-point-up"></i> Mark Attendance
+                        </button>
+                    <?php endif; ?>
+                </form>
+            </div>
+
+            <div class="dashboard-card">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 style="margin-bottom:0;">Attendance History (<?php echo date('F Y'); ?>)</h3>
+                    <a href="attendance_report.php" target="_blank" class="icon-btn edit"
+                        style="text-decoration:none; font-size:1rem; border:1px solid rgba(255,255,255,0.2); padding:5px 10px; border-radius:5px;"
+                        title="Download PDF Report">
+                        <i class="fa-solid fa-file-pdf"></i> Download Report
+                    </a>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content: flex-start; margin-top: 20px;">
+                    <?php
+                    $att_view_month = date('m');
+                    $att_view_year = date('Y');
+                    $att_days_in_month = date('t');
+
+                    for ($d = 1; $d <= $att_days_in_month; $d++):
+                        $d_str = sprintf('%04d-%02d-%02d', $att_view_year, $att_view_month, $d);
+                        $is_att = in_array($d_str, $attendance_dates);
+                        $is_future = strtotime($d_str) > time();
+                        $is_today = ($d_str == date('Y-m-d'));
+
+                        $bg_color = $is_att ? 'var(--primary-color)' : 'rgba(255,255,255,0.05)';
+                        $text_color = $is_att ? '#000' : '#fff';
+                        $border = $is_today ? '2px solid #fff' : '1px solid transparent';
+                        $opacity = $is_future ? '0.3' : '1';
+                        ?>
+                        <div style="
+                        width: 45px; height: 45px; 
+                        background: <?php echo $bg_color; ?>; 
+                        color: <?php echo $text_color; ?>;
+                        border-radius: 10px; 
+                        display:flex; align-items:center; justify-content:center;
+                        font-weight:bold; font-size:1rem; font-family: 'Oswald';
+                        border: <?php echo $border; ?>;
+                        opacity: <?php echo $opacity; ?>;
+                    "
+                            title="<?php echo date('M d, Y', strtotime($d_str)) . ($is_att ? ' - Present' : ($is_future ? '' : ' - Absent')); ?>">
+                            <?php echo $d; ?>
+                        </div>
+                    <?php endfor; ?>
+                </div>
+                <div style="margin-top:20px; display:flex; gap:20px; font-size:0.85rem; color:var(--text-gray);">
+                    <span style="display:flex; align-items:center; gap:8px;">
+                        <div style="width:12px; height:12px; background:var(--primary-color); border-radius:4px;"></div>
+                        Present
+                    </span>
+                    <span style="display:flex; align-items:center; gap:8px;">
+                        <div style="width:12px; height:12px; background:rgba(255,255,255,0.1); border-radius:4px;">
+                        </div> Absent
+                    </span>
+
+                </div>
             </div>
         </div>
 
