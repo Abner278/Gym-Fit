@@ -12,10 +12,10 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "staff") {
 if (!isset($_GET['uid'])) {
     die("Error: User ID not specified.");
 }
-$target_user_id = (int)$_GET['uid'];
+$target_user_id = (int) $_GET['uid'];
 
 // Fetch User Details
-$user_stmt = mysqli_prepare($link, "SELECT full_name, email FROM users WHERE id = ? AND role = 'member'");
+$user_stmt = mysqli_prepare($link, "SELECT full_name, email, created_at FROM users WHERE id = ? AND role = 'member'");
 mysqli_stmt_bind_param($user_stmt, "i", $target_user_id);
 mysqli_stmt_execute($user_stmt);
 $user_res = mysqli_stmt_get_result($user_stmt);
@@ -25,14 +25,17 @@ if (mysqli_num_rows($user_res) == 0) {
 }
 $user_data = mysqli_fetch_assoc($user_res);
 $full_name = $user_data['full_name'];
+$join_date_str = date('Y-m-d', strtotime($user_data['created_at']));
 
 // Default to current month/year or get from GET
-$month = isset($_GET['m']) ? (int)$_GET['m'] : (int)date('n');
-$year = isset($_GET['y']) ? (int)$_GET['y'] : (int)date('Y');
+$month = isset($_GET['m']) ? (int) $_GET['m'] : (int) date('n');
+$year = isset($_GET['y']) ? (int) $_GET['y'] : (int) date('Y');
 
 // Validate month/year
-if ($month < 1 || $month > 12) $month = (int)date('n');
-if ($year < 2000 || $year > 3000) $year = (int)date('Y');
+if ($month < 1 || $month > 12)
+    $month = (int) date('n');
+if ($year < 2000 || $year > 3000)
+    $year = (int) date('Y');
 
 $month_name = date('F', mktime(0, 0, 0, $month, 10));
 $days_in_month = date('t', mktime(0, 0, 0, $month, 1, $year));
@@ -104,7 +107,7 @@ $total_present = count($attendance_map);
         }
 
         .logo i {
-            color: #8bc34a; 
+            color: #8bc34a;
             margin-right: 10px;
         }
 
@@ -208,7 +211,13 @@ $total_present = count($attendance_map);
             color: #cc0000;
             border: 1px solid rgba(255, 0, 0, 0.1);
         }
-        
+
+        .status-not-joined {
+            background: #e0e0e0;
+            color: #666;
+            font-style: italic;
+        }
+
         .status-future {
             background: #f0f0f0;
             color: #999;
@@ -230,22 +239,32 @@ $total_present = count($attendance_map);
             border-radius: 50px;
             font-weight: bold;
             cursor: pointer;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
             display: flex;
             align-items: center;
             gap: 10px;
             transition: 0.3s;
         }
 
-         .btn-print.primary {
+        .btn-print.primary {
             background: #ceff00;
             color: #000;
-         }
+        }
 
         @media print {
-            .no-print { display: none; }
-            body { padding: 0; background: #fff; }
-            .report-box { box-shadow: none; padding: 0; }
+            .no-print {
+                display: none;
+            }
+
+            body {
+                padding: 0;
+                background: #fff;
+            }
+
+            .report-box {
+                box-shadow: none;
+                padding: 0;
+            }
         }
     </style>
 </head>
@@ -287,7 +306,8 @@ $total_present = count($attendance_map);
             </div>
             <div class="stat-card">
                 <h4>Attendance Rate</h4>
-                <div class="val"><?php echo ($days_in_month > 0) ? round(($total_present / $days_in_month) * 100) : 0; ?>%</div>
+                <div class="val">
+                    <?php echo ($days_in_month > 0) ? round(($total_present / $days_in_month) * 100) : 0; ?>%</div>
             </div>
         </div>
 
@@ -306,16 +326,19 @@ $total_present = count($attendance_map);
                     $timestamp = strtotime($current_date_str);
                     $day_name = date('l', $timestamp);
                     $display_date = date('M d, Y', $timestamp);
-                    
+
                     $is_present = isset($attendance_map[$current_date_str]);
                     $is_future = $timestamp > time();
-                    
+
                     $status_label = 'Absent';
                     $status_class = 'status-absent';
-                    
+
                     if ($is_present) {
                         $status_label = 'Present';
                         $status_class = 'status-present';
+                    } elseif ($current_date_str < $join_date_str) {
+                        $status_label = 'Not Joined';
+                        $status_class = 'status-not-joined';
                     } elseif ($is_future) {
                         $status_label = '-';
                         $status_class = 'status-future';
@@ -331,8 +354,9 @@ $total_present = count($attendance_map);
                 ?>
             </tbody>
         </table>
-        
-        <div style="margin-top: 40px; text-align: center; color: #999; font-size: 0.8rem; border-top: 1px solid #eee; padding-top: 20px;">
+
+        <div
+            style="margin-top: 40px; text-align: center; color: #999; font-size: 0.8rem; border-top: 1px solid #eee; padding-top: 20px;">
             <p>Generated by GymFit Staff Portal.</p>
         </div>
     </div>
@@ -362,4 +386,5 @@ $total_present = count($attendance_map);
         }
     </script>
 </body>
+
 </html>

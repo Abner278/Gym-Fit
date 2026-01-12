@@ -50,7 +50,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_action'])) {
 }
 
 // FETCH LATEST USER DATA
-$stmt = mysqli_prepare($link, "SELECT full_name, email, profile_image, membership_plan, membership_status, membership_expiry FROM users WHERE id = ?");
+$stmt = mysqli_prepare($link, "SELECT full_name, email, profile_image, membership_plan, membership_status, membership_expiry, created_at FROM users WHERE id = ?");
 mysqli_stmt_bind_param($stmt, "i", $user_id);
 mysqli_stmt_execute($stmt);
 $user_data = mysqli_stmt_get_result($stmt)->fetch_assoc();
@@ -60,6 +60,7 @@ $profile_image = $user_data["profile_image"];
 $membership_plan = $user_data["membership_plan"] ?? 'Standard';
 $membership_status = $user_data["membership_status"] ?? 'Active';
 $membership_expiry = $user_data["membership_expiry"];
+$join_date = date('Y-m-d', strtotime($user_data['created_at']));
 
 // FETCH TRAINERS
 $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_at DESC");
@@ -1163,13 +1164,13 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     Back to Website</a></li>
             <li><a href="#" class="active" onclick="showSection('overview')"><i class="fa-solid fa-house"></i>
                     Overview</a></li>
-                    <li><a href="#" onclick="showSection('attendance')"><i class="fa-solid fa-calendar-check"></i>
+            <li><a href="#" onclick="showSection('attendance')"><i class="fa-solid fa-calendar-check"></i>
                     Attendance</a></li>
             <li><a href="#" onclick="showSection('workouts')"><i class="fa-solid fa-play"></i> Workout Videos</a></li>
             <li><a href="#" onclick="showSection('todo')"><i class="fa-solid fa-list-check"></i> Daily To-Do</a></li>
             <li><a href="#" onclick="showSection('membership')"><i class="fa-solid fa-id-card"></i> Membership</a></li>
             <li><a href="#" onclick="showSection('trainers')"><i class="fa-solid fa-dumbbell"></i> Trainers</a></li>
-            
+
             <li><a href="#" onclick="showSection('profile')"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
             </li>
         </ul>
@@ -1890,12 +1891,26 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         $d_str = sprintf('%04d-%02d-%02d', $att_view_year, $att_view_month, $d);
                         $is_att = in_array($d_str, $attendance_dates);
                         $is_future = strtotime($d_str) > time();
+                        $is_before_join = $d_str < $join_date;
                         $is_today = ($d_str == date('Y-m-d'));
 
                         $bg_color = $is_att ? 'var(--primary-color)' : 'rgba(255,255,255,0.05)';
                         $text_color = $is_att ? '#000' : '#fff';
                         $border = $is_today ? '2px solid #fff' : '1px solid transparent';
-                        $opacity = $is_future ? '0.3' : '1';
+
+                        $opacity = '1';
+                        $status_js = $is_att ? 'Present' : 'Absent';
+                        $is_future_js = 'false';
+
+                        if ($is_future) {
+                            $opacity = '0.3';
+                            $is_future_js = 'true';
+                        } elseif ($is_before_join) {
+                            $opacity = '0.1';
+                            $status_js = 'Not Joined';
+                            $bg_color = 'transparent'; // clearer distinction
+                        }
+
                         ?>
                         <div style="
                         width: 45px; height: 45px; 
@@ -1905,23 +1920,28 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         display:flex; align-items:center; justify-content:center;
                         font-weight:bold; font-size:1rem; font-family: 'Oswald';
                         border: <?php echo $border; ?>;
+                        cursor: <?php echo ($is_before_join || $is_future) ? 'default' : 'pointer'; ?>;
                         opacity: <?php echo $opacity; ?>;
-                    "
-                            title="<?php echo date('M d, Y', strtotime($d_str)) . ($is_att ? ' - Present' : ($is_future ? '' : ' - Absent')); ?>">
+                    " onclick="<?php echo ($is_before_join || $is_future) ? '' : "showAttendanceStatus('" . date('M d, Y', strtotime($d_str)) . "', '$status_js', $is_future_js)"; ?>"
+                            title="<?php echo date('M d, Y', strtotime($d_str)) . ($is_before_join ? ' - Not Joined' : ($is_att ? ' - Present' : ($is_future ? '' : ' - Absent'))); ?>">
                             <?php echo $d; ?>
                         </div>
                     <?php endfor; ?>
                 </div>
                 <div style="margin-top:20px; display:flex; gap:20px; font-size:0.85rem; color:var(--text-gray);">
-                    <span style="display:flex; align-items:center; gap:8px;">
-                        <div style="width:12px; height:12px; background:var(--primary-color); border-radius:4px;"></div>
+                    <span id="legend-present"
+                        style="display:flex; align-items:center; gap:8px; padding: 5px 10px; border-radius: 8px; transition: 0.3s; border: 1px solid transparent;">
+                        <div id="legend-present-box"
+                            style="width:12px; height:12px; background:var(--primary-color); border-radius:4px; transition: 0.3s;">
+                        </div>
                         Present
                     </span>
-                    <span style="display:flex; align-items:center; gap:8px;">
-                        <div style="width:12px; height:12px; background:rgba(255,255,255,0.1); border-radius:4px;">
+                    <span id="legend-absent"
+                        style="display:flex; align-items:center; gap:8px; padding: 5px 10px; border-radius: 8px; transition: 0.3s; border: 1px solid transparent;">
+                        <div id="legend-absent-box"
+                            style="width:12px; height:12px; background:rgba(255,255,255,0.1); border-radius:4px; transition: 0.3s;">
                         </div> Absent
                     </span>
-
                 </div>
             </div>
         </div>
@@ -2881,6 +2901,55 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         alert('Error updating progress.');
                     }
                 });
+        }
+
+        function showToast(msg) {
+            let toast = document.getElementById('status-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'status-toast';
+                toast.className = 'toast';
+                document.body.appendChild(toast);
+            }
+            toast.innerText = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function showAttendanceStatus(dateStr, status, isFuture) {
+            if (isFuture) return;
+            showToast(`On ${dateStr}, you were ${status}.`);
+
+            // Reset surrounding styles
+            ['legend-present', 'legend-absent'].forEach(id => {
+                const el = document.getElementById(id);
+                el.style.background = 'transparent';
+                el.style.borderColor = 'transparent';
+                el.style.transform = 'scale(1)';
+                el.style.boxShadow = 'none';
+                el.style.color = 'var(--text-gray)';
+            });
+
+            const pBox = document.getElementById('legend-present-box');
+            const aBox = document.getElementById('legend-absent-box');
+
+            if (status === 'Present') {
+                pBox.style.background = 'var(--primary-color)';
+                pBox.style.boxShadow = '0 0 10px var(--primary-color)';
+                pBox.style.transform = 'scale(1.2)';
+
+                aBox.style.background = 'rgba(255,255,255,0.1)';
+                aBox.style.boxShadow = 'none';
+                aBox.style.transform = 'scale(1)';
+            } else {
+                pBox.style.background = 'rgba(255,255,255,0.1)';
+                pBox.style.boxShadow = 'none';
+                pBox.style.transform = 'scale(1)';
+
+                aBox.style.background = 'var(--primary-color)';
+                aBox.style.boxShadow = '0 0 10px var(--primary-color)';
+                aBox.style.transform = 'scale(1.2)';
+            }
         }
     </script>
 </body>

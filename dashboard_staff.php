@@ -706,11 +706,12 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             <li><a href="index.php"><i class="fa-solid fa-house"></i> Back to Website</a></li>
             <li style="border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 10px; padding-bottom: 10px;">
             </li>
-            <li><a href="#" onclick="showSection('attendance')"><i class="fa-solid fa-calendar-check"></i> Attendance
-                    </a></li>
-            <li><a href="#" class="active" onclick="showSection('members')"><i class="fa-solid fa-users"></i>
+            <li><a href="#" class="active" onclick="showSection('attendance')"><i
+                        class="fa-solid fa-calendar-check"></i> Attendance
+                </a></li>
+            <li><a href="#" onclick="showSection('members')"><i class="fa-solid fa-users"></i>
                     Members</a></li>
-                     <li><a href="#" onclick="showSection('reports')"><i class="fa-solid fa-users-rectangle"></i> Member
+            <li><a href="#" onclick="showSection('reports')"><i class="fa-solid fa-users-rectangle"></i> Member
                     Attendance Reports</a></li>
             <li><a href="#" onclick="showSection('queries')"><i class="fa-solid fa-comments"></i> Member Queries</a>
             </li>
@@ -718,8 +719,8 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                     Content</a></li>
             <li><a href="#" onclick="showSection('payments')"><i class="fa-solid fa-file-invoice-dollar"></i>
                     Payments</a></li>
-            
-           
+
+
             <li><a href="#" onclick="showSection('profile')"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
             </li>
         </ul>
@@ -737,7 +738,7 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             </div>
         </div>
 
-        <div id="members" class="dashboard-section active">
+        <div id="members" class="dashboard-section">
             <div class="dashboard-card">
                 <h3>Member Directory</h3>
                 <a href="#" class="btn-add" onclick="openAddMemberModal()">+ Add New Member</a>
@@ -1051,8 +1052,8 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                 if (count($grouped_content) > 0):
                     $is_first = true;
                     foreach ($grouped_content as $month => $items):
-                        $display_style = $is_first ? 'block' : 'none';
-                        $icon_class = $is_first ? 'fa-chevron-up' : 'fa-chevron-down';
+                        $display_style = 'none';
+                        $icon_class = 'fa-chevron-down';
                         ?>
 
                         <div class="month-group"
@@ -1255,7 +1256,7 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             </div>
         </div>
         <!-- Attendance Section -->
-        <div id="attendance" class="dashboard-section">
+        <div id="attendance" class="dashboard-section active">
             <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Attendance Management</h2>
 
             <div class="dashboard-grid">
@@ -1309,11 +1310,28 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                                     $s_op = $s_is_fut ? '0.2' : '1';
                                     $s_border = $s_is_pres ? 'none' : '1px solid rgba(255,255,255,0.1)';
                                     ?>
-                                    <div style="height:45px; display:flex; align-items:center; justify-content:center; background:<?php echo $s_bg; ?>; color:<?php echo $s_col; ?>; border-radius:10px; font-weight:bold; font-size:0.9rem; opacity:<?php echo $s_op; ?>; border: <?php echo $s_border; ?>; transition: 0.3s;"
+                                    <div style="height:45px; display:flex; align-items:center; justify-content:center; background:<?php echo $s_bg; ?>; color:<?php echo $s_col; ?>; border-radius:10px; font-weight:bold; font-size:0.9rem; opacity:<?php echo $s_op; ?>; border: <?php echo $s_border; ?>; transition: 0.3s; cursor: pointer;"
+                                        onclick="showAttendanceStatus('<?php echo date('M d, Y', strtotime($s_date)); ?>', '<?php echo $s_is_pres ? 'Present' : 'Absent'; ?>', <?php echo $s_is_fut ? 'true' : 'false'; ?>)"
                                         title="<?php echo $s_date; ?>">
                                         <?php echo $d; ?>
                                     </div>
                                 <?php endfor; ?>
+                            </div>
+                            <div
+                                style="margin-top:20px; display:flex; gap:20px; font-size:0.85rem; color:var(--text-gray);">
+                                <span id="legend-present"
+                                    style="display:flex; align-items:center; gap:8px; padding: 5px 10px; border-radius: 8px; transition: 0.3s; border: 1px solid transparent;">
+                                    <div id="legend-present-box"
+                                        style="width:12px; height:12px; background:var(--primary-color); border-radius:4px; transition: 0.3s;">
+                                    </div>
+                                    Present
+                                </span>
+                                <span id="legend-absent"
+                                    style="display:flex; align-items:center; gap:8px; padding: 5px 10px; border-radius: 8px; transition: 0.3s; border: 1px solid transparent;">
+                                    <div id="legend-absent-box"
+                                        style="width:12px; height:12px; background:rgba(255,255,255,0.1); border-radius:4px; transition: 0.3s;">
+                                    </div> Absent
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -1329,47 +1347,55 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
         <div id="reports" class="dashboard-section">
             <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Member Attendance Reports</h2>
             <div class="dashboard-card" style="padding: 40px;">
-                <h3 style="margin-bottom: 25px;"><i class="fa-solid fa-users-rectangle"></i> Select Member to View Report</h3>
-                
+                <h3 style="margin-bottom: 25px;"><i class="fa-solid fa-users-rectangle"></i> Select Member to View
+                    Report</h3>
+
                 <div style="background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;">
                     <table style="width: 100%; border-collapse: collapse;">
                         <thead>
                             <tr style="background: rgba(0,0,0,0.2); text-align: left;">
-                                <th style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">Member Name</th>
-                                <th style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">Email</th>
-                                <th style="padding: 15px 20px; text-align: right; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">Action</th>
+                                <th
+                                    style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
+                                    Member Name</th>
+                                <th
+                                    style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
+                                    Email</th>
+                                <th
+                                    style="padding: 15px 20px; text-align: right; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
+                                    Action</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php
                             $report_members_res = mysqli_query($link, "SELECT * FROM users WHERE role = 'member' ORDER BY full_name ASC");
-                            
+
                             if (mysqli_num_rows($report_members_res) > 0):
                                 while ($m = mysqli_fetch_assoc($report_members_res)):
-                            ?>
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                <td style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
-                                    <?php echo htmlspecialchars($m['full_name']); ?>
-                                </td>
-                                <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
-                                    <?php echo htmlspecialchars($m['email']); ?>
-                                </td>
-                                <td style="padding: 15px 20px; text-align: right;">
-                                    <a href="staff_view_member_report.php?uid=<?php echo $m['id']; ?>" target="_blank" 
-                                       style="display: inline-block; padding: 6px 12px; font-size: 0.8rem; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; text-decoration: none; transition: 0.3s; background: rgba(206, 255, 0, 0.05);">
-                                        <i class="fa-solid fa-file-invoice"></i> View Report
-                                    </a>
-                                </td>
-                            </tr>
-                            <?php 
+                                    ?>
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                        <td
+                                            style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
+                                            <?php echo htmlspecialchars($m['full_name']); ?>
+                                        </td>
+                                        <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
+                                            <?php echo htmlspecialchars($m['email']); ?>
+                                        </td>
+                                        <td style="padding: 15px 20px; text-align: right;">
+                                            <a href="staff_view_member_report.php?uid=<?php echo $m['id']; ?>" target="_blank"
+                                                style="display: inline-block; padding: 6px 12px; font-size: 0.8rem; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; text-decoration: none; transition: 0.3s; background: rgba(206, 255, 0, 0.05);">
+                                                <i class="fa-solid fa-file-invoice"></i> View Report
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    <?php
                                 endwhile;
                             else:
-                            ?>
-                            <tr>
-                                <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
-                                    No members found.
-                                </td>
-                            </tr>
+                                ?>
+                                <tr>
+                                    <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
+                                        No members found.
+                                    </td>
+                                </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -1581,6 +1607,80 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                 row.style.display = 'none';
                 icon.classList.remove('fa-chevron-up');
                 icon.classList.add('fa-chevron-down');
+            }
+        }
+
+        // Attendance Toast & Legend Logic
+        function showToast(msg) {
+            let toast = document.getElementById('status-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'status-toast';
+                toast.className = 'toast';
+                // Add CSS for toast dynamically if it doesn't exist in stylesheet
+                if (!document.getElementById('toast-style')) {
+                    const style = document.createElement('style');
+                    style.id = 'toast-style';
+                    style.innerHTML = `
+                        .toast {
+                            position: fixed; top: 30px; left: 50%; transform: translateX(-50%) translateY(-100px);
+                            background: rgba(26, 26, 46, 0.95); border: 1px solid var(--primary-color); color: #fff;
+                            padding: 15px 30px; border-radius: 50px; font-family: 'Oswald'; font-size: 1rem;
+                            letter-spacing: 1px; z-index: 9999; transition: 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                            box-shadow: 0 10px 30px rgba(206, 255, 0, 0.1); display: flex; align-items: center; gap: 12px;
+                            backdrop-filter: blur(10px); opacity: 0;
+                        }
+                        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+                        .toast::before { content: '\\f058'; font-family: 'Font Awesome 6 Free'; font-weight: 900; color: var(--primary-color); }
+                    `;
+                    document.head.appendChild(style);
+                }
+                document.body.appendChild(toast);
+            }
+            toast.innerText = msg;
+            // Force reflow
+            void toast.offsetWidth;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function showAttendanceStatus(dateStr, status, isFuture) {
+            if (isFuture) return;
+            showToast(`On ${dateStr}, you were ${status}.`);
+
+            // Reset surrounding styles
+            ['legend-present', 'legend-absent'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.style.background = 'transparent';
+                    el.style.borderColor = 'transparent';
+                    el.style.transform = 'scale(1)';
+                    el.style.boxShadow = 'none';
+                    el.style.color = 'var(--text-gray)';
+                }
+            });
+
+            const pBox = document.getElementById('legend-present-box');
+            const aBox = document.getElementById('legend-absent-box');
+
+            if (pBox && aBox) {
+                if (status === 'Present') {
+                    pBox.style.background = 'var(--primary-color)';
+                    pBox.style.boxShadow = '0 0 10px var(--primary-color)';
+                    pBox.style.transform = 'scale(1.2)';
+
+                    aBox.style.background = 'rgba(255,255,255,0.1)';
+                    aBox.style.boxShadow = 'none';
+                    aBox.style.transform = 'scale(1)';
+                } else {
+                    pBox.style.background = 'rgba(255,255,255,0.1)';
+                    pBox.style.boxShadow = 'none';
+                    pBox.style.transform = 'scale(1)';
+
+                    aBox.style.background = 'var(--primary-color)';
+                    aBox.style.boxShadow = '0 0 10px var(--primary-color)';
+                    aBox.style.transform = 'scale(1.2)';
+                }
             }
         }
     </script>
