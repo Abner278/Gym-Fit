@@ -65,6 +65,11 @@ $join_date = date('Y-m-d', strtotime($user_data['created_at']));
 // FETCH TRAINERS
 $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_at DESC");
 
+// FETCH LATEST ANNOUNCEMENT
+$ann_res = mysqli_query($link, "SELECT * FROM announcements ORDER BY created_at DESC LIMIT 1");
+$latest_announcement = mysqli_fetch_assoc($ann_res);
+
+
 // Ensure attendance table exists
 $attendance_sql = "CREATE TABLE IF NOT EXISTS attendance (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1197,7 +1202,9 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 <h1>Hello, <?php echo htmlspecialchars($_SESSION["full_name"]); ?>!</h1>
                 <p>Welcome back to your fitness portal.</p>
             </div>
+
             <div class="dashboard-grid">
+
                 <!-- Membership Card -->
                 <div class="dashboard-card">
                     <h3>Membership <i class="fa-solid fa-crown" style="color: var(--primary-color);"></i></h3>
@@ -1222,16 +1229,31 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     </button>
                 </div>
 
-                <!-- Announcements -->
-                <div class="dashboard-card">
-                    <h3>Announcements <i class="fa-solid fa-bullhorn"></i></h3>
-                    <div
-                        style="background: rgba(206, 255, 0, 0.05); padding: 15px; border-radius: 12px; margin-bottom: 15px;">
-                        <p style="font-size: 0.85rem; font-weight: bold;">New Equipment Arrival!</p>
-                        <p style="font-size: 0.8rem; color: var(--text-gray); margin-top: 5px;">We just added 3 new
-                            Treadmills Elite in the cardio zone.</p>
+                <!-- Announcement Section -->
+                <?php if ($latest_announcement): ?>
+                    <div class="dashboard-card">
+                        <h3>Announcements <i class="fa-solid fa-bullhorn"></i></h3>
+                        <div
+                            style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; border-left: 4px solid var(--primary-color);">
+                            <h4
+                                style="color: #fff; margin-bottom: 8px; font-family: 'Oswald', sans-serif; font-size: 1.1rem;">
+                                <?php echo htmlspecialchars($latest_announcement['title']); ?>
+                            </h4>
+                            <p style="color: var(--text-gray); font-size: 0.95rem; line-height: 1.5;">
+                                <?php echo nl2br(htmlspecialchars($latest_announcement['message'])); ?>
+                            </p>
+                        </div>
                     </div>
-                </div>
+                <?php else: ?>
+                    <!-- Fallback if no announcement -->
+                    <div class="dashboard-card">
+                        <h3>Announcements <i class="fa-solid fa-bullhorn"></i></h3>
+                        <div
+                            style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; text-align:center;">
+                            <p style="color: var(--text-gray);">No new announcements.</p>
+                        </div>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 

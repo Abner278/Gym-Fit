@@ -126,10 +126,22 @@ $queries_sql = "CREATE TABLE IF NOT EXISTS member_queries (
 )";
 mysqli_query($link, $queries_sql);
 
+// Create inventory table
+$inventory_sql = "CREATE TABLE IF NOT EXISTS inventory (
+    id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+    item_name VARCHAR(255) NOT NULL,
+    quantity INT NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    last_maintenance DATE NULL,
+    next_service DATE NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)";
+mysqli_query($link, $inventory_sql);
+
 // Create some default users for testing if they don't exist
 $check_admin = "SELECT * FROM users WHERE role='admin' LIMIT 1";
 $result = mysqli_query($link, $check_admin);
-if (mysqli_num_rows($result) == 0) {
+if ($result && mysqli_num_rows($result) == 0) {
     $admin_pass = password_hash('admin123', PASSWORD_DEFAULT);
     $staff_pass = password_hash('staff123', PASSWORD_DEFAULT);
     $member_pass = password_hash('member123', PASSWORD_DEFAULT);
@@ -140,9 +152,11 @@ if (mysqli_num_rows($result) == 0) {
 
     // Add default tasks for the member user
     $member_id = mysqli_insert_id($link);
-    mysqli_query($link, "INSERT INTO tasks (user_id, task_name, is_done) VALUES 
-        ($member_id, 'Morning Cardio (30 mins)', 1),
-        ($member_id, 'Drink 4L Water', 0),
-        ($member_id, 'Take Supplements', 1)");
+    if ($member_id) {
+        mysqli_query($link, "INSERT INTO tasks (user_id, task_name, is_done) VALUES 
+            ($member_id, 'Morning Cardio (30 mins)', 1),
+            ($member_id, 'Drink 4L Water', 0),
+            ($member_id, 'Take Supplements', 1)");
+    }
 }
 ?>

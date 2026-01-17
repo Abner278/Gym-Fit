@@ -215,47 +215,62 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_member'])) {
 // Fetch all members
 $members_res = mysqli_query($link, "SELECT * FROM users WHERE role = 'member' ORDER BY created_at DESC");
 
-// --- QUERY MANAGEMENT ---
-require_once 'mailer.php';
 
-// Handle Reply
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reply_query'])) {
-    $query_id = (int) $_POST['query_id'];
-    $reply_text = mysqli_real_escape_string($link, $_POST['reply_content']);
-    $user_email = mysqli_real_escape_string($link, $_POST['user_email']);
-    $user_name = mysqli_real_escape_string($link, $_POST['user_name']);
 
-    $subject = "GymFit Team: Reply to your inquiry";
-    $email_body = "Hello $user_name,<br><br>Thank you for reaching out to GymFit. Here is our reply to your inquiry:<br><hr><br>$reply_text<br><br><hr>Best regards,<br>GymFit Staff Team";
+// --- INVENTORY MANAGEMENT ---
 
-    if (sendMail($user_email, $subject, $email_body)) {
-        $update_sql = "UPDATE member_queries SET reply = '$reply_text', status = 'resolved' WHERE id = $query_id";
-        if (mysqli_query($link, $update_sql)) {
-            $_SESSION['msg'] = "Reply sent and email delivered successfully!";
-        } else {
-            $_SESSION['msg'] = "Reply sent but failed to update status in data.";
-        }
+// Handle Add Item
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_inventory'])) {
+    $name = mysqli_real_escape_string($link, $_POST['item_name']);
+    $qty = (int) $_POST['quantity'];
+    $status = mysqli_real_escape_string($link, $_POST['status']);
+    $last_m = mysqli_real_escape_string($link, $_POST['last_maintenance']);
+    $next_s = mysqli_real_escape_string($link, $_POST['next_service']);
+
+    $sql = "INSERT INTO inventory (item_name, quantity, status, last_maintenance, next_service) VALUES ('$name', $qty, '$status', '$last_m', '$next_s')";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['msg'] = "Item added successfully!";
     } else {
-        $_SESSION['msg'] = "Error: Failed to send email reply.";
+        $_SESSION['msg'] = "Error adding item.";
     }
     header("Location: dashboard_staff.php");
     exit;
 }
 
-// Handle Delete Query
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_query'])) {
-    $id = (int) $_POST['query_id'];
-    if (mysqli_query($link, "DELETE FROM member_queries WHERE id = $id")) {
-        $_SESSION['msg'] = "Inquiry deleted successfully.";
+// Handle Update Item
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_inventory'])) {
+    $id = (int) $_POST['item_id'];
+    $name = mysqli_real_escape_string($link, $_POST['item_name']);
+    $qty = (int) $_POST['quantity'];
+    $status = mysqli_real_escape_string($link, $_POST['status']);
+    $last_m = mysqli_real_escape_string($link, $_POST['last_maintenance']);
+    $next_s = mysqli_real_escape_string($link, $_POST['next_service']);
+
+    $sql = "UPDATE inventory SET item_name='$name', quantity=$qty, status='$status', last_maintenance='$last_m', next_service='$next_s' WHERE id=$id";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['msg'] = "Item updated successfully!";
     } else {
-        $_SESSION['msg'] = "Error deleting inquiry.";
+        $_SESSION['msg'] = "Error updating item.";
     }
     header("Location: dashboard_staff.php");
     exit;
 }
 
-// Fetch Queries
-$queries_res = mysqli_query($link, "SELECT * FROM member_queries ORDER BY created_at DESC");
+// Handle Delete Item
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_inventory'])) {
+    $id = (int) $_POST['item_id'];
+    if (mysqli_query($link, "DELETE FROM inventory WHERE id=$id")) {
+        $_SESSION['msg'] = "Item deleted successfully!";
+    } else {
+        $_SESSION['msg'] = "Error deleting item.";
+    }
+    header("Location: dashboard_staff.php");
+    exit;
+}
+
+// Fetch Inventory
+$inventory_res = mysqli_query($link, "SELECT * FROM inventory ORDER BY created_at ASC");
+$inventory_count = mysqli_num_rows($inventory_res);
 
 // Fetch All Payments
 $payments_sql = "SELECT t.*, u.full_name, u.email as user_email 
@@ -600,6 +615,25 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             color: #fff;
         }
 
+        select.form-control {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ceff00'%3e%3cpath d='M7 10l5 5 5-5z'/%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+            background-size: 1.2em;
+            padding-right: 2.5rem;
+            cursor: pointer;
+            border-color: var(--primary-color) !important;
+        }
+
+        select.form-control option {
+            background-color: var(--secondary-color);
+            color: #fff;
+            padding: 10px;
+        }
+
         .dashboard-section {
             display: none;
         }
@@ -713,10 +747,11 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                     Members</a></li>
             <li><a href="#" onclick="showSection('reports')"><i class="fa-solid fa-users-rectangle"></i> Member
                     Attendance Reports</a></li>
-            <li><a href="#" onclick="showSection('queries')"><i class="fa-solid fa-comments"></i> Member Queries</a>
-            </li>
+
             <li><a href="#" onclick="showSection('content')"><i class="fa-solid fa-cloud-arrow-up"></i> Upload
                     Content</a></li>
+            <li><a href="#" onclick="showSection('inventory')"><i class="fa-solid fa-boxes-stacked"></i> Inventory</a>
+            </li>
             <li><a href="#" onclick="showSection('payments')"><i class="fa-solid fa-file-invoice-dollar"></i>
                     Payments</a></li>
 
@@ -738,10 +773,92 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             </div>
         </div>
 
+        <div id="inventory" class="dashboard-section">
+            <div class="dashboard-card">
+                <h3>Gym Inventory & Equipment</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div style="position: relative; width: 300px;">
+                        <i class="fa-solid fa-magnifying-glass"
+                            style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
+                        <input type="text" id="inventory-search" onkeyup="searchInventory()" placeholder="Search items"
+                            style="width: 100%; padding: 10px 15px 10px 40px; border-radius: 30px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <span
+                            style="background: #000; color: #fff; padding: 10px 20px; border-radius: 5px; font-weight: bold; font-size: 0.9rem; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">Total
+                            Items: <?php echo $inventory_count; ?></span>
+                        <a href="#" class="btn-add" onclick="openAddInventoryModal()" style="margin: 0; float: none;">+
+                            Add Item</a>
+                    </div>
+                </div>
+
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Item Name</th>
+                                <th>Quantity</th>
+                                <th>Status</th>
+                                <th>Last Maintenance</th>
+                                <th>Next Service</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (mysqli_num_rows($inventory_res) > 0): ?>
+                                <?php while ($item = mysqli_fetch_assoc($inventory_res)):
+                                    $status_color = ($item['status'] == 'Functional' || $item['status'] == 'Good') ? '#ceff00' : '#ff4d4d';
+                                    ?>
+                                    <tr>
+                                        <td style="font-weight: bold;">
+                                            <?php echo htmlspecialchars($item['item_name']); ?>
+                                        </td>
+                                        <td>
+                                            <?php echo $item['quantity']; ?>
+                                        </td>
+                                        <td style="color: <?php echo $status_color; ?>">
+                                            <?php echo htmlspecialchars($item['status']); ?>
+                                        </td>
+                                        <td>
+                                            <?php echo date('M d, Y', strtotime($item['last_maintenance'])); ?>
+                                        </td>
+                                        <td>
+                                            <?php echo date('M d, Y', strtotime($item['next_service'])); ?>
+                                        </td>
+                                        <td>
+                                            <div style="display: flex; gap: 5px;">
+                                                <button class="btn-sm btn-edit"
+                                                    onclick='openEditInventoryModal(<?php echo json_encode($item); ?>)'>Edit</button>
+
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endwhile; ?>
+                            <?php else: ?>
+                                <tr>
+                                    <td colspan="6" style="text-align: center; color: var(--text-gray);">No items found.
+                                    </td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <div id="members" class="dashboard-section">
+
             <div class="dashboard-card">
                 <h3>Member Directory</h3>
-                <a href="#" class="btn-add" onclick="openAddMemberModal()">+ Add New Member</a>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div style="position: relative; width: 300px;">
+                        <i class="fa-solid fa-magnifying-glass"
+                            style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
+                        <input type="text" id="member-search" onkeyup="searchMembers()" placeholder="Search members"
+                            style="width: 100%; padding: 10px 15px 10px 40px; border-radius: 30px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;">
+                    </div>
+                    <a href="#" class="btn-add" onclick="openAddMemberModal()" style="margin: 0;">+ Add New Member</a>
+                </div>
 
                 <!-- Success/Error Message for Members -->
                 <?php if (!empty($msg)): ?>
@@ -875,111 +992,7 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             </div>
         </div>
 
-        <div id="queries" class="dashboard-section">
-            <div class="dashboard-card">
-                <h3>Member Inquiries</h3>
-                <div class="video-list" style="display: flex; flex-direction: column; gap: 15px;">
-                    <?php if (mysqli_num_rows($queries_res) > 0): ?>
-                        <?php while ($row = mysqli_fetch_assoc($queries_res)): ?>
-                            <div
-                                style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; border-left: 5px solid <?php echo $row['status'] == 'pending' ? 'var(--primary-color)' : '#00ff00'; ?>; position: relative;">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
-                                    <div>
-                                        <h4 style="color: #fff; margin-bottom: 3px; font-family: 'Oswald', sans-serif;">
-                                            <?php echo htmlspecialchars($row['name']); ?>
-                                        </h4>
-                                        <div style="display: flex; align-items: center; gap: 8px;">
-                                            <i class="fa-solid fa-envelope"
-                                                style="font-size: 0.8rem; color: var(--primary-color);"></i>
-                                            <span
-                                                style="color: var(--text-gray); font-size: 0.85rem;"><?php echo htmlspecialchars($row['email']); ?></span>
-                                        </div>
-                                    </div>
-                                    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
-                                        <span
-                                            class="badge <?php echo $row['status'] == 'pending' ? 'badge-warning' : 'badge-success'; ?>"
-                                            style="font-size: 0.7rem; padding: 4px 10px; border-radius: 20px;">
-                                            <?php echo ucfirst($row['status']); ?>
-                                        </span>
-                                        <form method="POST" style="display: inline;"
-                                            onsubmit="return confirm('Permanently delete this inquiry?');">
-                                            <input type="hidden" name="delete_query" value="1">
-                                            <input type="hidden" name="query_id" value="<?php echo $row['id']; ?>">
-                                            <button type="submit"
-                                                style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 0.9rem; padding: 5px;"
-                                                title="Delete Inquiry">
-                                                <i class="fa-solid fa-trash-can"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                </div>
-                                <div
-                                    style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
-                                    <p style="font-size: 0.95rem; color: #eee; line-height: 1.5; font-style: italic;">
-                                        "<?php echo htmlspecialchars($row['message']); ?>"</p>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <small style="color: var(--text-gray); font-size: 0.8rem;">
-                                        <i class="fa-regular fa-clock" style="margin-right: 5px;"></i>
-                                        <?php echo date('M d, Y | g:i A', strtotime($row['created_at'])); ?>
-                                    </small>
 
-                                    <?php if ($row['status'] == 'pending'): ?>
-                                        <button class="btn-sm btn-edit"
-                                            style="margin: 0; padding: 8px 15px; border-radius: 6px; display: flex; align-items: center; gap: 6px;"
-                                            onclick='openReplyModal(<?php echo json_encode($row); ?>)'>
-                                            <i class="fa-solid fa-reply"></i> Reply via Email
-                                        </button>
-                                    <?php endif; ?>
-                                </div>
-
-                                <?php if ($row['status'] == 'resolved'): ?>
-                                    <div
-                                        style="margin-top: 15px; padding: 12px; background: rgba(161, 212, 35, 0.05); border: 1px dashed rgba(161, 212, 35, 0.3); border-radius: 8px;">
-                                        <strong
-                                            style="color: var(--primary-color); display: block; font-size: 0.8rem; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">
-                                            <i class="fa-solid fa-check-double"></i> Staff Response:
-                                        </strong>
-                                        <p style="font-size: 0.9rem; color: #ddd; line-height: 1.4;">
-                                            "<?php echo htmlspecialchars($row['reply']); ?>"</p>
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-                        <?php endwhile; ?>
-                    <?php else: ?>
-                        <p style="color: var(--text-gray); font-style: italic;">No inquiries found.</p>
-                    <?php endif; ?>
-                </div>
-            </div>
-        </div>
-
-        <!-- Reply Modal -->
-        <div id="reply-modal" class="modal">
-            <div class="modal-content">
-                <h3 style="margin-bottom: 20px;">Reply to Member</h3>
-                <div style="margin-bottom: 15px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px;">
-                    <p style="color: var(--text-gray); font-size: 0.85rem; margin-bottom: 5px;">Member's Question:</p>
-                    <p id="reply-question" style="font-size: 0.9rem; line-height: 1.4;"></p>
-                </div>
-                <form method="POST">
-                    <input type="hidden" name="reply_query" value="1">
-                    <input type="hidden" name="query_id" id="reply-id">
-                    <input type="hidden" name="user_email" id="reply-email">
-                    <input type="hidden" name="user_name" id="reply-name">
-                    <div class="form-group">
-                        <label>Your Reply (Will be sent to their email)</label>
-                        <textarea name="reply_content" class="form-control" rows="5" required
-                            placeholder="Type your response here..."></textarea>
-                    </div>
-                    <div style="display: flex; gap: 10px; margin-top: 20px;">
-                        <button type="submit" class="btn-add" style="float: none; margin: 0; flex-grow: 1;">Send
-                            Reply</button>
-                        <button type="button" class="btn-sm" style="background: #333; color: #fff;"
-                            onclick="closeModal('reply-modal')">Cancel</button>
-                    </div>
-                </form>
-            </div>
-        </div>
 
         <!-- Content Management -->
         <div id="content" class="dashboard-section">
@@ -1126,7 +1139,15 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
         <!-- Payments Section -->
         <div id="payments" class="dashboard-section">
             <div class="dashboard-card">
-                <h3 style="margin-bottom: 20px;">Member Payment History</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h3 style="margin: 0;">Member Payment History</h3>
+                    <div style="position: relative; width: 300px;">
+                        <i class="fa-solid fa-magnifying-glass"
+                            style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
+                        <input type="text" id="payment-search" onkeyup="searchPayments()" placeholder="Search payments"
+                            style="width: 100%; padding: 10px 15px 10px 40px; border-radius: 30px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;">
+                    </div>
+                </div>
                 <div style="overflow-x: auto;">
                     <table class="data-table">
                         <thead>
@@ -1346,67 +1367,72 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
         <!-- Member Reports Section -->
         <div id="reports" class="dashboard-section">
             <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Member Attendance Reports</h2>
-            <div class="dashboard-card" style="padding: 40px;">
-                <h3 style="margin-bottom: 25px;"><i class="fa-solid fa-users-rectangle"></i> Select Member to View
-                    Report</h3>
-
-                <div style="background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;">
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <thead>
-                            <tr style="background: rgba(0,0,0,0.2); text-align: left;">
-                                <th
-                                    style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
-                                    Member Name</th>
-                                <th
-                                    style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
-                                    Email</th>
-                                <th
-                                    style="padding: 15px 20px; text-align: right; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
-                                    Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php
-                            $report_members_res = mysqli_query($link, "SELECT * FROM users WHERE role = 'member' ORDER BY full_name ASC");
-
-                            if (mysqli_num_rows($report_members_res) > 0):
-                                while ($m = mysqli_fetch_assoc($report_members_res)):
-                                    ?>
-                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                        <td
-                                            style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
-                                            <?php echo htmlspecialchars($m['full_name']); ?>
-                                        </td>
-                                        <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
-                                            <?php echo htmlspecialchars($m['email']); ?>
-                                        </td>
-                                        <td style="padding: 15px 20px; text-align: right;">
-                                            <a href="staff_view_member_report.php?uid=<?php echo $m['id']; ?>" target="_blank"
-                                                style="display: inline-block; padding: 6px 12px; font-size: 0.8rem; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; text-decoration: none; transition: 0.3s; background: rgba(206, 255, 0, 0.05);">
-                                                <i class="fa-solid fa-file-invoice"></i> View Report
-                                            </a>
-                                        </td>
-                                    </tr>
-                                    <?php
-                                endwhile;
-                            else:
-                                ?>
-                                <tr>
-                                    <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
-                                        No members found.
-                                    </td>
-                                </tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+                <h3 style="margin: 0;"><i class="fa-solid fa-users-rectangle"></i> Select Member to View Report</h3>
+                <div style="position: relative; width: 300px;">
+                    <i class="fa-solid fa-magnifying-glass"
+                        style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
+                    <input type="text" id="report-search" onkeyup="searchReports()" placeholder="Search members"
+                        style="width: 100%; padding: 10px 15px 10px 40px; border-radius: 30px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;">
                 </div>
             </div>
+
+            <div style="background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: rgba(0,0,0,0.2); text-align: left;">
+                            <th
+                                style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
+                                Member Name</th>
+                            <th
+                                style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
+                                Email</th>
+                            <th
+                                style="padding: 15px 20px; text-align: right; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
+                                Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php
+                        $report_members_res = mysqli_query($link, "SELECT * FROM users WHERE role = 'member' ORDER BY full_name ASC");
+
+                        if (mysqli_num_rows($report_members_res) > 0):
+                            while ($m = mysqli_fetch_assoc($report_members_res)):
+                                ?>
+                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                    <td style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
+                                        <?php echo htmlspecialchars($m['full_name']); ?>
+                                    </td>
+                                    <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
+                                        <?php echo htmlspecialchars($m['email']); ?>
+                                    </td>
+                                    <td style="padding: 15px 20px; text-align: right;">
+                                        <a href="staff_view_member_report.php?uid=<?php echo $m['id']; ?>" target="_blank"
+                                            style="display: inline-block; padding: 6px 12px; font-size: 0.8rem; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; text-decoration: none; transition: 0.3s; background: rgba(206, 255, 0, 0.05);">
+                                            <i class="fa-solid fa-file-invoice"></i> View Report
+                                        </a>
+                                    </td>
+                                </tr>
+                                <?php
+                            endwhile;
+                        else:
+                            ?>
+                            <tr>
+                                <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
+                                    No members found.
+                                </td>
+                            </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
+
 
         <!-- Profile Section -->
         <div id="profile" class="dashboard-section">
             <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Profile Settings</h2>
-            <div class="dashboard-card" style="max-width: 650px; margin-left: auto; margin-right: auto;">
+            <div class="dashboard-card" style="max-width: 650px;">
                 <form method="POST" enctype="multipart/form-data" id="profile-form">
                     <div class="profile-img-container">
                         <img id="profile-preview"
@@ -1453,12 +1479,12 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                     <button type="submit" name="update_profile" class="btn-action">
                         <i class="fa-solid fa-floppy-disk"></i> Update Profile Details
                     </button>
-                    <p style="text-align: center; font-size: 0.8rem; color: var(--text-gray); margin-top: 15px;">Changes
+                    <p style="text-align: center; font-size: 0.8rem; color: var(--text-gray); margin-top: 15px;">
+                        Changes
                         will be saved permanently to your account.</p>
                 </form>
             </div>
         </div>
-
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
@@ -1552,13 +1578,29 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             document.getElementById(id).style.display = 'none';
         }
 
-        function openReplyModal(data) {
-            document.getElementById('reply-id').value = data.id;
-            document.getElementById('reply-email').value = data.email;
-            document.getElementById('reply-name').value = data.name;
-            document.getElementById('reply-question').innerText = `"${data.message}"`;
-            document.getElementById('reply-modal').style.display = 'flex';
+
+
+        // --- INVENTORY MODALS ---
+        function openAddInventoryModal() {
+            document.getElementById('add-inventory-modal').style.display = 'flex';
         }
+
+        function openEditInventoryModal(item) {
+            document.getElementById('edit-inventory-id').value = item.id;
+            document.getElementById('edit-inventory-name').value = item.item_name;
+            document.getElementById('edit-inventory-qty').value = item.quantity;
+            document.getElementById('edit-inventory-status').value = item.status;
+
+            // Set values for date inputs
+            const lastPickr = document.querySelector('#edit-inventory-last')._flatpickr;
+            const nextPickr = document.querySelector('#edit-inventory-next')._flatpickr;
+
+            if (lastPickr) lastPickr.setDate(item.last_maintenance);
+            if (nextPickr) nextPickr.setDate(item.next_service);
+
+            document.getElementById('edit-inventory-modal').style.display = 'flex';
+        }
+
 
         function togglePass(inputId, icon) {
             const input = document.getElementById(inputId);
@@ -1680,6 +1722,182 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                     aBox.style.background = 'var(--primary-color)';
                     aBox.style.boxShadow = '0 0 10px var(--primary-color)';
                     aBox.style.transform = 'scale(1.2)';
+                }
+            }
+        }
+    </script>
+
+    <!-- Add Inventory Modal -->
+    <div id="add-inventory-modal" class="modal">
+        <div class="modal-content">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="font-family:'Oswald'; color:var(--primary-color);">Add Inventory Item</h3>
+                <span onclick="closeModal('add-inventory-modal')"
+                    style="cursor:pointer; font-size:1.5rem; color:#fff;">&times;</span>
+            </div>
+            <form method="POST">
+                <input type="hidden" name="add_inventory" value="1">
+                <div class="form-group">
+                    <label>Item Name</label>
+                    <input type="text" name="item_name" class="form-control" required placeholder="e.g. Treadmill">
+                </div>
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input type="number" name="quantity" class="form-control" required min="1">
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select name="status" class="form-control" style="background:rgba(0,0,0,0.3); color:#fff;">
+                        <option value="Functional">Functional</option>
+                        <option value="Good">Good</option>
+                        <option value="Service Due">Service Due</option>
+                        <option value="Broken">Broken</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Last Maintenance</label>
+                    <input type="text" name="last_maintenance" class="form-control date-picker" required
+                        placeholder="Select Date">
+                </div>
+                <div class="form-group">
+                    <label>Next Service</label>
+                    <input type="text" name="next_service" class="form-control date-picker" required
+                        placeholder="Select Date">
+                </div>
+                <button type="submit" class="btn-action">Add Item</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Inventory Modal -->
+    <div id="edit-inventory-modal" class="modal">
+        <div class="modal-content">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="font-family:'Oswald'; color:var(--primary-color);">Edit Inventory Item</h3>
+                <span onclick="closeModal('edit-inventory-modal')"
+                    style="cursor:pointer; font-size:1.5rem; color:#fff;">&times;</span>
+            </div>
+            <form method="POST">
+                <input type="hidden" name="update_inventory" value="1">
+                <input type="hidden" name="item_id" id="edit-inventory-id">
+                <div class="form-group">
+                    <label>Item Name</label>
+                    <input type="text" name="item_name" id="edit-inventory-name" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input type="number" name="quantity" id="edit-inventory-qty" class="form-control" required min="1">
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select name="status" id="edit-inventory-status" class="form-control"
+                        style="background:rgba(0,0,0,0.3); color:#fff;">
+                        <option value="Functional">Functional</option>
+                        <option value="Good">Good</option>
+                        <option value="Service Due">Service Due</option>
+                        <option value="Broken">Broken</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Last Maintenance</label>
+                    <input type="text" name="last_maintenance" id="edit-inventory-last" class="form-control date-picker"
+                        required>
+                </div>
+                <div class="form-group">
+                    <label>Next Service</label>
+                    <input type="text" name="next_service" id="edit-inventory-next" class="form-control date-picker"
+                        required>
+                </div>
+                <button type="submit" class="btn-action">Update Item</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Initialize all date pickers used in modals
+        flatpickr(".date-picker", {
+            dateFormat: "Y-m-d",
+            theme: "dark"
+        });
+        function searchInventory() {
+            let input = document.getElementById("inventory-search");
+            let filter = input.value.toUpperCase();
+            let table = document.querySelector("#inventory .data-table");
+            let tr = table.getElementsByTagName("tr");
+
+            // Loop through all table rows, and hide those who don't match the search query
+            for (let i = 1; i < tr.length; i++) {
+                let td = tr[i].getElementsByTagName("td")[0]; // Column 0 is Item Name
+                if (td) {
+                    let txtValue = td.textContent || td.innerText;
+                    if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                        tr[i].style.display = "";
+                    } else {
+                        tr[i].style.display = "none";
+                    }
+                }
+            }
+        }
+        function searchMembers() {
+            let input = document.getElementById("member-search");
+            let filter = input.value.toUpperCase();
+            let table = document.querySelector("#members .data-table");
+            let tr = table.getElementsByTagName("tr");
+            for (let i = 1; i < tr.length; i++) {
+                let tdName = tr[i].getElementsByTagName("td")[0];
+                let tdEmail = tr[i].getElementsByTagName("td")[1];
+                if (tdName || tdEmail) {
+                    let txtValueName = tdName.textContent || tdName.innerText;
+                    let txtValueEmail = tdEmail.textContent || tdEmail.innerText;
+                    if (txtValueName.toUpperCase().indexOf(filter) > -1 || txtValueEmail.toUpperCase().indexOf(filter) > -1) {
+                        tr[i].style.display = "";
+                    } else {
+                        tr[i].style.display = "none";
+                    }
+                }
+            }
+        }
+        function searchReports() {
+            let input = document.getElementById("report-search");
+            let filter = input.value.toUpperCase();
+            let table = document.querySelector("#reports table"); // Selector based on container ID
+            let tr = table.getElementsByTagName("tr");
+            for (let i = 1; i < tr.length; i++) {
+                let tdName = tr[i].getElementsByTagName("td")[0];
+                let tdEmail = tr[i].getElementsByTagName("td")[1];
+                if (tdName || tdEmail) {
+                    let txtValueName = tdName.textContent || tdName.innerText;
+                    let txtValueEmail = tdEmail.textContent || tdEmail.innerText;
+                    if (txtValueName.toUpperCase().indexOf(filter) > -1 || txtValueEmail.toUpperCase().indexOf(filter) > -1) {
+                        tr[i].style.display = "";
+                    } else {
+                        tr[i].style.display = "none";
+                    }
+                }
+            }
+        }
+        function searchPayments() {
+            let input = document.getElementById("payment-search");
+            let filter = input.value.toUpperCase();
+            let table = document.querySelector("#payments .data-table");
+            let tr = table.getElementsByTagName("tr");
+            for (let i = 1; i < tr.length; i++) {
+                // Skip if it's a detail row (starts with history-)
+                if (tr[i].id && tr[i].id.startsWith('history-')) continue;
+
+                let tdUser = tr[i].getElementsByTagName("td")[0]; // Contains Name and Email
+                if (tdUser) {
+                    let txtValue = tdUser.textContent || tdUser.innerText;
+                    if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                        tr[i].style.display = "";
+                    } else {
+                        tr[i].style.display = "none";
+                        // Also hide the next sibling if it's a history row
+                        let nextRow = tr[i].nextElementSibling;
+                        if (nextRow && nextRow.id && nextRow.id.startsWith('history-')) {
+                            nextRow.style.display = "none";
+                        }
+                    }
                 }
             }
         }

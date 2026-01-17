@@ -9,6 +9,54 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "admin") {
 $message = "";
 $message_type = "";
 
+if (isset($_SESSION['message'])) {
+    $message = $_SESSION['message'];
+    $message_type = $_SESSION['message_type'];
+    unset($_SESSION['message']);
+    unset($_SESSION['message_type']);
+}
+
+// Ensure announcements table exists
+$files_sql = "CREATE TABLE IF NOT EXISTS announcements (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)";
+mysqli_query($link, $files_sql);
+
+// HANDLE ANNOUNCEMENT ADDITION
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_announcement'])) {
+    $title = mysqli_real_escape_string($link, $_POST['title']);
+    $msg_content = mysqli_real_escape_string($link, $_POST['message']);
+
+    $sql = "INSERT INTO announcements (title, message) VALUES ('$title', '$msg_content')";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Announcement posted successfully!";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error posting announcement: " . mysqli_error($link);
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// HANDLE ANNOUNCEMENT DELETION
+if (isset($_GET['delete_announcement'])) {
+    $id = (int) $_GET['delete_announcement'];
+    if (mysqli_query($link, "DELETE FROM announcements WHERE id = $id")) {
+        $_SESSION['message'] = "Announcement deleted successfully!";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error deleting announcement.";
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+
 // HANDLE TRAINER ADDITION
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_trainer'])) {
     $name = mysqli_real_escape_string($link, $_POST['trainer_name']);
@@ -30,12 +78,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_trainer'])) {
 
     $sql = "INSERT INTO trainers (name, image) VALUES ('$name', '$image_path')";
     if (mysqli_query($link, $sql)) {
-        $message = "Trainer added successfully!";
-        $message_type = "success";
+        $_SESSION['message'] = "Trainer added successfully!";
+        $_SESSION['message_type'] = "success";
     } else {
-        $message = "Error adding trainer: " . mysqli_error($link);
-        $message_type = "error";
+        $_SESSION['message'] = "Error adding trainer: " . mysqli_error($link);
+        $_SESSION['message_type'] = "error";
     }
+    header("Location: dashboard_admin.php");
+    exit;
 }
 
 // HANDLE TRAINER EDITING
@@ -66,12 +116,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_trainer'])) {
 
     $sql = "UPDATE trainers SET name = '$name' $image_update WHERE id = $id";
     if (mysqli_query($link, $sql)) {
-        $message = "Trainer updated successfully!";
-        $message_type = "success";
+        $_SESSION['message'] = "Trainer updated successfully!";
+        $_SESSION['message_type'] = "success";
     } else {
-        $message = "Error updating trainer.";
-        $message_type = "error";
+        $_SESSION['message'] = "Error updating trainer.";
+        $_SESSION['message_type'] = "error";
     }
+    header("Location: dashboard_admin.php");
+    exit;
 }
 
 // HANDLE TRAINER DELETION
@@ -86,16 +138,129 @@ if (isset($_GET['delete_trainer'])) {
     }
 
     if (mysqli_query($link, "DELETE FROM trainers WHERE id = $id")) {
-        $message = "Trainer deleted successfully!";
-        $message_type = "success";
+        $_SESSION['message'] = "Trainer deleted successfully!";
+        $_SESSION['message_type'] = "success";
     } else {
-        $message = "Error deleting trainer.";
-        $message_type = "error";
+        $_SESSION['message'] = "Error deleting trainer.";
+        $_SESSION['message_type'] = "error";
     }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// HANDLE INVENTORY ADDITION
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_inventory'])) {
+    $name = mysqli_real_escape_string($link, $_POST['item_name']);
+    $qty = (int) $_POST['quantity'];
+    $status = mysqli_real_escape_string($link, $_POST['status']);
+    $last_m = mysqli_real_escape_string($link, $_POST['last_maintenance']);
+    $next_s = mysqli_real_escape_string($link, $_POST['next_service']);
+
+    $sql = "INSERT INTO inventory (item_name, quantity, status, last_maintenance, next_service) VALUES ('$name', $qty, '$status', '$last_m', '$next_s')";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Equipment added to inventory!";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error adding equipment.";
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// HANDLE INVENTORY UPDATE
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_inventory'])) {
+    $id = (int) $_POST['item_id'];
+    $name = mysqli_real_escape_string($link, $_POST['item_name']);
+    $qty = (int) $_POST['quantity'];
+    $status = mysqli_real_escape_string($link, $_POST['status']);
+    $last_m = mysqli_real_escape_string($link, $_POST['last_maintenance']);
+    $next_s = mysqli_real_escape_string($link, $_POST['next_service']);
+
+    $sql = "UPDATE inventory SET item_name='$name', quantity=$qty, status='$status', last_maintenance='$last_m', next_service='$next_s' WHERE id=$id";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Inventory item updated successfully!";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error updating inventory.";
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// HANDLE INVENTORY DELETION
+if (isset($_GET['delete_inventory'])) {
+    $id = (int) $_GET['delete_inventory'];
+    if (mysqli_query($link, "DELETE FROM inventory WHERE id = $id")) {
+        $_SESSION['message'] = "Item removed from inventory.";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error deleting item.";
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
 }
 
 // FETCH TRAINERS
 $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_at DESC");
+
+// FETCH ANNOUNCEMENTS
+$ann_query = mysqli_query($link, "SELECT * FROM announcements ORDER BY created_at DESC");
+
+// FETCH INVENTORY
+$inventory_query = mysqli_query($link, "SELECT * FROM inventory ORDER BY created_at ASC");
+$inventory_count = mysqli_num_rows($inventory_query);
+
+
+// --- QUERY MANAGEMENT ---
+require_once 'mailer.php';
+
+// Handle Reply
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reply_query'])) {
+    $query_id = (int) $_POST['query_id'];
+    $reply_text = mysqli_real_escape_string($link, $_POST['reply_content']);
+    $user_email = mysqli_real_escape_string($link, $_POST['user_email']);
+    $user_name = mysqli_real_escape_string($link, $_POST['user_name']);
+
+    $subject = "GymFit Team: Reply to your inquiry";
+    $email_body = "Hello $user_name,<br><br>Thank you for reaching out to GymFit. Here is our reply to your inquiry:<br><hr><br>$reply_text<br><br><hr>Best regards,<br>GymFit Staff Team";
+
+    if (sendMail($user_email, $subject, $email_body)) {
+        $update_sql = "UPDATE member_queries SET reply = '$reply_text', status = 'resolved' WHERE id = $query_id";
+        if (mysqli_query($link, $update_sql)) {
+            $_SESSION['message'] = "Reply sent and email delivered successfully!";
+            $_SESSION['message_type'] = "success";
+        } else {
+            $_SESSION['message'] = "Reply sent but failed to update status in data.";
+            $_SESSION['message_type'] = "error";
+        }
+    } else {
+        $_SESSION['message'] = "Error: Failed to send email reply.";
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// Handle Delete Query
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_query'])) {
+    $id = (int) $_POST['query_id'];
+    if (mysqli_query($link, "DELETE FROM member_queries WHERE id = $id")) {
+        $_SESSION['message'] = "Inquiry deleted successfully.";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error deleting inquiry.";
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// Fetch Queries
+$queries_res = mysqli_query($link, "SELECT * FROM member_queries ORDER BY created_at DESC");
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -107,7 +272,9 @@ $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_a
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto:wght@400;500&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <style>
         :root {
             --primary-color: #ceff00;
@@ -314,6 +481,112 @@ $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_a
             height: 300px;
             margin-top: 20px;
         }
+
+        .badge {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .badge-warning {
+            background: rgba(255, 193, 7, 0.1);
+            color: #ffc107;
+            border: 1px solid rgba(255, 193, 7, 0.2);
+        }
+
+        .badge-success {
+            background: rgba(46, 204, 113, 0.1);
+            color: #2ecc71;
+            border: 1px solid rgba(46, 204, 113, 0.2);
+        }
+
+        /* Modal Styles (Synced with Staff Dashboard) */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background: var(--secondary-color);
+            padding: 30px;
+            border-radius: 15px;
+            width: 100%;
+            max-width: 450px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-gray);
+            font-size: 0.9rem;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid #333;
+            color: #fff;
+            outline: none;
+            transition: 0.3s;
+        }
+
+        .form-control:focus {
+            border-color: var(--primary-color);
+        }
+
+        select.form-control {
+            appearance: none;
+            cursor: pointer;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ceff00'%3e%3cpath d='M7 10l5 5 5-5z'/%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+            background-size: 1.2em;
+            padding-right: 2.5rem;
+            border-color: var(--primary-color) !important;
+        }
+
+        select.form-control option {
+            background-color: var(--secondary-color);
+            color: #fff;
+            padding: 10px;
+        }
+
+        .btn-action-modal {
+            background: var(--primary-color);
+            color: var(--secondary-color);
+            border: none;
+            padding: 15px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+            font-family: 'Oswald', sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: 0.3s;
+        }
+
+        .btn-action-modal:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(206, 255, 0, 0.3);
+        }
     </style>
 </head>
 
@@ -353,6 +626,8 @@ $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_a
             <li><a href="#" onclick="showSection('users')"><i class="fa-solid fa-user-shield"></i> Staff & Users</a>
             </li>
             <li><a href="#" onclick="showSection('plans')"><i class="fa-solid fa-tags"></i> Membership Plans</a></li>
+            <li><a href="#" onclick="showSection('queries')"><i class="fa-solid fa-comments"></i> Member Queries</a>
+            </li>
             <li><a href="#" onclick="showSection('trainers')"><i class="fa-solid fa-dumbbell"></i> Trainers</a></li>
             <li><a href="#" onclick="showSection('financials')"><i class="fa-solid fa-money-bill-trend-up"></i>
                     Financial Records</a></li>
@@ -360,6 +635,9 @@ $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_a
                     Schedule</a></li>
             <li><a href="#" onclick="showSection('inventory')"><i class="fa-solid fa-boxes-stacked"></i> Inventory</a>
             </li>
+            <li><a href="#" onclick="showSection('announcements')"><i class="fa-solid fa-bullhorn"></i>
+                    Announcements</a></li>
+
         </ul>
         <div style="margin-top: auto;">
             <a href="logout.php"
@@ -566,37 +844,72 @@ $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_a
             <div class="card">
                 <div class="card-header">
                     <h3>Gym Inventory & Equipment</h3>
-                    <button class="btn-add">Add Equipment</button>
                 </div>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Item Name</th>
-                            <th>Quantity</th>
-                            <th>Status</th>
-                            <th>Last Maintenance</th>
-                            <th>Next Service</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>Treadmill Elite T10</td>
-                            <td>6</td>
-                            <td><span style="color: #ceff00;">Functional</span></td>
-                            <td>Oct 20, 2025</td>
-                            <td>Jan 20, 2026</td>
-                        </tr>
-                        <tr>
-                            <td>Adjustable Dumbbells</td>
-                            <td>40</td>
-                            <td><span style="color: #ceff00;">Good</span></td>
-                            <td>Nov 05, 2025</td>
-                            <td>May 05, 2026</td>
-                        </tr>
-                    </tbody>
-                </table>
+
+                <div
+                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 0 15px;">
+                    <div style="position: relative; width: 300px;">
+                        <i class="fa-solid fa-magnifying-glass"
+                            style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
+                        <input type="text" id="inventory-search" onkeyup="searchInventory()" placeholder="Search items"
+                            style="width: 100%; padding: 10px 15px 10px 40px; border-radius: 30px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <span
+                            style="background: #000; color: #fff; padding: 12px 25px; border-radius: 10px; font-weight: bold; font-size: 1rem; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 10px rgba(0,0,0,0.5);">Total
+                            Items: <?php echo $inventory_count; ?></span>
+                        <button class="btn-add" onclick="openAddInventoryModal()"
+                            style="margin: 0; float: none; padding: 12px 25px; border-radius: 10px;">+ Add Item</button>
+                    </div>
+                </div>
+
+                <div style="overflow-x:auto;">
+                    <table class="data-table" id="inventory-table">
+                        <thead>
+                            <tr>
+                                <th>Item Name</th>
+                                <th>Quantity</th>
+                                <th>Status</th>
+                                <th>Last Maintenance</th>
+                                <th>Next Service</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (mysqli_num_rows($inventory_query) > 0): ?>
+                                <?php
+                                mysqli_data_seek($inventory_query, 0); // Reset pointer
+                                while ($item = mysqli_fetch_assoc($inventory_query)):
+                                    $status_color = ($item['status'] == 'Functional' || $item['status'] == 'Good') ? '#ceff00' : '#ff4d4d';
+                                    ?>
+                                    <tr>
+                                        <td style="font-weight: bold;"><?php echo htmlspecialchars($item['item_name']); ?></td>
+                                        <td><?php echo $item['quantity']; ?></td>
+                                        <td style="color: <?php echo $status_color; ?>">
+                                            <?php echo htmlspecialchars($item['status']); ?>
+                                        </td>
+                                        <td><?php echo date('M d, Y', strtotime($item['last_maintenance'])); ?></td>
+                                        <td><?php echo date('M d, Y', strtotime($item['next_service'])); ?></td>
+                                        <td>
+                                            <button class="btn-action btn-view"
+                                                onclick='openEditInventoryModal(<?php echo json_encode($item); ?>)'>Edit</button>
+                                            <a href="?delete_inventory=<?php echo $item['id']; ?>" class="btn-action btn-delete"
+                                                onclick="return confirm('Are you sure you want to delete this item?')">Delete</a>
+                                        </td>
+                                    </tr>
+                                <?php endwhile; ?>
+                            <?php else: ?>
+                                <tr>
+                                    <td colspan="6" style="text-align: center; color: var(--text-gray);">No inventory items
+                                        found.</td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
+
 
         <!-- Trainers -->
         <div id="trainers" class="dashboard-section">
@@ -645,6 +958,166 @@ $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_a
             </div>
         </div>
 
+        <!-- Announcements Section -->
+        <div id="announcements" class="dashboard-section">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Announcements Management</h3>
+                    <button class="btn-add"
+                        onclick="document.getElementById('add-announcement-modal').style.display='flex'">+ Post
+                        Announcement</button>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Message</th>
+                            <th>Date Posted</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (mysqli_num_rows($ann_query) > 0): ?>
+                            <?php while ($ann = mysqli_fetch_assoc($ann_query)): ?>
+                                <tr>
+                                    <td style="font-weight: bold; color: var(--primary-color);">
+                                        <?php echo htmlspecialchars($ann['title']); ?>
+                                    </td>
+                                    <td><?php echo htmlspecialchars(substr($ann['message'], 0, 50)) . '...'; ?></td>
+                                    <td><?php echo date('M d, Y', strtotime($ann['created_at'])); ?></td>
+                                    <td>
+                                        <a href="?delete_announcement=<?php echo $ann['id']; ?>" class="btn-action btn-delete"
+                                            onclick="return confirm('Delete this announcement?')">Delete</a>
+                                    </td>
+                                </tr>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <tr>
+                                <td colspan="4" style="text-align: center; color: var(--text-gray);">No announcements found.
+                                </td>
+                            </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Add Announcement Modal -->
+        <div id="add-announcement-modal"
+            style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1100; align-items:center; justify-content:center; backdrop-filter: blur(5px);">
+            <div class="card"
+                style="width:100%; max-width:500px; background: var(--secondary-color); border: 1px solid rgba(255,255,255,0.1);">
+                <div class="card-header">
+                    <h3>Post New Announcement</h3>
+                    <button onclick="document.getElementById('add-announcement-modal').style.display='none'"
+                        style="background:none; border:none; color:#fff; cursor:pointer; font-size:1.5rem;">&times;</button>
+                </div>
+                <form method="POST">
+                    <div style="margin-bottom: 20px;">
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Title</label>
+                        <input type="text" name="title" required placeholder="e.g., New Equipment Arrival!"
+                            style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
+                    </div>
+                    <div style="margin-bottom: 25px;">
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Message</label>
+                        <textarea name="message" rows="4" required placeholder="Enter announcement details..."
+                            style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px; resize: vertical; font-family: inherit;"></textarea>
+                    </div>
+                    <button type="submit" name="add_announcement" class="btn-add" style="width:100%;">Post
+                        Now</button>
+                </form>
+            </div>
+        </div>
+
+
+        <!-- Add Inventory Modal -->
+        <div id="add-inventory-modal" class="modal">
+            <div class="modal-content">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <h3 style="color: var(--primary-color); font-family: 'Oswald', sans-serif; font-size: 1.8rem;">Add
+                        Inventory Item</h3>
+                    <span onclick="closeModal('add-inventory-modal')"
+                        style="cursor:pointer; font-size:1.5rem; color:#fff;">&times;</span>
+                </div>
+                <form method="POST">
+                    <input type="hidden" name="add_inventory" value="1">
+                    <div class="form-group">
+                        <label>Item Name</label>
+                        <input type="text" name="item_name" class="form-control" required placeholder="e.g. Treadmill">
+                    </div>
+                    <div class="form-group">
+                        <label>Quantity</label>
+                        <input type="number" name="quantity" class="form-control" required min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select name="status" class="form-control">
+                            <option value="Functional">Functional</option>
+                            <option value="Good">Good</option>
+                            <option value="Service Due">Service Due</option>
+                            <option value="Broken">Broken</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Last Maintenance</label>
+                        <input type="text" name="last_maintenance" class="form-control date-picker" required
+                            placeholder="Select Date">
+                    </div>
+                    <div class="form-group">
+                        <label>Next Service</label>
+                        <input type="text" name="next_service" class="form-control date-picker" required
+                            placeholder="Select Date">
+                    </div>
+                    <button type="submit" class="btn-action-modal">Add Item</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Edit Inventory Modal -->
+        <div id="edit-inventory-modal" class="modal">
+            <div class="modal-content">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <h3 style="color: var(--primary-color); font-family: 'Oswald', sans-serif; font-size: 1.8rem;">Edit
+                        Inventory Item</h3>
+                    <span onclick="closeModal('edit-inventory-modal')"
+                        style="cursor:pointer; font-size:1.5rem; color:#fff;">&times;</span>
+                </div>
+                <form method="POST">
+                    <input type="hidden" name="update_inventory" value="1">
+                    <input type="hidden" name="item_id" id="edit-inventory-id">
+                    <div class="form-group">
+                        <label>Item Name</label>
+                        <input type="text" name="item_name" id="edit-inventory-name" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Quantity</label>
+                        <input type="number" name="quantity" id="edit-inventory-qty" class="form-control" required
+                            min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select name="status" id="edit-inventory-status" class="form-control">
+                            <option value="Functional">Functional</option>
+                            <option value="Good">Good</option>
+                            <option value="Service Due">Service Due</option>
+                            <option value="Broken">Broken</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Last Maintenance</label>
+                        <input type="text" name="last_maintenance" id="edit-inventory-last"
+                            class="form-control date-picker" required placeholder="Select Date">
+                    </div>
+                    <div class="form-group">
+                        <label>Next Service</label>
+                        <input type="text" name="next_service" id="edit-inventory-next" class="form-control date-picker"
+                            required placeholder="Select Date">
+                    </div>
+                    <button type="submit" class="btn-action-modal">Update Item</button>
+                </form>
+            </div>
+        </div>
+
         <!-- Add Trainer Modal -->
         <div id="add-trainer-modal"
             style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1100; align-items:center; justify-content:center; backdrop-filter: blur(5px);">
@@ -672,7 +1145,118 @@ $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_a
             </div>
         </div>
 
-        <!-- Edit Trainer Modal -->
+        <!-- Member Queries Section -->
+        <div id="queries" class="dashboard-section">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Member Inquiries</h3>
+                </div>
+                <div class="video-list" style="display: flex; flex-direction: column; gap: 15px;">
+                    <?php if (mysqli_num_rows($queries_res) > 0): ?>
+                        <?php while ($row = mysqli_fetch_assoc($queries_res)): ?>
+                            <div
+                                style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; border-left: 5px solid <?php echo $row['status'] == 'pending' ? 'var(--primary-color)' : '#00ff00'; ?>; position: relative;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                                    <div>
+                                        <h4 style="color: #fff; margin-bottom: 3px; font-family: 'Oswald', sans-serif;">
+                                            <?php echo htmlspecialchars($row['name']); ?>
+                                        </h4>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <i class="fa-solid fa-envelope"
+                                                style="font-size: 0.8rem; color: var(--primary-color);"></i>
+                                            <span
+                                                style="color: var(--text-gray); font-size: 0.85rem;"><?php echo htmlspecialchars($row['email']); ?></span>
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+                                        <span
+                                            class="badge <?php echo $row['status'] == 'pending' ? 'badge-warning' : 'badge-success'; ?>"
+                                            style="font-size: 0.7rem; padding: 4px 10px; border-radius: 20px;">
+                                            <?php echo ucfirst($row['status']); ?>
+                                        </span>
+                                        <form method="POST" style="display: inline;"
+                                            onsubmit="return confirm('Permanently delete this inquiry?');">
+                                            <input type="hidden" name="delete_query" value="1">
+                                            <input type="hidden" name="query_id" value="<?php echo $row['id']; ?>">
+                                            <button type="submit"
+                                                style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 0.9rem; padding: 5px;"
+                                                title="Delete Inquiry">
+                                                <i class="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div
+                                    style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+                                    <p style="font-size: 0.95rem; color: #eee; line-height: 1.5; font-style: italic;">
+                                        "<?php echo htmlspecialchars($row['message']); ?>"</p>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <small style="color: var(--text-gray); font-size: 0.8rem;">
+                                        <i class="fa-regular fa-clock" style="margin-right: 5px;"></i>
+                                        <?php echo date('M d, Y | g:i A', strtotime($row['created_at'])); ?>
+                                    </small>
+
+                                    <?php if ($row['status'] == 'pending'): ?>
+                                        <button class="btn-sm btn-edit"
+                                            style="margin: 0; padding: 8px 15px; border-radius: 6px; display: flex; align-items: center; gap: 6px;"
+                                            onclick='openReplyModal(<?php echo json_encode($row); ?>)'>
+                                            <i class="fa-solid fa-reply"></i> Reply via Email
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+
+                                <?php if ($row['status'] == 'resolved'): ?>
+                                    <div
+                                        style="margin-top: 15px; padding: 12px; background: rgba(161, 212, 35, 0.05); border: 1px dashed rgba(161, 212, 35, 0.3); border-radius: 8px;">
+                                        <strong
+                                            style="color: var(--primary-color); display: block; font-size: 0.8rem; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">
+                                            <i class="fa-solid fa-check-double"></i> Staff Response:
+                                        </strong>
+                                        <p style="font-size: 0.9rem; color: #ddd; line-height: 1.4;">
+                                            "<?php echo htmlspecialchars($row['reply']); ?>"</p>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        <?php endwhile; ?>
+                    <?php else: ?>
+                        <p style="color: var(--text-gray); font-style: italic;">No inquiries found.</p>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+
+        <!-- Reply Modal -->
+        <div id="reply-modal"
+            style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1100; align-items:center; justify-content:center; backdrop-filter: blur(5px);">
+            <div class="card"
+                style="width:100%; max-width:600px; background: var(--secondary-color); border: 1px solid rgba(255,255,255,0.1);">
+                <div class="card-header">
+                    <h3>Reply to Member</h3>
+                    <button onclick="document.getElementById('reply-modal').style.display='none'"
+                        style="background:none; border:none; color:#fff; cursor:pointer; font-size:1.5rem;">&times;</button>
+                </div>
+                <div style="margin-bottom: 15px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px;">
+                    <p style="color: var(--text-gray); font-size: 0.85rem; margin-bottom: 5px;">Member's Question:</p>
+                    <p id="reply-question"
+                        style="font-size: 0.9rem; line-height: 1.4; font-style: italic; color: #fff;"></p>
+                </div>
+                <form method="POST">
+                    <input type="hidden" name="reply_query" value="1">
+                    <input type="hidden" name="query_id" id="reply-id">
+                    <input type="hidden" name="user_email" id="reply-email">
+                    <input type="hidden" name="user_name" id="reply-name">
+                    <div style="margin-bottom: 20px;">
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Your Reply</label>
+                        <textarea name="reply_content" rows="5" required
+                            style="width: 100%; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid #333; color: #fff; border-radius: 8px; font-family: inherit;"
+                            placeholder="Type your response here..."></textarea>
+                    </div>
+                    <button type="submit" class="btn-add" style="width: 100%;">Send Reply</button>
+                </form>
+            </div>
+        </div>
+
         <div id="edit-trainer-modal"
             style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1100; align-items:center; justify-content:center; backdrop-filter: blur(5px);">
             <div class="card"
@@ -720,6 +1304,70 @@ $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_a
             document.getElementById('edit-trainer-id').value = id;
             document.getElementById('edit-trainer-name').value = name;
             document.getElementById('edit-trainer-modal').style.display = 'flex';
+        }
+
+        function openAddInventoryModal() {
+            document.getElementById('add-inventory-modal').style.display = 'flex';
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).style.display = 'none';
+        }
+
+        function openEditInventoryModal(item) {
+            document.getElementById('edit-inventory-id').value = item.id;
+            document.getElementById('edit-inventory-name').value = item.item_name;
+            document.getElementById('edit-inventory-qty').value = item.quantity;
+            document.getElementById('edit-inventory-status').value = item.status;
+
+            // Set values for date inputs using flatpickr instance if available
+            const lastInput = document.getElementById('edit-inventory-last');
+            const nextInput = document.getElementById('edit-inventory-next');
+
+            if (lastInput._flatpickr) lastInput._flatpickr.setDate(item.last_maintenance);
+            else lastInput.value = item.last_maintenance;
+
+            if (nextInput._flatpickr) nextInput._flatpickr.setDate(item.next_service);
+            else nextInput.value = item.next_service;
+
+            document.getElementById('edit-inventory-modal').style.display = 'flex';
+        }
+
+        function searchInventory() {
+            let input = document.getElementById('inventory-search');
+            let filter = input.value.toLowerCase();
+            let table = document.getElementById('inventory-table');
+            let tr = table.getElementsByTagName('tr');
+
+            for (let i = 1; i < tr.length; i++) {
+                let td = tr[i].getElementsByTagName('td')[0];
+                if (td) {
+                    let textValue = td.textContent || td.innerText;
+                    if (textValue.toLowerCase().indexOf(filter) > -1) {
+                        tr[i].style.display = "";
+                    } else {
+                        tr[i].style.display = "none";
+                    }
+                }
+            }
+        }
+
+        // Initialize Flatpickr
+        document.addEventListener('DOMContentLoaded', function () {
+            flatpickr(".date-picker", {
+                theme: "dark",
+                altInput: true,
+                altFormat: "M j, Y",
+                dateFormat: "Y-m-d"
+            });
+        });
+
+        function openReplyModal(data) {
+            document.getElementById('reply-id').value = data.id;
+            document.getElementById('reply-email').value = data.email;
+            document.getElementById('reply-name').value = data.name;
+            document.getElementById('reply-question').innerText = `"${data.message}"`;
+            document.getElementById('reply-modal').style.display = 'flex';
         }
 
         // Initialize Revenue Chart
