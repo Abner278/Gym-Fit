@@ -138,6 +138,51 @@ $inventory_sql = "CREATE TABLE IF NOT EXISTS inventory (
 )";
 mysqli_query($link, $inventory_sql);
 
+// Create membership_plans table
+$plans_sql = "CREATE TABLE IF NOT EXISTS membership_plans (
+    id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(50) NOT NULL,
+    price_monthly DECIMAL(10,2) NOT NULL,
+    price_yearly DECIMAL(10,2) NOT NULL,
+    is_popular TINYINT(1) DEFAULT 0,
+    gym_access TINYINT(1) DEFAULT 1,
+    free_locker TINYINT(1) DEFAULT 1,
+    group_class TINYINT(1) DEFAULT 1,
+    personal_trainer TINYINT(1) DEFAULT 0,
+    protein_drinks_monthly TINYINT(1) DEFAULT 0,
+    protein_drinks_yearly TINYINT(1) DEFAULT 0,
+    customized_workout_plan TINYINT(1) DEFAULT 0,
+    diet_consultation_yearly TINYINT(1) DEFAULT 0,
+    personal_locker_yearly TINYINT(1) DEFAULT 0,
+    guest_pass_yearly TINYINT(1) DEFAULT 0,
+    nutrition_guide_yearly TINYINT(1) DEFAULT 0
+)";
+mysqli_query($link, $plans_sql);
+
+// Insert default plans if they don't exist
+$check_plans = "SELECT * FROM membership_plans LIMIT 1";
+$res_plans = mysqli_query($link, $check_plans);
+if ($res_plans && mysqli_num_rows($res_plans) == 0) {
+    mysqli_query($link, "INSERT INTO membership_plans (name, price_monthly, price_yearly, is_popular, gym_access, free_locker, group_class, personal_trainer, protein_drinks_monthly, protein_drinks_yearly, customized_workout_plan, diet_consultation_yearly, personal_locker_yearly, guest_pass_yearly, nutrition_guide_yearly) VALUES 
+    ('Basic', 399, 2999, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0),
+    ('Standard', 899, 5999, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1),
+    ('Premium', 999, 10999, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0)");
+}
+
+// Add columns for dynamic features and labels
+$check_custom = mysqli_query($link, "SHOW COLUMNS FROM membership_plans LIKE 'custom_attributes'");
+if (mysqli_num_rows($check_custom) == 0) {
+    mysqli_query($link, "ALTER TABLE membership_plans ADD custom_attributes TEXT DEFAULT NULL");
+}
+$check_labels = mysqli_query($link, "SHOW COLUMNS FROM membership_plans LIKE 'feature_labels'");
+if (mysqli_num_rows($check_labels) == 0) {
+    mysqli_query($link, "ALTER TABLE membership_plans ADD feature_labels TEXT DEFAULT NULL");
+}
+$check_hidden = mysqli_query($link, "SHOW COLUMNS FROM membership_plans LIKE 'hidden_features'");
+if (mysqli_num_rows($check_hidden) == 0) {
+    mysqli_query($link, "ALTER TABLE membership_plans ADD hidden_features TEXT DEFAULT NULL");
+}
+
 // Create some default users for testing if they don't exist
 $check_admin = "SELECT * FROM users WHERE role='admin' LIMIT 1";
 $result = mysqli_query($link, $check_admin);
@@ -159,4 +204,3 @@ if ($result && mysqli_num_rows($result) == 0) {
             ($member_id, 'Take Supplements', 1)");
     }
 }
-?>

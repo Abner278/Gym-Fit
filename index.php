@@ -1,8 +1,15 @@
 <?php
+ob_start();
 require_once 'config.php';
 session_start();
 
 $contact_msg = "";
+
+if (isset($_SESSION['contact_msg'])) {
+    $contact_msg = $_SESSION['contact_msg'];
+    unset($_SESSION['contact_msg']);
+}
+
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['send_query'])) {
     $name = mysqli_real_escape_string($link, $_POST['name']);
     $email = mysqli_real_escape_string($link, $_POST['email']);
@@ -12,11 +19,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['send_query'])) {
 
     $sql = "INSERT INTO member_queries (name, email, phone, gender, message) VALUES ('$name', '$email', '$phone', '$gender', '$message')";
     if (mysqli_query($link, $sql)) {
-        $contact_msg = "Message sent successfully!";
+        $_SESSION['contact_msg'] = "Message sent successfully!";
     } else {
-        $contact_msg = "Error sending message.";
+        $_SESSION['contact_msg'] = "Error sending message.";
     }
+    header("Location: index.php#contact");
+    exit;
 }
+
+// Fetch Membership Plans
+$plans_res = mysqli_query($link, "SELECT * FROM membership_plans ORDER BY id ASC");
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -26,6 +38,69 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['send_query'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GymFit </title>
     <!-- Google Fonts -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intl-tel-input@18.2.1/build/css/intlTelInput.css">
+    <style>
+        .iti {
+            width: 100%;
+            display: block;
+        }
+
+        .iti__country-list {
+            background-color: #0f0f1a;
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .iti__country {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .iti__country:last-child {
+            border-bottom: none;
+        }
+
+        .iti__country:hover,
+        .iti__country.iti__highlight {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .iti__dial-code {
+            color: #aaa;
+        }
+
+        .iti__selected-flag {
+            background-color: transparent !important;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            padding-right: 10px;
+        }
+
+        #contact-phone {
+            height: 54px;
+            /* Match form input height */
+            display: flex;
+            align-items: center;
+            font-size: 16px;
+            /* consistent size */
+            font-family: 'Roboto', sans-serif;
+            /* consistent font */
+        }
+
+        .iti__selected-dial-code {
+            font-size: 16px;
+            /* match input size */
+            color: #aaa;
+        }
+
+        /* Autofill fix */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+            -webkit-box-shadow: 0 0 0 30px #050505 inset !important;
+            -webkit-text-fill-color: white !important;
+            transition: background-color 5000s ease-in-out 0s;
+        }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto:wght@400;500&display=swap"
@@ -428,52 +503,122 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['send_query'])) {
         </div>
 
         <div class="container pricing-grid">
-            <!-- Basic Plan -->
-            <div class="pricing-card">
-                <h3>Basic</h3>
-                <div class="price-tag" data-monthly="₹399" data-yearly="₹2999">₹399 <span>/ Mo</span></div>
-                <ul class="features-list">
-                    <li>Gym Access <i class="fa-solid fa-check check"></i></li>
-                    <li>Free Locker <i class="fa-solid fa-check check"></i></li>
-                    <li>Group Class <i class="fa-solid fa-check check"></i></li>
-                    <li>Personal Trainer <i class="fa-solid fa-xmark cross"></i></li>
-                    <li class="monthly-only">Protein Drinks <i class="fa-solid fa-xmark cross"></i></li>
-                    <li class="yearly-only">1 Guest Pass/Mo <i class="fa-solid fa-check check"></i></li>
-                </ul>
-                <a href="#" class="btn-primary">Join Now</a>
-            </div>
-            <!-- Standard Plan -->
-            <div class="pricing-card ">
-                <div class="badge">Popular</div>
-                <h3>Standard</h3>
-                <div class="price-tag" data-monthly="₹899" data-yearly="₹5999">₹899 <span>/ Mo</span></div>
-                <ul class="features-list">
-                    <li>Gym Access <i class="fa-solid fa-check check"></i></li>
-                    <li>Free Locker <i class="fa-solid fa-check check"></i></li>
-                    <li>Group Class <i class="fa-solid fa-check check"></i></li>
-                    <li>Personal Trainer <i class="fa-solid fa-check check"></i></li>
-                    <li class="monthly-only">Protein Drinks <i class="fa-solid fa-xmark cross"></i></li>
-                    <li class="yearly-only">Protein Drinks <i class="fa-solid fa-check check"></i></li>
-                    <li class="yearly-only">Nutrition Guide <i class="fa-solid fa-check check"></i></li>
-                </ul>
-                <a href="#" class="btn-primary">Join Now</a>
-            </div>
-            <!-- Premium Plan -->
-            <div class="pricing-card">
-                <h3>Premium</h3>
-                <div class="price-tag" data-monthly="₹999" data-yearly="₹10999">₹999 <span>/ Mo</span></div>
-                <ul class="features-list">
-                    <li>Gym Access <i class="fa-solid fa-check check"></i></li>
-                    <li>Free Locker <i class="fa-solid fa-check check"></i></li>
-                    <li>Group Class <i class="fa-solid fa-check check"></i></li>
-                    <li>Personal Trainer <i class="fa-solid fa-check check"></i></li>
-                    <li>Protein Drinks <i class="fa-solid fa-check check"></i></li>
-                    <li>Customized Workout Plan <i class="fa-solid fa-check check"></i></li>
-                    <li class="yearly-only">Diet Consultation <i class="fa-solid fa-check check"></i></li>
-                    <li class="yearly-only">Personal Locker <i class="fa-solid fa-check check"></i></li>
-                </ul>
-                <a href="#" class="btn-primary">Join Now</a>
-            </div>
+            <?php
+            if (mysqli_num_rows($plans_res) > 0):
+                mysqli_data_seek($plans_res, 0);
+                while ($plan = mysqli_fetch_assoc($plans_res)):
+                    ?>
+                    <div class="pricing-card <?php echo $plan['is_popular'] ? 'active-popular' : ''; ?>">
+                        <?php if ($plan['is_popular']): ?>
+                            <div class="badge">Popular</div>
+                        <?php endif; ?>
+                        <h3><?php echo htmlspecialchars($plan['name']); ?></h3>
+                        <div class="price-tag" data-monthly="₹<?php echo number_format($plan['price_monthly']); ?>"
+                            data-yearly="₹<?php echo number_format($plan['price_yearly']); ?>">
+                            ₹<?php echo number_format($plan['price_monthly']); ?> <span>/ Mo</span>
+                        </div>
+                        <?php
+                        $labels = json_decode($plan['feature_labels'] ?? '{}', true);
+                        $hidden_features = json_decode($plan['hidden_features'] ?? '[]', true);
+                        ?>
+                        <ul class="features-list">
+                            <?php if (!in_array('gym_access', $hidden_features)): ?>
+                                <li><?php echo htmlspecialchars($labels['gym_access'] ?? 'Gym Access'); ?>
+                                    <?php echo $plan['gym_access'] ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                </li>
+                            <?php endif; ?>
+                            <?php if (!in_array('free_locker', $hidden_features)): ?>
+                                <li><?php echo htmlspecialchars($labels['free_locker'] ?? 'Free Locker'); ?>
+                                    <?php echo $plan['free_locker'] ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                </li>
+                            <?php endif; ?>
+                            <?php if (!in_array('group_class', $hidden_features)): ?>
+                                <li><?php echo htmlspecialchars($labels['group_class'] ?? 'Group Class'); ?>
+                                    <?php echo $plan['group_class'] ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                </li>
+                            <?php endif; ?>
+                            <?php if (!in_array('personal_trainer', $hidden_features)): ?>
+                                <li><?php echo htmlspecialchars($labels['personal_trainer'] ?? 'Personal Trainer'); ?>
+                                    <?php echo $plan['personal_trainer'] ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                </li>
+                            <?php endif; ?>
+
+                            <!-- Period specific features -->
+                            <?php if ($plan['protein_drinks_monthly'] || $plan['protein_drinks_yearly']): ?>
+                                <?php if (!in_array('protein_drinks_monthly', $hidden_features)): ?>
+                                    <li class="monthly-only">
+                                        <?php echo htmlspecialchars($labels['protein_drinks_monthly'] ?? 'Protein Drinks'); ?>
+                                        <?php echo $plan['protein_drinks_monthly'] ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                    </li>
+                                <?php endif; ?>
+                                <?php if (!in_array('protein_drinks_yearly', $hidden_features)): ?>
+                                    <li class="yearly-only">
+                                        <?php echo htmlspecialchars($labels['protein_drinks_yearly'] ?? 'Protein Drinks'); ?>
+                                        <?php echo $plan['protein_drinks_yearly'] ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                    </li>
+                                <?php endif; ?>
+                            <?php endif; ?>
+
+                            <?php if ($plan['customized_workout_plan'] && !in_array('customized_workout_plan', $hidden_features)): ?>
+                                <li><?php echo htmlspecialchars($labels['customized_workout_plan'] ?? 'Customized Workout Plan'); ?>
+                                    <i class="fa-solid fa-check check"></i>
+                                </li>
+                            <?php endif; ?>
+
+                            <?php if ($plan['nutrition_guide_yearly'] && !in_array('nutrition_guide_yearly', $hidden_features)): ?>
+                                <li class="yearly-only">
+                                    <?php echo htmlspecialchars($labels['nutrition_guide_yearly'] ?? 'Nutrition Guide'); ?> <i
+                                        class="fa-solid fa-check check"></i>
+                                </li>
+                            <?php endif; ?>
+
+                            <?php if ($plan['diet_consultation_yearly'] && !in_array('diet_consultation_yearly', $hidden_features)): ?>
+                                <li class="yearly-only">
+                                    <?php echo htmlspecialchars($labels['diet_consultation_yearly'] ?? 'Diet Consultation'); ?> <i
+                                        class="fa-solid fa-check check"></i>
+                                </li>
+                            <?php endif; ?>
+
+                            <?php if ($plan['personal_locker_yearly'] && !in_array('personal_locker_yearly', $hidden_features)): ?>
+                                <li class="yearly-only">
+                                    <?php echo htmlspecialchars($labels['personal_locker_yearly'] ?? 'Personal Locker'); ?> <i
+                                        class="fa-solid fa-check check"></i>
+                                </li>
+                            <?php endif; ?>
+
+                            <?php if ($plan['guest_pass_yearly'] && !in_array('guest_pass_yearly', $hidden_features)): ?>
+                                <li class="yearly-only">
+                                    <?php echo htmlspecialchars($labels['guest_pass_yearly'] ?? '1 Guest Pass/Mo'); ?> <i
+                                        class="fa-solid fa-check check"></i>
+                                </li>
+                            <?php endif; ?>
+
+                            <!-- Custom Attributes -->
+                            <?php
+                            $custom_attrs = json_decode($plan['custom_attributes'] ?? '[]', true);
+                            if (!empty($custom_attrs)):
+                                foreach ($custom_attrs as $attr):
+                                    $class = "";
+                                    if ($attr['monthly'] && !$attr['yearly'])
+                                        $class = "monthly-only";
+                                    elseif (!$attr['monthly'] && $attr['yearly'])
+                                        $class = "yearly-only";
+                                    ?>
+                                    <li class="<?php echo $class; ?>">
+                                        <?php echo htmlspecialchars($attr['name']); ?>
+                                        <?php echo (!isset($attr['included']) || $attr['included'] != 0) ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                    </li>
+                                    <?php
+                                endforeach;
+                            endif;
+                            ?>
+                        </ul>
+                        <a href="login.php" class="btn-primary">Join Now</a>
+                    </div>
+                    <?php
+                endwhile;
+            endif;
+            ?>
         </div>
     </section>
 
@@ -491,18 +636,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['send_query'])) {
                 <form class="contact-form" method="POST" action="#contact">
                     <input type="hidden" name="send_query" value="1">
                     <div class="form-row">
-                        <input type="text" name="name" placeholder="Name" class="form-input" required>
-                        <input type="text" name="phone" placeholder="Enter Number" class="form-input">
+                        <input type="text" name="name" id="contact-name" placeholder="Name" class="form-input" required
+                            pattern="[A-Za-z\s]{3,}" title="Name must be at least 3 letters and contain only alphabets">
+                        <div style="width: 100%;">
+                            <input type="tel" name="phone" id="contact-phone" placeholder="Enter Number"
+                                class="form-input" required>
+                        </div>
                     </div>
                     <div class="form-row">
-                        <input type="email" name="email" placeholder="Enter Email" class="form-input" required>
-                        <select name="gender" class="form-input custom-select">
+                        <input type="email" name="email" id="contact-email" placeholder="Enter Email" class="form-input"
+                            required pattern="[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$">
+                        <select name="gender" class="form-input custom-select" required>
                             <option value="">Select Gender</option>
                             <option value="male">Male</option>
                             <option value="female">Female</option>
                         </select>
                     </div>
-                    <textarea name="message" placeholder="Enter Message" class="form-input" required></textarea>
+                    <textarea name="message" id="contact-message" placeholder="Enter Message" class="form-input"
+                        required minlength="10"></textarea>
                     <button type="submit" class="btn-skew">Send Message</button>
                 </form>
             </div>
@@ -553,6 +704,63 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['send_query'])) {
     </footer>
 
     <script src="script.js?v=<?php echo time(); ?>"></script>
+    <script src="https://cdn.jsdelivr.net/npm/intl-tel-input@18.2.1/build/js/intlTelInput.min.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const input = document.querySelector("#contact-phone");
+            const errorMsg = document.createElement("span");
+            errorMsg.style.color = "#ff4444";
+            errorMsg.style.fontSize = "0.8rem";
+            errorMsg.style.display = "none";
+            errorMsg.style.marginLeft = "10px";
+            errorMsg.style.marginTop = "5px"; // Add some spacing
+
+            // Initialize Plugin
+            const iti = window.intlTelInput(input, {
+                utilsScript: "https://cdn.jsdelivr.net/npm/intl-tel-input@18.2.1/build/js/utils.js",
+                separateDialCode: true,
+                preferredCountries: ["in", "us", "uk"],
+                initialCountry: "auto",
+                geoIpLookup: callback => {
+                    fetch("https://ipapi.co/json")
+                        .then(res => res.json())
+                        .then(data => callback(data.country_code))
+                        .catch(() => callback("in"));
+                }
+            });
+
+            // Insert error message AFTER the iti container
+            const container = input.closest(".iti");
+            if (container) {
+                container.parentNode.appendChild(errorMsg);
+            }
+
+            // Width fix for the library
+            if (container) container.style.width = "100%";
+
+            const form = document.querySelector(".contact-form");
+            form.addEventListener("submit", function (e) {
+                if (!iti.isValidNumber()) {
+                    e.preventDefault();
+                    errorMsg.textContent = "Invalid phone number";
+                    errorMsg.style.display = "block";
+                    input.classList.add("error");
+                    // Focus on the visible input created by ITI if possible, or the original
+                    container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    errorMsg.style.display = "none";
+                    input.classList.remove("error");
+                    // Update input value to include full number with country code
+                    input.value = iti.getNumber();
+                }
+            });
+
+            input.addEventListener('input', function () {
+                errorMsg.style.display = "none";
+                input.classList.remove("error");
+            });
+        });
+    </script>
 </body>
 
 </html>

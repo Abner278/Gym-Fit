@@ -1368,7 +1368,6 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
         <div id="reports" class="dashboard-section">
             <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Member Attendance Reports</h2>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
-                <h3 style="margin: 0;"><i class="fa-solid fa-users-rectangle"></i> Select Member to View Report</h3>
                 <div style="position: relative; width: 300px;">
                     <i class="fa-solid fa-magnifying-glass"
                         style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
