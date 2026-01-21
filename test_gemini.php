@@ -1,7 +1,7 @@
 <?php
 $API_KEY = "AIzaSyDERp8bNwhecn8oZUUSrMQwqP79TH5SX4E";
 
-$url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=" . $API_KEY;
+$url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$API_KEY";
 
 $data = [
     "contents" => [
@@ -24,10 +24,11 @@ curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
 $response = curl_exec($ch);
 
 if (curl_errno($ch)) {
-    echo "CURL ERROR: " . curl_error($ch);
-    exit;
+    die("CURL ERROR: " . curl_error($ch));
 }
 
 curl_close($ch);
 
+echo "<pre>";
 echo $response;
+echo "</pre>";
