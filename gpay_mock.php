@@ -1,6 +1,7 @@
 <?php
 $plan = isset($_GET['plan']) ? htmlspecialchars($_GET['plan']) : 'Standard';
 $amt = isset($_GET['amt']) ? htmlspecialchars($_GET['amt']) : '899';
+$uid = isset($_GET['uid']) ? (int) $_GET['uid'] : 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -8,136 +9,189 @@ $amt = isset($_GET['amt']) ? htmlspecialchars($_GET['amt']) : '899';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Google Pay</title>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <title>GymFit Secure Pay</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Oswald:wght@400;500&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
-            --gpay-blue: #1a73e8;
-            --gpay-bg: #ffffff;
-            --gpay-text: #202124;
+            --bg-color: #141424;
+            --card-bg: #1a1a2e;
+            --text-color: #ffffff;
+            --accent-color: #ceff00;
+            --success-green: #00c853;
+            --subtext-color: #a0a0ba;
         }
 
         body {
             margin: 0;
             padding: 0;
             font-family: 'Roboto', sans-serif;
-            background-color: var(--gpay-bg);
-            color: var(--gpay-text);
+            background-color: var(--bg-color);
+            color: var(--text-color);
             display: flex;
             flex-direction: column;
             height: 100vh;
             overflow: hidden;
         }
 
-        .header {
-            padding: 20px;
-            display: flex;
-            align-items: center;
-            gap: 20px;
-        }
-
-        .header i {
-            font-size: 1.2rem;
-            color: #5f6368;
-        }
-
-        .merchant-info {
+        /* Initial Pay Screen */
+        #pay-screen {
             display: flex;
             flex-direction: column;
             align-items: center;
-            margin-top: 40px;
-        }
-
-        .avatar {
-            width: 80px;
-            height: 80px;
-            background: #ceff00;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
             justify-content: center;
-            font-size: 2rem;
-            font-weight: bold;
-            color: #1a1a2e;
-            margin-bottom: 15px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-
-        .merchant-name {
-            font-size: 1.4rem;
-            font-weight: 500;
-            margin-bottom: 5px;
-        }
-
-        .vpa {
-            color: #5f6368;
-            font-size: 0.9rem;
-        }
-
-        .amount-container {
-            margin-top: 50px;
+            height: 100%;
+            padding: 20px;
             text-align: center;
         }
 
-        .currency {
-            font-size: 1.5rem;
-            vertical-align: middle;
-            margin-right: 5px;
+        .gym-logo {
+            font-family: 'Oswald', sans-serif;
+            font-size: 2rem;
+            color: var(--text-color);
+            margin-bottom: 10px;
         }
 
-        .amount {
-            font-size: 3.5rem;
-            font-weight: 500;
+        .gym-logo i {
+            color: var(--accent-color);
         }
 
-        .footer {
-            margin-top: auto;
-            padding: 20px;
-            border-top: 1px solid #f1f3f4;
-        }
-
-        .btn-pay {
+        .pay-card {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 20px;
             width: 100%;
-            padding: 16px;
-            background-color: var(--gpay-blue);
-            color: white;
-            border: none;
-            border-radius: 30px;
-            font-size: 1rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: 0.2s;
+            max-width: 320px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            margin-bottom: 30px;
         }
 
-        /* Success screen */
+        .amount-display {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+
+        .btn-proceed {
+            background: var(--accent-color);
+            color: #000;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 30px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            max-width: 300px;
+            font-family: 'Oswald', sans-serif;
+            letter-spacing: 1px;
+            transition: 0.3s;
+        }
+
+        .btn-proceed:active {
+            transform: scale(0.98);
+        }
+
+        /* Success Screen */
         #success-screen {
             display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: white;
-            z-index: 100;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            text-align: center;
+            height: 100%;
+            padding: 20px;
+            background: var(--bg-color);
         }
 
         .check-circle {
-            width: 120px;
-            height: 120px;
-            background: #008577;
+            width: 100px;
+            height: 100px;
+            background: #009688;
+            /* Teal color from image */
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-size: 4rem;
             margin-bottom: 20px;
+            box-shadow: 0 0 20px rgba(0, 150, 136, 0.4);
             animation: popIn 0.5s ease;
+        }
+
+        .check-circle i {
+            font-size: 3.5rem;
+            color: white;
+        }
+
+        .success-amount {
+            font-size: 2.2rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .success-status {
+            color: var(--success-green);
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-bottom: 30px;
+            letter-spacing: 0.5px;
+        }
+
+        .details-box {
+            background: #1e1e2d;
+            border-radius: 12px;
+            padding: 20px;
+            width: 100%;
+            max-width: 320px;
+            margin-bottom: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            font-size: 0.95rem;
+        }
+
+        .detail-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .detail-label {
+            color: var(--subtext-color);
+        }
+
+        .detail-value {
+            font-weight: 500;
+            text-align: right;
+        }
+
+        .btn-done {
+            background: var(--accent-color);
+            color: #000;
+            border: none;
+            padding: 15px 0;
+            border-radius: 30px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            max-width: 320px;
+            font-family: 'Oswald', sans-serif;
+            letter-spacing: 1px;
+            box-shadow: 0 5px 15px rgba(206, 255, 0, 0.2);
+        }
+
+        .footer-logo {
+            margin-top: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--subtext-color);
+            font-size: 0.85rem;
+            padding-bottom: 20px;
         }
 
         @keyframes popIn {
@@ -156,21 +210,14 @@ $amt = isset($_GET['amt']) ? htmlspecialchars($_GET['amt']) : '899';
             }
         }
 
-        .processing #pay-btn-text {
-            display: none;
-        }
-
-        .processing .spinner {
-            display: inline-block;
-        }
-
+        /* Spinner for loading */
         .spinner {
             display: none;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255, 255, 255, 0.3);
+            width: 25px;
+            height: 25px;
+            border: 3px solid rgba(0, 0, 0, 0.1);
             border-radius: 50%;
-            border-top-color: #fff;
+            border-top-color: #000;
             animation: spin 1s ease-in-out infinite;
         }
 
@@ -179,77 +226,120 @@ $amt = isset($_GET['amt']) ? htmlspecialchars($_GET['amt']) : '899';
                 transform: rotate(360deg);
             }
         }
+
+        button.processing span {
+            display: none;
+        }
+
+        button.processing .spinner {
+            display: inline-block;
+        }
     </style>
 </head>
 
 <body>
-    <div class="header">
-        <i class="fa-solid fa-xmark"></i>
-        <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/Google_Pay_%28GPay%29_Logo.svg" alt="GPay"
-            height="24">
-    </div>
 
-    <div class="merchant-info">
-        <div class="avatar">G</div>
-        <div class="merchant-name">GymFit Membership</div>
-        <div class="vpa">fitness@okaxis</div>
-        <div
-            style="margin-top:10px; padding:5px 12px; background:#f1f3f4; border-radius:15px; font-size:0.8rem; color:#5f6368;">
-            <i class="fa-solid fa-shield-check" style="color:#1e8e3e;"></i> Verified Merchant
+    <!-- Initial Pay Screen -->
+    <div id="pay-screen">
+        <div class="gym-logo"><i class="fa-solid fa-dumbbell"></i> GYMFIT</div>
+        <p style="color:var(--subtext-color); margin-top:-5px;">Secure Checkout</p>
+
+        <div class="pay-card">
+            <div style="color:var(--subtext-color); font-size:0.9rem;">Payment Request</div>
+            <div class="amount-display">₹ <?php echo $amt; ?>.00</div>
+            <div
+                style="background:rgba(255,255,255,0.05); padding:8px 15px; border-radius:8px; display:inline-block; font-size:0.9rem;">
+                <?php echo $plan; ?> Membership
+            </div>
+        </div>
+
+        <button class="btn-proceed" id="pay-btn" onclick="processPayment()">
+            <span>PROCEED TO PAY</span>
+            <div class="spinner"></div>
+        </button>
+
+        <div style="margin-top:20px; font-size:0.8rem; color:var(--subtext-color);">
+            <i class="fa-solid fa-lock"></i> Secured by GymFit Pay
         </div>
     </div>
 
-    <div class="amount-container">
-        <span class="currency">₹</span>
-        <span class="amount">
-            <?php echo $amt; ?>
-        </span>
-        <p style="color:#5f6368; margin-top:10px;">For
-            <?php echo $plan; ?> Plan
-        </p>
-    </div>
-
-    <div class="footer">
-        <button class="btn-pay" id="pay-button" onclick="handlePay()">
-            <span id="pay-btn-text">Proceed to pay</span>
-            <div class="spinner"></div>
-        </button>
-        <p style="text-align:center; font-size:0.75rem; color:#5f6368; margin-top:15px;">
-            <i class="fa-solid fa-lock" style="font-size:0.7rem;"></i> Encrypted by Google Standard
-        </p>
-    </div>
-
+    <!-- Success Screen -->
     <div id="success-screen">
         <div class="check-circle">
             <i class="fa-solid fa-check"></i>
         </div>
-        <h2 style="margin-bottom:5px;">₹
-            <?php echo $amt; ?>
-        </h2>
-        <p style="font-size:1.1rem; color:#5f6368; margin-bottom:30px;">Paid to GymFit Membership</p>
-        <div style="color:#5f6368; font-size:0.9rem;">
-            <?php echo date('M d, Y h:i A'); ?> • Ref:
-            <?php echo rand(100000, 999999); ?>
+
+        <div class="success-amount">₹ <?php echo $amt; ?>.00</div>
+        <div class="success-status">PAYMENT SUCCESSFUL</div>
+
+        <div class="details-box">
+            <div class="detail-row">
+                <span class="detail-label">To:</span>
+                <span class="detail-value">GymFit Membership</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Ref No:</span>
+                <span class="detail-value"><?php echo strtoupper(substr(md5(time()), 0, 8)); ?></span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Method:</span>
+                <span class="detail-value">GPay</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Time:</span>
+                <span class="detail-value"><?php echo date('d M, h:i A'); ?></span>
+            </div>
         </div>
-        <button onclick="window.close()"
-            style="margin-top:50px; padding:12px 30px; border-radius:30px; border:1px solid #dadce0; background:white; font-weight:500; cursor:pointer;">
-            Done
-        </button>
+
+        <button class="btn-done" onclick="window.close()">DONE</button>
+
+        <div class="footer-logo">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/Google_Pay_%28GPay%29_Logo.svg" alt=""
+                height="14" style="filter: grayscale(1) invert(1) opacity(0.6);">
+            <span>Securely processed by GPay Demo</span>
+        </div>
     </div>
 
     <script>
-        function handlePay() {
-            const btn = document.getElementById('pay-button');
-            const success = document.getElementById('success-screen');
+        function processPayment() {
+            const btn = document.getElementById('pay-btn');
+            const payScreen = document.getElementById('pay-screen');
+            const successScreen = document.getElementById('success-screen');
 
+            const userId = <?php echo $uid; ?>;
+            const amount = <?php echo $amt; ?>;
+            const plan = "<?php echo $plan; ?>";
+
+            // Show loading state
             btn.classList.add('processing');
-            btn.disabled = true;
 
-            // Mock processing delay
-            setTimeout(() => {
-                success.style.display = 'flex';
-                // You could add an AJAX call here to notify the dashboard if needed
-            }, 2000);
+            // Backend call to record payment
+            fetch('record_payment.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    uid: userId,
+                    amt: amount,
+                    plan: plan
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    // Simulate processing delay a bit longer for effect
+                    setTimeout(() => {
+                        // Switch screens
+                        payScreen.style.display = 'none';
+                        successScreen.style.display = 'flex';
+                        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                    }, 1000);
+                })
+                .catch((error) => {
+                    console.error('Error:', error);
+                    alert('Connection error. Please try again.');
+                    btn.classList.remove('processing');
+                });
         }
     </script>
 </body>

@@ -263,6 +263,111 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reply_query'])) {
     exit;
 }
 
+// --- STAFF MANAGEMENT ---
+
+// Ensure visible_password column exists (for Admin viewing requirement)
+// This is a one-time schema update check
+$check_col = mysqli_query($link, "SHOW COLUMNS FROM users LIKE 'visible_password'");
+if (mysqli_num_rows($check_col) == 0) {
+    mysqli_query($link, "ALTER TABLE users ADD COLUMN visible_password VARCHAR(255) AFTER password");
+}
+
+// Add Staff
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_staff'])) {
+    $full_name = trim(mysqli_real_escape_string($link, $_POST['full_name']));
+    $email = trim(mysqli_real_escape_string($link, $_POST['email']));
+    $password_raw = $_POST['password'];
+
+    // Validation
+    if (empty($full_name) || empty($email) || empty($password_raw)) {
+        $_SESSION['message'] = "Error: All fields are required.";
+        $_SESSION['message_type'] = "error";
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $_SESSION['message'] = "Error: Invalid email format.";
+        $_SESSION['message_type'] = "error";
+    } elseif (strlen($password_raw) < 6) {
+        $_SESSION['message'] = "Error: Password must be at least 6 characters.";
+        $_SESSION['message_type'] = "error";
+    } else {
+        // Check if email exists
+        $check_email = mysqli_query($link, "SELECT id FROM users WHERE email = '$email'");
+        if (mysqli_num_rows($check_email) > 0) {
+            $_SESSION['message'] = "Error: Email is already registered.";
+            $_SESSION['message_type'] = "error";
+        } else {
+            $password = password_hash($password_raw, PASSWORD_DEFAULT);
+            $visible_password = mysqli_real_escape_string($link, $password_raw);
+            $sql = "INSERT INTO users (full_name, email, password, visible_password, role) VALUES ('$full_name', '$email', '$password', '$visible_password', 'staff')";
+            if (mysqli_query($link, $sql)) {
+                $_SESSION['message'] = "New staff member added successfully!";
+                $_SESSION['message_type'] = "success";
+            } else {
+                $_SESSION['message'] = "Error adding staff: " . mysqli_error($link);
+                $_SESSION['message_type'] = "error";
+            }
+        }
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// Delete Staff
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_staff'])) {
+    $id = (int) $_POST['staff_id'];
+    // Prevent deleting self (admin) - handled by role check, but good to be safe if Logic changes
+    if (mysqli_query($link, "DELETE FROM users WHERE id = $id AND role='staff'")) {
+        $_SESSION['message'] = "Staff member removed successfully.";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error removing staff member.";
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// HANDLE STAFF EDIT
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_staff'])) {
+    $id = (int) $_POST['staff_id'];
+    $name = trim(mysqli_real_escape_string($link, $_POST['full_name']));
+    $email = trim(mysqli_real_escape_string($link, $_POST['email']));
+    $password_raw = $_POST['password'];
+
+    // Validation
+    if (empty($name) || empty($email)) {
+        $_SESSION['message'] = "Error: Name and Email are required.";
+        $_SESSION['message_type'] = "error";
+    } else {
+        $pass_query = "";
+        if (!empty($password_raw)) {
+            if (strlen($password_raw) < 6) {
+                $_SESSION['message'] = "Error: Password must be at least 6 characters.";
+                $_SESSION['message_type'] = "error";
+                header("Location: dashboard_admin.php");
+                exit;
+            }
+            $hashed_password = password_hash($password_raw, PASSWORD_DEFAULT);
+            $esc_pass = mysqli_real_escape_string($link, $password_raw);
+            $pass_query = ", password='$hashed_password', visible_password='$esc_pass'";
+        }
+
+        $sql = "UPDATE users SET full_name='$name', email='$email' $pass_query WHERE id=$id AND role='staff'";
+        if (mysqli_query($link, $sql)) {
+            $_SESSION['message'] = "Staff member updated successfully!";
+            $_SESSION['message_type'] = "success";
+        } else {
+            $_SESSION['message'] = "Error updating staff: " . mysqli_error($link);
+            $_SESSION['message_type'] = "error";
+        }
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// Fetch all staff
+$staff_res = mysqli_query($link, "SELECT * FROM users WHERE role = 'staff' ORDER BY created_at DESC");
+
+
 // --- MEMBER MANAGEMENT ---
 
 // Add Member
@@ -972,7 +1077,8 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                     Back to Website</a></li>
             <li><a href="#" class="active" onclick="showSection('overview')"><i class="fa-solid fa-gauge"></i>
                     Overview</a></li>
-            <li><a href="#" onclick="showSection('users')"><i class="fa-solid fa-user-shield"></i>Users</a>
+            <li><a href="#" onclick="showSection('users')"><i class="fa-solid fa-user-shield"></i>Users</a></li>
+            <li><a href="#" onclick="showSection('staff')"><i class="fa-solid fa-id-card-clip"></i> Manage Staff</a>
             </li>
             <li><a href="#" onclick="showSection('plans')"><i class="fa-solid fa-tags"></i> Membership Plans</a></li>
             <li><a href="#" onclick="showSection('queries')"><i class="fa-solid fa-comments"></i> Member Queries</a>
@@ -1248,6 +1354,192 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                     </table>
                 </div>
             </div>
+        </div>
+
+        <!-- Staff Management Section -->
+        <div id="staff" class="dashboard-section">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Staff Management</h3>
+                    <button class="btn-add" onclick="document.getElementById('add-staff-modal').style.display='flex'">+
+                        Add Staff</button>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Joined Date</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (mysqli_num_rows($staff_res) > 0): ?>
+                            <?php while ($staff = mysqli_fetch_assoc($staff_res)): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($staff['full_name']); ?></td>
+                                    <td><?php echo htmlspecialchars($staff['email']); ?></td>
+                                    <td><?php echo date('M d, Y', strtotime($staff['created_at'])); ?></td>
+                                    <td>
+                                        <div style="display: flex; gap: 5px;">
+                                            <button class="btn-action btn-view"
+                                                onclick='openEditStaffModal(<?php echo json_encode($staff, JSON_HEX_APOS | JSON_HEX_QUOT); ?>)'>Edit</button>
+                                            <form method="POST"
+                                                onsubmit="return confirm('Remove this staff member permanently?');"
+                                                style="margin:0;">
+                                                <input type="hidden" name="delete_staff" value="1">
+                                                <input type="hidden" name="staff_id" value="<?php echo $staff['id']; ?>">
+                                                <button type="submit" class="btn-action btn-delete">Remove</button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <tr>
+                                <td colspan="4" style="text-align: center; color: var(--text-gray);">No staff members found.
+                                </td>
+                            </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Add Staff Modal -->
+            <div id="add-staff-modal"
+                style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1100; align-items:center; justify-content:center; backdrop-filter: blur(5px);">
+                <div class="card"
+                    style="width:100%; max-width:500px; background: var(--secondary-color); border: 1px solid rgba(255,255,255,0.1);">
+                    <div class="card-header">
+                        <h3>Add New Staff</h3>
+                        <button onclick="document.getElementById('add-staff-modal').style.display='none'"
+                            style="background:none; border:none; color:#fff; cursor:pointer; font-size:1.5rem;">&times;</button>
+                    </div>
+                    <form method="POST" autocomplete="off">
+                        <!-- Fake fields to trick browser autofill -->
+                        <input type="text" style="display:none" name="fake_email_remember_me">
+                        <input type="password" style="display:none" name="fake_password_remember_me">
+
+                        <input type="hidden" name="add_staff" value="1">
+                        <div style="margin-bottom: 20px;">
+                            <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Full Name</label>
+                            <input type="text" name="full_name" required placeholder="Staff Name" autocomplete="off"
+                                style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Email
+                                Address</label>
+                            <input type="email" name="email" required placeholder="staff@example.com"
+                                autocomplete="new-password"
+                                style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
+                        </div>
+                        <div style="margin-bottom: 25px;">
+                            <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Password</label>
+                            <div style="position: relative;">
+                                <input type="password" name="password" id="staff_password" required
+                                    placeholder="Create Password" autocomplete="new-password"
+                                    style="width:100%; padding:12px; padding-right: 40px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
+                                <i class="fa-solid fa-eye" id="togglePassword" onclick="toggleStaffPassword()"
+                                    style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-gray);"></i>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-add" style="width:100%;">Create Account</button>
+                    </form>
+                    <script>
+                        function toggleStaffPassword(inputId, iconId) {
+                            const passwordInput = document.getElementById(inputId || 'staff_password');
+                            const icon = document.getElementById(iconId || 'togglePassword');
+                            if (passwordInput.type === 'password') {
+                                passwordInput.type = 'text';
+                                icon.classList.remove('fa-eye');
+                                icon.classList.add('fa-eye-slash');
+                            } else {
+                                passwordInput.type = 'password';
+                                icon.classList.remove('fa-eye-slash');
+                                icon.classList.add('fa-eye');
+                            }
+                        }
+                    </script>
+                </div>
+            </div>
+
+            <!-- Edit Staff Modal -->
+            <div id="edit-staff-modal"
+                style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1100; align-items:center; justify-content:center; backdrop-filter: blur(5px);">
+                <div class="card"
+                    style="width:100%; max-width:500px; background: var(--secondary-color); border: 1px solid rgba(255,255,255,0.1);">
+                    <div class="card-header">
+                        <h3 id="edit-staff-title">Edit Staff Details</h3>
+                        <button onclick="document.getElementById('edit-staff-modal').style.display='none'"
+                            style="background:none; border:none; color:#fff; cursor:pointer; font-size:1.5rem;">&times;</button>
+                    </div>
+                    <form method="POST" autocomplete="off">
+                        <input type="hidden" name="edit_staff" value="1">
+                        <input type="hidden" name="staff_id" id="edit-staff-id-input">
+
+                        <div style="margin-bottom: 20px;">
+                            <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Full Name</label>
+                            <input type="text" name="full_name" id="edit-staff-name" required
+                                style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Email
+                                Address</label>
+                            <input type="email" name="email" id="edit-staff-email" required
+                                style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
+                        </div>
+
+                        <!-- Current Password -->
+                        <div style="margin-bottom: 20px;">
+                            <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Current
+                                Password</label>
+                            <div style="position: relative;">
+                                <input type="password" value="" readonly id="edit-staff-current-pass"
+                                    style="width:100%; padding:12px; padding-right: 40px; background:rgba(255,255,255,0.05); border:1px solid #333; color:#fff; border-radius:8px; cursor: default;">
+                                <i class="fa-solid fa-eye" id="toggleCurrentPass"
+                                    onclick="toggleStaffPassword('edit-staff-current-pass', 'toggleCurrentPass')"
+                                    style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-gray);"></i>
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom: 25px;">
+                            <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">New Password
+                                (leave blank to keep current)</label>
+                            <div style="position: relative;">
+                                <input type="password" name="password" id="edit-staff-password"
+                                    placeholder="Enter new password" autocomplete="new-password"
+                                    style="width:100%; padding:12px; padding-right: 40px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
+                                <i class="fa-solid fa-eye" id="toggleEditPassword"
+                                    onclick="toggleStaffPassword('edit-staff-password', 'toggleEditPassword')"
+                                    style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-gray);"></i>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-add" style="width:100%;">Update Details</button>
+                    </form>
+                </div>
+            </div>
+
+            <script>
+                function openEditStaffModal(staff) {
+                    document.getElementById('edit-staff-title').innerText = 'Edit ' + staff.full_name + ' Details';
+                    document.getElementById('edit-staff-id-input').value = staff.id;
+                    document.getElementById('edit-staff-name').value = staff.full_name;
+                    document.getElementById('edit-staff-email').value = staff.email;
+                    document.getElementById('edit-staff-password').value = ''; // Reset new password field
+
+                    // Show visible password if available, else placeholder
+                    var currentPassField = document.getElementById('edit-staff-current-pass');
+                    if (staff.visible_password) {
+                        currentPassField.value = staff.visible_password;
+                        currentPassField.style.color = "#fff";
+                    } else {
+                        currentPassField.value = "Reset Required";
+                        currentPassField.style.color = "#ff4d4d";
+                    }
+
+                    document.getElementById('edit-staff-modal').style.display = 'flex';
+                }
+            </script>
         </div>
 
 
@@ -1715,7 +2007,20 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                     <div style="margin-bottom: 25px;">
                         <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Trainer
                             Image</label>
-                        <input type="file" name="trainer_image" accept="image/*" style="width:100%; color:#fff;">
+                        <div style="display: flex; align-items: center; margin-top: 5px;">
+                            <label for="trainer_image_add"
+                                style="background: rgba(255,255,255,0.1); color: #fff; padding: 10px 20px; border-radius: 8px; cursor: pointer; border: 1px solid rgba(255,255,255,0.2); transition: 0.3s; font-size: 0.9rem; display: flex; align-items: center; gap: 8px;"
+                                onmouseover="this.style.borderColor='var(--primary-color)'; this.style.color='var(--primary-color)';"
+                                onmouseout="this.style.borderColor='rgba(255,255,255,0.2)'; this.style.color='#fff';">
+                                <i class="fa-solid fa-cloud-arrow-up"></i> Choose File
+                            </label>
+                            <span id="trainer-file-name"
+                                style="margin-left: 15px; color: var(--text-gray); font-size: 0.9rem; font-style: italic;">No
+                                file chosen</span>
+                            <input type="file" name="trainer_image" id="trainer_image_add" accept="image/*"
+                                style="display: none;"
+                                onchange="document.getElementById('trainer-file-name').innerText = this.files.length > 0 ? this.files[0].name : 'No file chosen'; document.getElementById('trainer-file-name').style.color = '#fff';">
+                        </div>
                         <small style="color: var(--text-gray); display:block; margin-top:5px;">Upload a professional
                             photo for the trainer profile.</small>
                     </div>
@@ -1860,7 +2165,20 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                     <div style="margin-bottom: 25px;">
                         <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Trainer Image
                             (Optional)</label>
-                        <input type="file" name="trainer_image" accept="image/*" style="width:100%; color:#fff;">
+                        <div style="display: flex; align-items: center; margin-top: 5px;">
+                            <label for="edit_trainer_image"
+                                style="background: rgba(255,255,255,0.1); color: #fff; padding: 10px 20px; border-radius: 8px; cursor: pointer; border: 1px solid rgba(255,255,255,0.2); transition: 0.3s; font-size: 0.9rem; display: flex; align-items: center; gap: 8px;"
+                                onmouseover="this.style.borderColor='var(--primary-color)'; this.style.color='var(--primary-color)';"
+                                onmouseout="this.style.borderColor='rgba(255,255,255,0.2)'; this.style.color='#fff';">
+                                <i class="fa-solid fa-cloud-arrow-up"></i> Choose New File
+                            </label>
+                            <span id="edit-trainer-file-name"
+                                style="margin-left: 15px; color: var(--text-gray); font-size: 0.9rem; font-style: italic;">No
+                                file chosen</span>
+                            <input type="file" name="trainer_image" id="edit_trainer_image" accept="image/*"
+                                style="display: none;"
+                                onchange="document.getElementById('edit-trainer-file-name').innerText = this.files.length > 0 ? this.files[0].name : 'No file chosen'; document.getElementById('edit-trainer-file-name').style.color = '#fff';">
+                        </div>
                         <small style="color: var(--text-gray); display:block; margin-top:5px;">Upload a new photo
                             only
                             if you want to change the current one.</small>
@@ -2316,6 +2634,10 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                 <img id="edit-member-preview" src="" alt="Profile" class="edit-member-img"
                     style="width: 80px; height: 80px; margin-bottom: 20px;">
                 <form method="POST" autocomplete="off">
+                    <!-- Fake fields to prevent autofill -->
+                    <input type="text" style="display:none" name="fake_email_mem_edit">
+                    <input type="password" style="display:none" name="fake_pass_mem_edit">
+
                     <input type="hidden" name="update_member" value="1">
                     <input type="hidden" name="member_id" id="edit-member-id">
                     <div class="form-group">
@@ -2329,12 +2651,11 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                             style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); padding: 15px;">
                     </div>
                     <div class="form-group">
-                        <label style="color: #fff; font-weight: 500; margin-bottom: 10px;">Reset Password (blank to
-                            keep
+                        <label style="color: #fff; font-weight: 500; margin-bottom: 10px;">Reset Password (blank to keep
                             current)</label>
                         <div class="pass-wrapper">
                             <input type="password" name="password" id="edit-pass" class="form-control"
-                                placeholder="New password" minlength="6"
+                                placeholder="New password" minlength="6" autocomplete="new-password"
                                 style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); padding: 15px;">
                             <i class="fa-solid fa-eye pass-toggle" onclick="togglePass('edit-pass', this)"
                                 style="right: 15px;"></i>
@@ -2351,6 +2672,8 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
             </div>
         </div>
     </div>
+
+    </div> <!-- End Main Content -->
 
     <script>
         function showSection(sectionId) {
@@ -2413,6 +2736,7 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
             document.getElementById('edit-member-name').value = member.full_name;
             document.getElementById('edit-member-email').value = member.email;
             document.getElementById('edit-member-preview').src = member.profile_image ? member.profile_image : 'https://ui-avatars.com/api/?name=' + encodeURIComponent(member.full_name) + '&background=ceff00&color=1a1a2e';
+            document.getElementById('edit-pass').value = ''; // Clear password field
             document.getElementById('edit-member-modal').style.display = 'flex';
         }
 

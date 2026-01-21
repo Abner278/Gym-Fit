@@ -10,13 +10,20 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "member") {
 $user_id = $_SESSION["id"];
 $full_name = $_SESSION["full_name"];
 
+// Fetch user's join date
+$user_query = mysqli_query($link, "SELECT created_at FROM users WHERE id = $user_id");
+$user_data = mysqli_fetch_assoc($user_query);
+$join_date = date('Y-m-d', strtotime($user_data['created_at']));
+
 // Default to current month/year or get from GET
-$month = isset($_GET['m']) ? (int)$_GET['m'] : (int)date('n');
-$year = isset($_GET['y']) ? (int)$_GET['y'] : (int)date('Y');
+$month = isset($_GET['m']) ? (int) $_GET['m'] : (int) date('n');
+$year = isset($_GET['y']) ? (int) $_GET['y'] : (int) date('Y');
 
 // Validate month/year
-if ($month < 1 || $month > 12) $month = (int)date('n');
-if ($year < 2000 || $year > 3000) $year = (int)date('Y');
+if ($month < 1 || $month > 12)
+    $month = (int) date('n');
+if ($year < 2000 || $year > 3000)
+    $year = (int) date('Y');
 
 $month_name = date('F', mktime(0, 0, 0, $month, 10));
 $days_in_month = date('t', mktime(0, 0, 0, $month, 1, $year));
@@ -34,8 +41,18 @@ while ($row = mysqli_fetch_assoc($result)) {
 }
 
 $total_present = count($attendance_map);
-$total_days = ($year == (int)date('Y') && $month == (int)date('n')) ? (int)date('d') : $days_in_month; // Count days passed so far for stats, or full month? "Absent" implies past.
-// For the report table, we list ALL days of the month.
+
+// Calculate total trackable days (only count days after joining)
+$join_timestamp = strtotime($join_date);
+$total_days = 0;
+for ($d = 1; $d <= $days_in_month; $d++) {
+    $check_date = "$year-" . sprintf('%02d', $month) . "-" . sprintf('%02d', $d);
+    $check_ts = strtotime($check_date);
+    // Only count if: after join date AND not in future AND in current month if current month
+    if ($check_ts >= $join_timestamp && $check_ts <= time()) {
+        $total_days++;
+    }
+}
 
 ?>
 <!DOCTYPE html>
@@ -90,7 +107,8 @@ $total_days = ($year == (int)date('Y') && $month == (int)date('n')) ? (int)date(
         }
 
         .logo i {
-            color: #8bc34a; /* A generic green, or user's neon green if printed in color */
+            color: #8bc34a;
+            /* A generic green, or user's neon green if printed in color */
             margin-right: 10px;
         }
 
@@ -194,7 +212,7 @@ $total_days = ($year == (int)date('Y') && $month == (int)date('n')) ? (int)date(
             color: #cc0000;
             border: 1px solid rgba(255, 0, 0, 0.1);
         }
-        
+
         .status-future {
             background: #f0f0f0;
             color: #999;
@@ -216,22 +234,32 @@ $total_days = ($year == (int)date('Y') && $month == (int)date('n')) ? (int)date(
             border-radius: 50px;
             font-weight: bold;
             cursor: pointer;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
             display: flex;
             align-items: center;
             gap: 10px;
             transition: 0.3s;
         }
 
-         .btn-print.primary {
+        .btn-print.primary {
             background: #ceff00;
             color: #000;
-         }
+        }
 
         @media print {
-            .no-print { display: none; }
-            body { padding: 0; background: #fff; }
-            .report-box { box-shadow: none; padding: 0; }
+            .no-print {
+                display: none;
+            }
+
+            body {
+                padding: 0;
+                background: #fff;
+            }
+
+            .report-box {
+                box-shadow: none;
+                padding: 0;
+            }
         }
     </style>
 </head>
@@ -273,7 +301,8 @@ $total_days = ($year == (int)date('Y') && $month == (int)date('n')) ? (int)date(
             </div>
             <div class="stat-card">
                 <h4>Attendance Rate</h4>
-                <div class="val"><?php echo ($days_in_month > 0) ? round(($total_present / $days_in_month) * 100) : 0; ?>%</div>
+                <div class="val">
+                    <?php echo ($days_in_month > 0) ? round(($total_present / $days_in_month) * 100) : 0; ?>%</div>
             </div>
         </div>
 
@@ -292,14 +321,18 @@ $total_days = ($year == (int)date('Y') && $month == (int)date('n')) ? (int)date(
                     $timestamp = strtotime($current_date_str);
                     $day_name = date('l', $timestamp);
                     $display_date = date('M d, Y', $timestamp);
-                    
+
                     $is_present = isset($attendance_map[$current_date_str]);
                     $is_future = $timestamp > time();
-                    
+                    $is_before_join = $current_date_str < $join_date;
+
                     $status_label = 'Absent';
                     $status_class = 'status-absent';
-                    
-                    if ($is_present) {
+
+                    if ($is_before_join) {
+                        $status_label = 'Not Joined';
+                        $status_class = 'status-future'; // Reuse future styling for not-joined
+                    } elseif ($is_present) {
                         $status_label = 'Present';
                         $status_class = 'status-present';
                     } elseif ($is_future) {
@@ -317,8 +350,9 @@ $total_days = ($year == (int)date('Y') && $month == (int)date('n')) ? (int)date(
                 ?>
             </tbody>
         </table>
-        
-        <div style="margin-top: 40px; text-align: center; color: #999; font-size: 0.8rem; border-top: 1px solid #eee; padding-top: 20px;">
+
+        <div
+            style="margin-top: 40px; text-align: center; color: #999; font-size: 0.8rem; border-top: 1px solid #eee; padding-top: 20px;">
             <p>Keep pushing your limits! Consistency is the key to success.</p>
         </div>
     </div>
@@ -347,4 +381,5 @@ $total_days = ($year == (int)date('Y') && $month == (int)date('n')) ? (int)date(
         }
     </script>
 </body>
+
 </html>

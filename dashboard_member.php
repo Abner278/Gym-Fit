@@ -81,6 +81,34 @@ $attendance_sql = "CREATE TABLE IF NOT EXISTS attendance (
 )";
 mysqli_query($link, $attendance_sql);
 
+// Ensure appointments table exists
+// Ensure appointments table exists
+$appt_sql = "CREATE TABLE IF NOT EXISTS appointments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    trainer_id INT NOT NULL,
+    booking_date DATE NOT NULL,
+    booking_time VARCHAR(20) NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending',
+    staff_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)";
+mysqli_query($link, $appt_sql);
+
+// Check if staff_message column exists (schema update)
+$check_col = mysqli_query($link, "SHOW COLUMNS FROM appointments LIKE 'staff_message'");
+if (mysqli_num_rows($check_col) == 0) {
+    mysqli_query($link, "ALTER TABLE appointments ADD COLUMN staff_message TEXT AFTER status");
+}
+
+// FETCH APPOINTMENTS
+$my_appts_query = "SELECT a.*, u.full_name as trainer_name, u.profile_image 
+                   FROM appointments a 
+                   JOIN users u ON a.trainer_id = u.id 
+                   WHERE a.user_id = $user_id 
+                   ORDER BY a.booking_date DESC, a.booking_time DESC";
+$my_appts_res = mysqli_query($link, $my_appts_query);
+
 // HANDLE ATTENDANCE
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['mark_attendance'])) {
     $date = date('Y-m-d');
@@ -96,6 +124,39 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['mark_attendance'])) {
     }
     header("Location: dashboard_member.php");
     exit;
+    header("Location: dashboard_member.php");
+    exit;
+}
+
+// HANDLE APPOINTMENT BOOKING
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['book_appointment'])) {
+    $trainer_id = (int) $_POST['trainer_id'];
+    $date = mysqli_real_escape_string($link, $_POST['date']);
+    $time = mysqli_real_escape_string($link, $_POST['time']);
+
+    $stmt = mysqli_prepare($link, "INSERT INTO appointments (user_id, trainer_id, booking_date, booking_time) VALUES (?, ?, ?, ?)");
+    mysqli_stmt_bind_param($stmt, "iiss", $user_id, $trainer_id, $date, $time);
+
+    if (mysqli_stmt_execute($stmt)) {
+        $_SESSION['flash_message'] = "Appointment booked successfully!";
+    } else {
+        $_SESSION['flash_message'] = "Error booking appointment.";
+    }
+    mysqli_stmt_close($stmt);
+    header("Location: dashboard_member.php");
+    exit;
+}
+
+// HANDLE APPOINTMENT DELETION
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_appointment'])) {
+    $appt_id = (int) $_POST['appt_id'];
+    if (mysqli_query($link, "DELETE FROM appointments WHERE id=$appt_id AND user_id=$user_id")) {
+        $_SESSION['flash_message'] = "Appointment deleted successfully.";
+    } else {
+        $_SESSION['flash_message'] = "Error deleting appointment.";
+    }
+    header("Location: dashboard_member.php");
+    exit;
 }
 
 // FETCH ATTENDANCE HISTORY
@@ -105,6 +166,40 @@ while ($row = mysqli_fetch_assoc($attendance_res)) {
     $attendance_dates[] = $row['date'];
 }
 $is_present_today = in_array(date('Y-m-d'), $attendance_dates);
+
+// Calculate Monthly Stats for Reports Modal (Grouped by Year)
+$attendance_by_year = [];
+$current_sys_year = (int) date('Y');
+$join_year = (int) date('Y', strtotime($join_date));
+// Start from the year user joined
+$min_year = $join_year;
+
+// Also check attendance history for even earlier dates (edge case)
+if (!empty($attendance_dates)) {
+    foreach ($attendance_dates as $ad) {
+        $y_check = (int) date('Y', strtotime($ad));
+        if ($y_check < $min_year)
+            $min_year = $y_check;
+    }
+}
+
+// Generate data structure: [Year][Month] => {name, count}
+for ($y = $current_sys_year; $y >= $min_year; $y--) {
+    $attendance_by_year[$y] = [];
+    for ($m = 1; $m <= 12; $m++) {
+        $prefix = sprintf('%04d-%02d', $y, $m);
+        $cnt = 0;
+        foreach ($attendance_dates as $d) {
+            if (strpos($d, $prefix) === 0)
+                $cnt++;
+        }
+        $attendance_by_year[$y][$m] = [
+            'name' => date('F', mktime(0, 0, 0, $m, 10)),
+            'short' => date('M', mktime(0, 0, 0, $m, 10)),
+            'count' => $cnt
+        ];
+    }
+}
 
 
 // HANDLE PROFILE UPDATE
@@ -1176,7 +1271,11 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             <li><a href="#" onclick="showSection('todo')"><i class="fa-solid fa-list-check"></i> Daily To-Do</a></li>
             <li><a href="#" onclick="showSection('membership')"><i class="fa-solid fa-id-card"></i> Membership</a></li>
             <li><a href="#" onclick="showSection('trainers')"><i class="fa-solid fa-dumbbell"></i> Trainers</a></li>
+            <li><a href="#" onclick="showSection('my-appointments')"><i class="fa-solid fa-calendar-check"></i>
+                    Appointments</a></li>
 
+            <li><a href="#" onclick="showSection('chatbot')"><i class="fa-solid fa-robot"></i> AI Health Assistant</a>
+            </li>
             <li><a href="#" onclick="showSection('profile')"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
             </li>
         </ul>
@@ -1850,6 +1949,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
         <!-- Trainers Section -->
         <div id="trainers" class="dashboard-section">
             <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Our Expert Trainers</h2>
+
+
             <div class="trainer-grid">
                 <?php if (mysqli_num_rows($trainers_query) > 0): ?>
                     <?php while ($trainer = mysqli_fetch_assoc($trainers_query)): ?>
@@ -1858,6 +1959,10 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                                 alt="<?php echo htmlspecialchars($trainer['name']); ?>" class="trainer-img">
                             <div class="trainer-info">
                                 <h4><?php echo htmlspecialchars($trainer['name']); ?></h4>
+                                <button class="btn-action" style="margin-top:10px; width:100%; font-size:0.8rem;"
+                                    onclick="openBookingModal('<?php echo $trainer['id']; ?>', '<?php echo htmlspecialchars($trainer['name'], ENT_QUOTES); ?>')">
+                                    <i class="fa-solid fa-calendar-plus"></i> Book Appointment
+                                </button>
                             </div>
                         </div>
                     <?php endwhile; ?>
@@ -1870,6 +1975,107 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     </div>
                 <?php endif; ?>
             </div>
+
+        </div>
+
+        <!-- My Appointments Section (New Dedicated Tab) -->
+        <div id="my-appointments" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">My Appointments</h2>
+            <?php
+            mysqli_data_seek($my_appts_res, 0);
+            if (mysqli_num_rows($my_appts_res) > 0):
+                ?>
+                <div class="dashboard-card">
+                    <div style="overflow-x: auto;">
+                        <table style="width:100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                                    <th style="text-align:left; padding:15px; color:var(--text-gray); font-size:0.85rem;">
+                                        Trainer</th>
+                                    <th style="text-align:left; padding:15px; color:var(--text-gray); font-size:0.85rem;">
+                                        Date & Time</th>
+                                    <th style="text-align:left; padding:15px; color:var(--text-gray); font-size:0.85rem;">
+                                        Status</th>
+                                    <th style="text-align:left; padding:15px; color:var(--text-gray); font-size:0.85rem;">
+                                        Message</th>
+                                    <th style="text-align:center; padding:15px; color:var(--text-gray); font-size:0.85rem;">
+                                        Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php while ($appt = mysqli_fetch_assoc($my_appts_res)):
+                                    $status_color = match ($appt['status']) {
+                                        'approved' => '#00ff85',
+                                        'rejected' => '#ff4d4d',
+                                        default => '#ffc107'
+                                    };
+                                    ?>
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:20px 15px; display:flex; align-items:center; gap:15px;">
+                                            <div
+                                                style="width:40px; height:40px; border-radius:50%; background: #333; overflow:hidden;">
+                                                <img src="<?php echo $appt['profile_image'] ? $appt['profile_image'] : 'https://ui-avatars.com/api/?name=' . urlencode($appt['trainer_name']); ?>"
+                                                    style="width:100%; height:100%; object-fit:cover;">
+                                            </div>
+                                            <span
+                                                style="font-size:1rem; font-weight:500;"><?php echo htmlspecialchars($appt['trainer_name']); ?></span>
+                                        </td>
+                                        <td style="padding:20px 15px;">
+                                            <div style="font-size:0.95rem; font-weight:500; margin-bottom:5px;">
+                                                <?php echo date('M d, Y', strtotime($appt['booking_date'])); ?>
+                                            </div>
+                                            <span
+                                                style="font-size:0.85rem; color: #ceff00; background: rgba(206, 255, 0, 0.1); padding: 5px 10px; border-radius: 20px;">
+                                                <i class="fa-regular fa-clock"
+                                                    style="margin-right:5px;"></i><?php echo $appt['booking_time']; ?>
+                                            </span>
+                                        </td>
+                                        <td style="padding:20px 15px;">
+                                            <span
+                                                style="color:<?php echo $status_color; ?>; font-weight:bold; text-transform:uppercase; font-size:0.75rem; padding: 6px 12px; background: rgba(255,255,255,0.05); border-radius: 6px; letter-spacing: 0.5px;">
+                                                <?php echo $appt['status']; ?>
+                                            </span>
+                                        </td>
+                                        <td
+                                            style="padding:20px 15px; font-size:0.9rem; color: #ddd; max-width: 250px; line-height: 1.5;">
+                                            <?php echo $appt['staff_message'] ? htmlspecialchars($appt['staff_message']) : '<span style="color:var(--text-gray); font-style:italic; opacity:0.5;">No message</span>'; ?>
+                                        </td>
+                                        <td style="padding:20px 15px; text-align:center;">
+                                            <form method="POST"
+                                                onsubmit="return confirm('Are you sure you want to delete this appointment?');"
+                                                style="margin:0;">
+                                                <input type="hidden" name="delete_appointment" value="1">
+                                                <input type="hidden" name="appt_id" value="<?php echo $appt['id']; ?>">
+                                                <button type="submit"
+                                                    style="background:rgba(255, 77, 77, 0.1); border:none; color:#ff4d4d; cursor:pointer; width:35px; height:35px; border-radius:50%; transition:0.3s; display:inline-flex; align-items:center; justify-content:center;"
+                                                    title="Delete Appointment"
+                                                    onmouseover="this.style.background='#ff4d4d'; this.style.color='#fff';"
+                                                    onmouseout="this.style.background='rgba(255, 77, 77, 0.1)'; this.style.color='#ff4d4d';">
+                                                    <i class="fa-solid fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php endwhile; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            <?php else: ?>
+                <div
+                    style="text-align: center; padding: 60px; background: var(--card-bg); border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                    <div
+                        style="width: 80px; height: 80px; background: rgba(255,255,255,0.05); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px;">
+                        <i class="fa-regular fa-calendar-xmark" style="font-size: 2.5rem; color: var(--text-gray);"></i>
+                    </div>
+                    <h3 style="font-family: 'Oswald'; margin-bottom: 10px; color: #fff;">No Appointments Yet</h3>
+                    <p style="color: var(--text-gray); margin-bottom: 25px;">You haven't booked any sessions with our
+                        trainers.</p>
+                    <button onclick="showSection('trainers')" class="btn-action" style="max-width: 200px; margin: 0 auto;">
+                        Book Now
+                    </button>
+                </div>
+            <?php endif; ?>
         </div>
 
         <!-- Attendance Section -->
@@ -1899,11 +2105,12 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             <div class="dashboard-card">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <h3 style="margin-bottom:0;">Attendance History (<?php echo date('F Y'); ?>)</h3>
-                    <a href="attendance_report.php" target="_blank" class="icon-btn edit"
-                        style="text-decoration:none; font-size:1rem; border:1px solid rgba(255,255,255,0.2); padding:5px 10px; border-radius:5px;"
-                        title="Download PDF Report">
-                        <i class="fa-solid fa-file-pdf"></i> Download Report
-                    </a>
+                    <button onclick="document.getElementById('reports-modal').style.display='flex'"
+                        class="icon-btn edit"
+                        style="background:none; color:#fff; cursor:pointer; font-size:1rem; border:1px solid rgba(255,255,255,0.2); padding:5px 10px; border-radius:5px;"
+                        title="View Past Reports">
+                        <i class="fa-solid fa-folder-open"></i> View Attendance
+                    </button>
                 </div>
                 <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content: flex-start; margin-top: 20px;">
                     <?php
@@ -2026,6 +2233,129 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         will be saved permanently to your account.</p>
                 </form>
             </div>
+        </div>
+
+        <!-- Chatbot Section -->
+        <div id="chatbot" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">AI Health Assistant</h2>
+            <div class="dashboard-card" style="height: 600px; display: flex; flex-direction: column; padding: 0;">
+
+                <!-- Chat Header -->
+                <div
+                    style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; gap: 15px; background: rgba(0,0,0,0.2);">
+                    <div
+                        style="width: 45px; height: 45px; background: var(--primary-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #000; font-size: 1.5rem;">
+                        <i class="fa-solid fa-robot"></i>
+                    </div>
+                    <div>
+                        <h4 style="margin: 0; color: #fff;">GymFit AI Coach</h4>
+                        <small style="color: var(--primary-color);">Online • Connected to Gemini Pro</small>
+                    </div>
+                </div>
+
+                <!-- Chat Messages -->
+                <div id="chat-messages"
+                    style="flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px;">
+                    <div style="display: flex; gap: 10px; align-items: flex-start; max-width: 80%;">
+                        <div
+                            style="min-width: 35px; height: 35px; background: var(--primary-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #000; font-size: 1rem;">
+                            <i class="fa-solid fa-robot"></i>
+                        </div>
+                        <div
+                            style="background: rgba(255,255,255,0.1); padding: 12px 15px; border-radius: 0 15px 15px 15px; color: #eee; font-size: 0.95rem; line-height: 1.5;">
+                            Hello! I'm your AI personal trainer. Ask me anything about workouts, diet, or health!
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Input Area -->
+                <div
+                    style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); display: flex; gap: 10px;">
+                    <input type="text" id="chat-input" placeholder="Type your question..."
+                        style="flex-grow: 1; padding: 15px; border-radius: 30px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; outline: none;"
+                        onkeypress="if(event.key === 'Enter') sendMessage()">
+                    <button onclick="sendMessage()" class="btn-action"
+                        style="width: 50px; height: 50px; border-radius: 50%; padding: 0; display: flex; align-items: center; justify-content: center;">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+
+            <script>
+                // API Key moved to gemini.php
+
+                async function sendMessage() {
+                    const input = document.getElementById('chat-input');
+                    const message = input.value.trim();
+                    if (!message) return;
+
+                    addMessage(message, 'user');
+                    input.value = '';
+                    const loadingId = addLoading();
+
+                    const replyText = await getAIReply(message);
+                    removeLoading(loadingId);
+
+                    const formattedReply = replyText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+                    addMessage(formattedReply, 'bot');
+                }
+
+                async function getAIReply(userMsg) {
+                    try {
+                        const res = await fetch(
+                            "gemini.php", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ message: userMsg })
+                        });
+
+                        const data = await res.json();
+                        return data.reply;
+
+                    } catch (err) {
+                        console.error("Gemini Error:", err);
+                        return "Connection error.";
+                    }
+                }
+
+                function addMessage(text, sender) {
+                    const container = document.getElementById('chat-messages');
+                    const div = document.createElement('div');
+
+                    if (sender === 'user') {
+                        div.style.cssText = "display: flex; gap: 10px; align-items: flex-end; justify-content: flex-end; margin-left: auto; max-width: 80%;";
+                        div.innerHTML = `
+                            <div style="background: var(--primary-color); padding: 12px 15px; border-radius: 15px 15px 0 15px; color: #000; font-size: 0.95rem; line-height: 1.5; font-weight: 500;">${text}</div>
+                            <div style="min-width: 35px; height: 35px; background: #333; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1rem;"><i class="fa-solid fa-user"></i></div>`;
+                    } else {
+                        div.style.cssText = "display: flex; gap: 10px; align-items: flex-start; max-width: 80%;";
+                        div.innerHTML = `
+                            <div style="min-width: 35px; height: 35px; background: var(--primary-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #000; font-size: 1rem;"><i class="fa-solid fa-robot"></i></div>
+                            <div style="background: rgba(255,255,255,0.1); padding: 12px 15px; border-radius: 0 15px 15px 15px; color: #eee; font-size: 0.95rem; line-height: 1.5;">${text}</div>`;
+                    }
+                    container.appendChild(div);
+                    container.scrollTop = container.scrollHeight;
+                }
+
+                function addLoading() {
+                    const container = document.getElementById('chat-messages');
+                    const id = 'loading-' + Date.now();
+                    const div = document.createElement('div');
+                    div.id = id;
+                    div.style.cssText = "display: flex; gap: 10px; align-items: flex-start; max-width: 80%;";
+                    div.innerHTML = `
+                        <div style="min-width: 35px; height: 35px; background: var(--primary-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #000; font-size: 1rem;"><i class="fa-solid fa-robot"></i></div>
+                        <div style="background: rgba(255,255,255,0.1); padding: 12px 15px; border-radius: 0 15px 15px 15px; color: #eee;"><i class="fa-solid fa-ellipsis fa-fade"></i></div>`;
+                    container.appendChild(div);
+                    container.scrollTop = container.scrollHeight;
+                    return id;
+                }
+
+                function removeLoading(id) {
+                    const el = document.getElementById(id);
+                    if (el) el.remove();
+                }
+            </script>
         </div>
 
     </div>
@@ -2788,7 +3118,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             }
 
             const baseUrl = window.location.protocol + "//" + host + port + window.location.pathname.replace('dashboard_member.php', '');
-            const mockUrl = `${baseUrl}gpay_mock.php?amt=${amt}&plan=${encodeURIComponent(plan)}`;
+            const mockUrl = `${baseUrl}gpay_mock.php?amt=${amt}&plan=${encodeURIComponent(plan)}&uid=<?php echo $user_id; ?>`;
 
             // Generate QR
             const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(mockUrl)}`;
@@ -2976,6 +3306,272 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 aBox.style.transform = 'scale(1.2)';
             }
         }
+    </script>
+    <!-- Booking Modal (Moved to Bottom) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <style>
+        .time-slots-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .time-slot {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: 0.3s;
+            width: 100%;
+            white-space: nowrap;
+        }
+
+        .time-slot:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: #fff;
+        }
+
+        .time-slot.selected {
+            background: var(--primary-color);
+            color: #000;
+            border-color: var(--primary-color);
+            font-weight: bold;
+            box-shadow: 0 0 10px rgba(206, 255, 0, 0.4);
+        }
+
+        .flatpickr-calendar {
+            background: #1a1a2e;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .flatpickr-day.selected {
+            background: var(--primary-color);
+            border-color: var(--primary-color);
+            color: #000;
+        }
+
+        #booking-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1100;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(5px);
+        }
+    </style>
+    <div id="booking-modal">
+        <div class="card"
+            style="width:100%; max-width:450px; background: #0f0f1a; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); padding: 0; overflow: hidden;">
+            <div class="card-header"
+                style="background: rgba(255,255,255,0.02); padding: 20px 25px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <h3 style="margin:0; font-family:'Oswald'; display:flex; align-items:center; gap:10px;">Book Appointment
+                </h3>
+                <button onclick="document.getElementById('booking-modal').style.display='none'"
+                    style="background:none; border:none; color:var(--text-gray); cursor:pointer; font-size:1.2rem; transition:0.3s;"
+                    onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-gray)'"><i
+                        class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div style="padding: 25px;">
+                <p style="margin-bottom:20px; color:var(--text-gray); font-size: 0.9rem;">With: <strong
+                        id="booking-trainer-name"
+                        style="color:var(--primary-color); font-size: 1.1rem; margin-left: 5px;"></strong></p>
+                <form method="POST">
+                    <input type="hidden" name="book_appointment" value="1">
+                    <input type="hidden" name="trainer_id" id="booking-trainer-id">
+                    <div style="margin-bottom: 25px;">
+                        <label
+                            style="display:block; margin-bottom: 10px; color: #fff; font-weight: 500; font-size: 0.95rem;">Select
+                            Date</label>
+                        <div style="position: relative;">
+                            <input type="text" id="flatpickr-date" name="date" required placeholder="yyyy-mm-dd"
+                                style="width:100%; padding:14px 15px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:10px; font-size: 1rem; outline: none; cursor: pointer;">
+                            <i class="fa-regular fa-calendar-days"
+                                style="position:absolute; right:15px; top:50%; transform:translateY(-50%); color: var(--text-gray); pointer-events: none;"></i>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 30px;">
+                        <label
+                            style="display:block; margin-bottom: 10px; color: #fff; font-weight: 500; font-size: 0.95rem;">Select
+                            Time</label>
+                        <input type="hidden" name="time" id="selected-time-input" required>
+                        <div class="time-slots-grid">
+                            <button type="button" class="time-slot" onclick="selectTime(this, '06:00 AM')">06:00
+                                AM</button>
+                            <button type="button" class="time-slot" onclick="selectTime(this, '07:00 AM')">07:00
+                                AM</button>
+                            <button type="button" class="time-slot" onclick="selectTime(this, '08:00 AM')">08:00
+                                AM</button>
+                            <button type="button" class="time-slot" onclick="selectTime(this, '09:00 AM')">09:00
+                                AM</button>
+                            <button type="button" class="time-slot" onclick="selectTime(this, '10:00 AM')">10:00
+                                AM</button>
+                            <button type="button" class="time-slot" onclick="selectTime(this, '04:00 PM')">04:00
+                                PM</button>
+                            <button type="button" class="time-slot" onclick="selectTime(this, '05:00 PM')">05:00
+                                PM</button>
+                            <button type="button" class="time-slot" onclick="selectTime(this, '06:00 PM')">06:00
+                                PM</button>
+                            <button type="button" class="time-slot" onclick="selectTime(this, '07:00 PM')">07:00
+                                PM</button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-action"
+                        style="width:100%; border-radius: 30px; font-weight: bold; padding: 14px; font-size: 1rem; text-transform: uppercase;">Confirm
+                        Booking</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            if (typeof flatpickr !== "undefined") {
+                flatpickr("#flatpickr-date", { minDate: "today", dateFormat: "Y-m-d", theme: "dark", disableMobile: "true" });
+            }
+        });
+        function openBookingModal(id, name) {
+            document.getElementById('booking-trainer-id').value = id;
+            document.getElementById('booking-trainer-name').innerText = name;
+            document.getElementById('booking-modal').style.display = 'flex';
+            document.getElementById('selected-time-input').value = '';
+            document.querySelectorAll('.time-slot').forEach(el => el.classList.remove('selected'));
+            if (document.getElementById('flatpickr-date')._flatpickr) document.getElementById('flatpickr-date')._flatpickr.clear();
+        }
+        function selectTime(btn, time) {
+            document.querySelectorAll('.time-slot').forEach(el => el.classList.remove('selected'));
+            btn.classList.add('selected');
+            document.getElementById('selected-time-input').value = time;
+        }
+    </script>
+
+    <!-- Reports Modal -->
+    <div id="reports-modal" class="modal-overlay"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center;">
+        <div class="modal-content"
+            style="background:#1a1a2e; padding:0; border-radius:15px; width:95%; max-width:800px; max-height:85vh; overflow:hidden; border:1px solid rgba(255,255,255,0.1); display:flex; flex-direction:column; box-shadow: 0 0 40px rgba(0,0,0,0.6);">
+
+            <!-- Header -->
+            <div
+                style="padding:20px 25px; border-bottom:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.2);">
+                <h3 style="font-family:'Oswald'; color:#fff; margin:0; font-size:1.4rem;"><i
+                        class="fa-solid fa-calendar-days" style="color:var(--primary-color); margin-right:10px;"></i>
+                    Attendance Reports</h3>
+                <button onclick="document.getElementById('reports-modal').style.display='none'"
+                    style="background:none; border:none; color:var(--text-gray); font-size:1.4rem; cursor:pointer;"
+                    onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-gray)'"><i
+                        class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Year Selector Dropdown -->
+            <div style="padding:15px 25px; background:#141424; display:flex; align-items:center; gap:15px;">
+                <label style="color:#ceff00; font-family:'Oswald'; font-size:1rem; letter-spacing:1px;">
+                    <i class="fa-solid fa-calendar-alt" style="margin-right:8px;"></i>SELECT YEAR:
+                </label>
+                <select id="member-year-selector" onchange="switchReportYear(this.value)"
+                    style="padding:10px 15px; border-radius:8px; border:1px solid rgba(206,255,0,0.3); background:rgba(0,0,0,0.3); color:#fff; font-family:'Oswald'; font-size:1rem; cursor:pointer; min-width:120px; transition:0.3s;"
+                    onmouseover="this.style.borderColor='#ceff00'"
+                    onmouseout="this.style.borderColor='rgba(206,255,0,0.3)'">
+                    <?php
+                    $is_first = true;
+                    foreach ($attendance_by_year as $year => $data):
+                        $selected = $is_first ? 'selected' : '';
+                        ?>
+                    <option value="<?php echo $year; ?>" <?php echo $selected; ?>
+                        style="background:#1a1a2e; color:#fff;">
+                        <?php echo $year; ?>
+                    </option>
+                    <?php
+                    $is_first = false;
+                    endforeach;
+                    ?>
+                </select>
+            </div>
+
+            <!-- Content Area -->
+            <div style="padding:25px; overflow-y:auto; flex-grow:1; background:rgba(255,255,255,0.02);">
+                <?php $is_first = true;
+                foreach ($attendance_by_year as $year => $months): ?>
+                <div id="year-content-<?php echo $year; ?>" class="year-content-group"
+                    style="display:<?php echo $is_first ? 'grid' : 'none'; ?>; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:15px;">
+                    <?php foreach ($months as $m_num => $m_data):
+                        $has_data = $m_data['count'] > 0;
+                        // Check if future month
+                        $is_future_month = ($year == date('Y') && $m_num > date('n')) || ($year > date('Y'));
+                        ?>
+                    <?php if ($is_future_month): ?>
+                    <div style="text-decoration:none; display:block; cursor:not-allowed;">
+                        <div
+                            style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:15px; text-align:center; position:relative; overflow:hidden; opacity:0.3;">
+                            <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
+                                <?php echo $m_data['short']; ?>
+                            </h4>
+                            <div style="font-size:1.8rem; font-weight:bold; color:#444; margin:5px 0;">
+                                -
+                            </div>
+                            <div
+                                style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
+                                Future</div>
+                        </div>
+                    </div>
+                    <?php else: ?>
+                    <a href="attendance_report.php?m=<?php echo $m_num; ?>&y=<?php echo $year; ?>" target="_blank"
+                        style="text-decoration:none; display:block; cursor:pointer;">
+                        <div style="background:<?php echo $has_data ? 'rgba(206, 255, 0, 0.05)' : 'rgba(255,255,255,0.02)'; ?>; border:1px solid <?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>; border-radius:12px; padding:15px; text-align:center; transition:0.3s; position:relative; overflow:hidden;"
+                            onmouseover="this.style.transform='translateY(-3px)'; this.style.borderColor='var(--primary-color)'; this.style.boxShadow='0 5px 15px rgba(206,255,0,0.2)'"
+                            onmouseout="this.style.transform='translateY(0)'; this.style.borderColor='<?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>'; this.style.boxShadow='none'">
+
+                            <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
+                                <?php echo $m_data['short']; ?>
+                            </h4>
+
+                            <div
+                                style="font-size:1.8rem; font-weight:bold; color:<?php echo $has_data ? 'var(--primary-color)' : '#444'; ?>; margin:5px 0;">
+                                <?php echo $m_data['count']; ?>
+                            </div>
+                            <div
+                                style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
+                                Days</div>
+
+                            <?php if ($has_data): ?>
+                            <div
+                                style="position:absolute; top:10px; right:10px; width:8px; height:8px; background:var(--primary-color); border-radius:50%; box-shadow:0 0 5px var(--primary-color);">
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                    </a>
+                    <?php endif; ?>
+                    <?php endforeach; ?>
+                </div>
+                <?php $is_first = false; endforeach; ?>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function switchReportYear(year) {
+            // Hide all contents
+            document.querySelectorAll('.year-content-group').forEach(el => el.style.display = 'none');
+            // Show selected
+            document.getElementById('year-content-' + year).style.display = 'grid';
+        }
+
+        // Close modal on outside click
+        window.addEventListener('click', function (e) {
+            const modal = document.getElementById('reports-modal');
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
     </script>
 </body>
 

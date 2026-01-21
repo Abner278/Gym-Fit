@@ -27,7 +27,7 @@ if (isset($_SESSION['msg'])) {
 $user_id = $_SESSION["id"];
 
 // FETCH LATEST USER DATA
-$stmt = mysqli_prepare($link, "SELECT full_name, email, profile_image FROM users WHERE id = ?");
+$stmt = mysqli_prepare($link, "SELECT full_name, email, profile_image, created_at FROM users WHERE id = ?");
 mysqli_stmt_bind_param($stmt, "i", $user_id);
 mysqli_stmt_execute($stmt);
 $user_data = mysqli_stmt_get_result($stmt)->fetch_assoc();
@@ -97,6 +97,50 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_content'])) {
     header("Location: dashboard_staff.php");
     exit;
 }
+
+// Handle Appointment Status Update
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_appointment'])) {
+    $appt_id = (int) $_POST['appt_id'];
+    $status = $_POST['status']; // approved / rejected
+    $reply = mysqli_real_escape_string($link, $_POST['reply']);
+
+    if (mysqli_query($link, "UPDATE appointments SET status='$status', staff_message='$reply' WHERE id=$appt_id")) {
+        $_SESSION['msg'] = "Appointment $status successfully!";
+    } else {
+        $_SESSION['msg'] = "Error updating appointment.";
+    }
+    header("Location: dashboard_staff.php");
+    exit;
+}
+
+// Handle Delete Appointment
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_appointment'])) {
+    $appt_id = (int) $_POST['appt_id'];
+    if (mysqli_query($link, "DELETE FROM appointments WHERE id=$appt_id")) {
+        $_SESSION['msg'] = "Appointment deleted successfully.";
+    } else {
+        $_SESSION['msg'] = "Error deleting appointment.";
+    }
+    header("Location: dashboard_staff.php");
+    exit;
+}
+
+// Fetch Staff Appointments
+// Link Staff User to Trainer ID by Name
+$my_name_safe = mysqli_real_escape_string($link, $_SESSION["full_name"]);
+$linked_trainer_id = $user_id; // Default Fallback
+
+$t_check = mysqli_query($link, "SELECT id FROM trainers WHERE name = '$my_name_safe' OR '$my_name_safe' LIKE CONCAT('%', name, '%') OR name LIKE CONCAT('%', '$my_name_safe', '%') LIMIT 1");
+if ($t_check && mysqli_num_rows($t_check) > 0) {
+    $linked_trainer_id = mysqli_fetch_assoc($t_check)['id'];
+}
+
+// Fetch Staff Appointments using Linked ID
+$staff_appts = mysqli_query($link, "SELECT a.*, u.full_name as member_name, u.email as member_email, u.profile_image 
+                                    FROM appointments a 
+                                    JOIN users u ON a.user_id = u.id 
+                                    WHERE a.trainer_id = $linked_trainer_id 
+                                    ORDER BY FIELD(a.status, 'pending') DESC, a.booking_date ASC");
 
 // Handle Update Content
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_content'])) {
@@ -314,6 +358,40 @@ $staff_dates = [];
 while ($r = mysqli_fetch_assoc($staff_att_res))
     $staff_dates[] = $r['date'];
 $is_staff_present = in_array(date('Y-m-d'), $staff_dates);
+
+// Calculate Monthly Stats for Staff Reports Modal (Grouped by Year)
+$staff_attendance_by_year = [];
+$current_sys_year = (int) date('Y');
+$staff_join_year = (int) date('Y', strtotime($user_data['created_at']));
+// Start from the year staff joined
+$staff_min_year = $staff_join_year;
+
+// Also check attendance history for even earlier dates (edge case)
+if (!empty($staff_dates)) {
+    foreach ($staff_dates as $ad) {
+        $y_check = (int) date('Y', strtotime($ad));
+        if ($y_check < $staff_min_year)
+            $staff_min_year = $y_check;
+    }
+}
+
+// Generate data structure: [Year][Month] => {name, count}
+for ($y = $current_sys_year; $y >= $staff_min_year; $y--) {
+    $staff_attendance_by_year[$y] = [];
+    for ($m = 1; $m <= 12; $m++) {
+        $prefix = sprintf('%04d-%02d', $y, $m);
+        $cnt = 0;
+        foreach ($staff_dates as $d) {
+            if (strpos($d, $prefix) === 0)
+                $cnt++;
+        }
+        $staff_attendance_by_year[$y][$m] = [
+            'name' => date('F', mktime(0, 0, 0, $m, 10)),
+            'short' => date('M', mktime(0, 0, 0, $m, 10)),
+            'count' => $cnt
+        ];
+    }
+}
 
 // 3. Member Daily Stats
 $today_date = date('Y-m-d');
@@ -744,6 +822,10 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             <li><a href="#" class="active" onclick="showSection('attendance')"><i
                         class="fa-solid fa-calendar-check"></i> Attendance
                 </a></li>
+            <li><a href="#" onclick="showSection('appointments')"><i class="fa-solid fa-calendar-days"></i> Appointments
+                    <span class="badge badge-warning"
+                        style="margin-left:auto; display:<?php echo (mysqli_num_rows($staff_appts) > 0) ? 'inline-block' : 'none'; ?>">!</span></a>
+            </li>
             <li><a href="#" onclick="showSection('members')"><i class="fa-solid fa-users"></i>
                     Members</a></li>
             <li><a href="#" onclick="showSection('reports')"><i class="fa-solid fa-users-rectangle"></i> Member
@@ -847,6 +929,163 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             </div>
         </div>
 
+        <!-- Appointments Section -->
+        <div id="appointments" class="dashboard-section">
+            <div class="dashboard-card">
+                <h3>Appointment Requests</h3>
+
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Member</th>
+                                <th>Date & Time</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (mysqli_num_rows($staff_appts) > 0): ?>
+                                <?php while ($appt = mysqli_fetch_assoc($staff_appts)):
+                                    $status_color = match ($appt['status']) {
+                                        'approved' => '#00ff85',
+                                        'rejected' => '#ff4d4d',
+                                        default => '#ffc107'
+                                    };
+                                    ?>
+                                    <tr>
+                                        <td style="display:flex; align-items:center; gap:10px; padding: 15px;">
+                                            <img src="<?php echo $appt['profile_image'] ? $appt['profile_image'] : 'https://ui-avatars.com/api/?name=' . urlencode($appt['member_name']); ?>"
+                                                style="width:35px; height:35px; border-radius:50%; object-fit:cover;">
+                                            <div>
+                                                <strong><?php echo htmlspecialchars($appt['member_name']); ?></strong><br>
+                                                <small
+                                                    style="color:var(--text-gray);"><?php echo $appt['member_email']; ?></small>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <?php echo date('M d, Y', strtotime($appt['booking_date'])); ?> <br>
+                                            <small
+                                                style="color:var(--primary-color);"><?php echo $appt['booking_time']; ?></small>
+                                        </td>
+                                        <td>
+                                            <span
+                                                style="color:<?php echo $status_color; ?>; font-weight:bold; text-transform:uppercase; font-size:0.8rem; padding: 4px 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                                                <?php echo $appt['status']; ?>
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <?php if ($appt['status'] == 'pending'): ?>
+                                                <div style="display:flex; gap:10px;">
+                                                    <button class="btn-sm" style="background:rgba(0,255,133,0.2); color:#00ff85;"
+                                                        onclick="openApptModal(<?php echo $appt['id']; ?>, 'approved')">
+                                                        <i class="fa-solid fa-check"></i> Accept
+                                                    </button>
+                                                    <button class="btn-sm" style="background:rgba(255,77,77,0.2); color:#ff4d4d;"
+                                                        onclick="openApptModal(<?php echo $appt['id']; ?>, 'rejected')">
+                                                        <i class="fa-solid fa-xmark"></i> Reject
+                                                    </button>
+                                                    <form method="POST"
+                                                        onsubmit="return confirm('Delete this appointment request?');"
+                                                        style="margin:0;">
+                                                        <input type="hidden" name="delete_appointment" value="1">
+                                                        <input type="hidden" name="appt_id" value="<?php echo $appt['id']; ?>">
+                                                        <button type="submit" class="btn-sm"
+                                                            style="background:rgba(255, 255, 255, 0.1); color:#ccc;" title="Delete">
+                                                            <i class="fa-solid fa-trash"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            <?php else: ?>
+                                                "<?php echo substr(htmlspecialchars($appt['staff_message']), 0, 20) . '...'; ?>"
+                                                </small>
+                                                <form method="POST" onsubmit="return confirm('Delete this record?');"
+                                                    style="display:inline-block; margin-left:10px;">
+                                                    <input type="hidden" name="delete_appointment" value="1">
+                                                    <input type="hidden" name="appt_id" value="<?php echo $appt['id']; ?>">
+                                                    <button type="submit" class="btn-sm"
+                                                        style="background:rgba(255, 77, 77, 0.1); color:#ff4d4d; padding:2px 8px; font-size:0.7rem;"
+                                                        title="Delete">
+                                                        <i class="fa-solid fa-trash"></i>
+                                                    </button>
+                                                </form>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endwhile; ?>
+                            <?php else: ?>
+                                <tr>
+                                    <td colspan="4" style="text-align:center; color:var(--text-gray);">No appointments
+                                        found.</td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Appointment Action Modal -->
+        <div id="appt-modal" class="modal">
+            <div class="modal-content"
+                style="background: #1a1a2e; border-radius: 20px; padding: 30px; box-shadow: 0 25px 50px rgba(0,0,0,0.5); max-width: 480px; border: 1px solid rgba(255,255,255,0.1);">
+                <h3 id="appt-modal-title"
+                    style="font-family: 'Oswald', sans-serif; text-align: center; font-size: 1.8rem; margin-bottom: 5px; color: #fff; letter-spacing: 1px;">
+                    Respond to Request
+                </h3>
+                <p style="text-align: center; color: var(--text-gray); font-size: 0.9rem; margin-bottom: 25px;">
+                    Send a message to the member regarding their request.
+                </p>
+
+                <form method="POST">
+                    <input type="hidden" name="update_appointment" value="1">
+                    <input type="hidden" name="appt_id" id="appt-id-input">
+                    <input type="hidden" name="status" id="appt-status-input">
+
+                    <div class="form-group" style="margin-bottom: 25px;">
+                        <label style="color: #fff; font-weight: 500; font-size: 0.9rem; margin-bottom: 8px;">Message /
+                            Reply (Optional)</label>
+                        <textarea name="reply" class="form-control" rows="4" placeholder="Type your message here..."
+                            style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; color: #fff; font-size: 0.95rem; resize: none; transition: 0.3s; width: 100%; outline: none; font-family: inherit;"
+                            onfocus="this.style.borderColor='var(--primary-color)'; this.style.background='rgba(255,255,255,0.05)';"
+                            onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(255,255,255,0.03)';"></textarea>
+                    </div>
+
+                    <div style="display: flex; gap: 15px;">
+                        <button type="button" class="btn-action"
+                            onclick="document.getElementById('appt-modal').style.display='none'"
+                            style="background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; flex: 1;">
+                            Cancel
+                        </button>
+                        <button type="submit" class="btn-action" id="appt-submit-btn"
+                            style="border-radius: 30px; flex: 1.5; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                            Confirm
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script>
+            function openApptModal(id, status) {
+                document.getElementById('appt-id-input').value = id;
+                document.getElementById('appt-status-input').value = status;
+
+                const title = status === 'approved' ? 'Accept Appointment' : 'Reject Appointment';
+                const btnText = status === 'approved' ? 'Confirm Acceptance' : 'Confirm Rejection';
+                const btnBg = status === 'approved' ? 'var(--primary-color)' : '#ff4d4d';
+                const btnColor = status === 'approved' ? '#000' : '#fff';
+
+                document.getElementById('appt-modal-title').innerText = title;
+                const btn = document.getElementById('appt-submit-btn');
+                btn.innerText = btnText;
+                btn.style.background = btnBg;
+                btn.style.color = btnColor;
+
+                document.getElementById('appt-modal').style.display = 'flex';
+            }
+        </script>
+
         <div id="members" class="dashboard-section">
 
             <div class="dashboard-card">
@@ -863,20 +1102,20 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
 
                 <!-- Success/Error Message for Members -->
                 <?php if (!empty($msg)): ?>
-                    <p id="staff-msg"
-                        style='color: <?php echo (strpos($msg, "Error") !== false ? "#ff4d4d" : "var(--primary-color)"); ?>; margin-bottom: 20px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 4px solid <?php echo (strpos($msg, "Error") !== false ? "#ff4d4d" : "var(--primary-color)"); ?>;'>
-                        <?php echo $msg; ?>
-                    </p>
-                    <script>
-                        setTimeout(() => {
-                            const msgBox = document.getElementById("staff-msg");
-                            if (msgBox) {
-                                msgBox.style.transition = "opacity 0.5s";
-                                msgBox.style.opacity = "0";
-                                setTimeout(() => msgBox.remove(), 500);
-                            }
-                        }, 4000);
-                    </script>
+                        <p id="staff-msg"
+                            style='color: <?php echo (strpos($msg, "Error") !== false ? "#ff4d4d" : "var(--primary-color)"); ?>; margin-bottom: 20px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 4px solid <?php echo (strpos($msg, "Error") !== false ? "#ff4d4d" : "var(--primary-color)"); ?>;'>
+                            <?php echo $msg; ?>
+                        </p>
+                        <script>
+                            setTimeout(() => {
+                                const msgBox = document.getElementById("staff-msg");
+                                if (msgBox) {
+                                    msgBox.style.transition = "opacity 0.5s";
+                                    msgBox.style.opacity = "0";
+                                    setTimeout(() => msgBox.remove(), 500);
+                                }
+                            }, 4000);
+                        </script>
                 <?php endif; ?>
 
                 <table class="data-table">
@@ -890,29 +1129,29 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                     </thead>
                     <tbody>
                         <?php if (mysqli_num_rows($members_res) > 0): ?>
-                            <?php while ($member = mysqli_fetch_assoc($members_res)): ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($member['full_name']); ?></td>
-                                    <td><?php echo htmlspecialchars($member['email']); ?></td>
-                                    <td><?php echo date('M d, Y', strtotime($member['created_at'])); ?></td>
-                                    <td>
-                                        <div style="display: flex; gap: 5px;">
-                                            <button class="btn-sm btn-edit"
-                                                onclick='openEditMemberModal(<?php echo json_encode($member); ?>)'>Edit</button>
-                                            <form method="POST" onsubmit="return confirm('Remove this member permanentely?');"
-                                                style="margin:0;">
-                                                <input type="hidden" name="delete_member" value="1">
-                                                <input type="hidden" name="member_id" value="<?php echo $member['id']; ?>">
-                                                <button type="submit" class="btn-sm btn-delete">Remove</button>
-                                            </form>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endwhile; ?>
+                                <?php while ($member = mysqli_fetch_assoc($members_res)): ?>
+                                        <tr>
+                                            <td><?php echo htmlspecialchars($member['full_name']); ?></td>
+                                            <td><?php echo htmlspecialchars($member['email']); ?></td>
+                                            <td><?php echo date('M d, Y', strtotime($member['created_at'])); ?></td>
+                                            <td>
+                                                <div style="display: flex; gap: 5px;">
+                                                    <button class="btn-sm btn-edit"
+                                                        onclick='openEditMemberModal(<?php echo json_encode($member); ?>)'>Edit</button>
+                                                    <form method="POST" onsubmit="return confirm('Remove this member permanentely?');"
+                                                        style="margin:0;">
+                                                        <input type="hidden" name="delete_member" value="1">
+                                                        <input type="hidden" name="member_id" value="<?php echo $member['id']; ?>">
+                                                        <button type="submit" class="btn-sm btn-delete">Remove</button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                <?php endwhile; ?>
                         <?php else: ?>
-                            <tr>
-                                <td colspan="4" style="text-align: center; color: var(--text-gray);">No members found.</td>
-                            </tr>
+                                <tr>
+                                    <td colspan="4" style="text-align: center; color: var(--text-gray);">No members found.</td>
+                                </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -1001,13 +1240,13 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                 <h3>Upload Daily Content</h3>
                 <!-- Message Display -->
                 <?php if (!empty($msg)): ?>
-                    <p id="msg-box" style='color: #ceff00; margin-bottom: 15px;'><?php echo $msg; ?></p>
-                    <script>
-                        setTimeout(() => {
-                            const box = document.getElementById('msg-box');
-                            if (box) { box.style.transition = 'opacity 0.5s'; box.style.opacity = '0'; setTimeout(() => box.remove(), 500); }
-                        }, 3000);
-                    </script>
+                        <p id="msg-box" style='color: #ceff00; margin-bottom: 15px;'><?php echo $msg; ?></p>
+                        <script>
+                            setTimeout(() => {
+                                const box = document.getElementById('msg-box');
+                                if (box) { box.style.transition = 'opacity 0.5s'; box.style.opacity = '0'; setTimeout(() => box.remove(), 500); }
+                            }, 3000);
+                        </script>
                 <?php endif; ?>
 
                 <form method="POST" action="dashboard_staff.php" id="content-form">
@@ -1070,69 +1309,69 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         $icon_class = 'fa-chevron-down';
                         ?>
 
-                        <div class="month-group"
-                            style="margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;">
-                            <div class="month-header" onclick="toggleMonth(this)"
-                                style="background: rgba(255,255,255,0.03); padding: 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold;">
-                                <span><?php echo $month; ?> <span
-                                        style="font-size: 0.8rem; color: var(--text-gray); margin-left: 10px; font-weight: normal;">(<?php echo count($items); ?>
-                                        items)</span></span>
-                                <i class="fa-solid <?php echo $icon_class; ?>"
-                                    style="font-size: 0.9rem; color: var(--text-gray);"></i>
-                            </div>
-                            <div class="month-content" style="display: <?php echo $display_style; ?>;">
-                                <table class="data-table" style="margin-top: 0;">
-                                    <thead>
-                                        <tr>
-                                            <th>Date</th>
-                                            <th>Title</th>
-                                            <th>Video Link</th>
-                                            <th>Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach ($items as $row): ?>
-                                            <tr>
-                                                <td style="color: var(--primary-color); font-weight: bold; width: 15%;">
-                                                    <?php echo date('D d', strtotime($row['date'])); ?>
-                                                </td>
-                                                <td><?php echo htmlspecialchars($row['title']); ?></td>
-                                                <td>
-                                                    <a href="<?php echo htmlspecialchars($row['video_url']); ?>" target="_blank"
-                                                        style="color: var(--text-gray); text-decoration: none; font-size: 0.9rem;">
-                                                        <i class="fa-brands fa-youtube" style="color: #ff0000;"></i> View
-                                                    </a>
-                                                </td>
-                                                <td>
-                                                    <div style="display: flex; gap: 5px; align-items: center;">
-                                                        <button type="button" class="btn-sm btn-edit"
-                                                            onclick='editContent(<?php echo htmlspecialchars(json_encode($row), ENT_QUOTES, "UTF-8"); ?>)'>
-                                                            Edit
-                                                        </button>
-                                                        <form method="POST" action="dashboard_staff.php"
-                                                            onsubmit="return confirm('Are you sure you want to remove this video?');"
-                                                            style="margin:0;">
-                                                            <input type="hidden" name="delete_content" value="1">
-                                                            <input type="hidden" name="content_id"
-                                                                value="<?php echo $row['id']; ?>">
-                                                            <button type="submit" class="btn-sm btn-delete">
-                                                                <i class="fa-solid fa-trash"></i>
-                                                            </button>
-                                                        </form>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
+                                <div class="month-group"
+                                    style="margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;">
+                                    <div class="month-header" onclick="toggleMonth(this)"
+                                        style="background: rgba(255,255,255,0.03); padding: 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold;">
+                                        <span><?php echo $month; ?> <span
+                                                style="font-size: 0.8rem; color: var(--text-gray); margin-left: 10px; font-weight: normal;">(<?php echo count($items); ?>
+                                                items)</span></span>
+                                        <i class="fa-solid <?php echo $icon_class; ?>"
+                                            style="font-size: 0.9rem; color: var(--text-gray);"></i>
+                                    </div>
+                                    <div class="month-content" style="display: <?php echo $display_style; ?>;">
+                                        <table class="data-table" style="margin-top: 0;">
+                                            <thead>
+                                                <tr>
+                                                    <th>Date</th>
+                                                    <th>Title</th>
+                                                    <th>Video Link</th>
+                                                    <th>Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php foreach ($items as $row): ?>
+                                                        <tr>
+                                                            <td style="color: var(--primary-color); font-weight: bold; width: 15%;">
+                                                                <?php echo date('D d', strtotime($row['date'])); ?>
+                                                            </td>
+                                                            <td><?php echo htmlspecialchars($row['title']); ?></td>
+                                                            <td>
+                                                                <a href="<?php echo htmlspecialchars($row['video_url']); ?>" target="_blank"
+                                                                    style="color: var(--text-gray); text-decoration: none; font-size: 0.9rem;">
+                                                                    <i class="fa-brands fa-youtube" style="color: #ff0000;"></i> View
+                                                                </a>
+                                                            </td>
+                                                            <td>
+                                                                <div style="display: flex; gap: 5px; align-items: center;">
+                                                                    <button type="button" class="btn-sm btn-edit"
+                                                                        onclick='editContent(<?php echo htmlspecialchars(json_encode($row), ENT_QUOTES, "UTF-8"); ?>)'>
+                                                                        Edit
+                                                                    </button>
+                                                                    <form method="POST" action="dashboard_staff.php"
+                                                                        onsubmit="return confirm('Are you sure you want to remove this video?');"
+                                                                        style="margin:0;">
+                                                                        <input type="hidden" name="delete_content" value="1">
+                                                                        <input type="hidden" name="content_id"
+                                                                            value="<?php echo $row['id']; ?>">
+                                                                        <button type="submit" class="btn-sm btn-delete">
+                                                                            <i class="fa-solid fa-trash"></i>
+                                                                        </button>
+                                                                    </form>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
 
-                        <?php
-                        $is_first = false;
+                                <?php
+                                $is_first = false;
                     endforeach;
                 else: ?>
-                    <p style="color: var(--text-gray); font-style: italic;">No content scheduled yet.</p>
+                        <p style="color: var(--text-gray); font-style: italic;">No content scheduled yet.</p>
                 <?php endif; ?>
             </div>
         </div>
@@ -1161,116 +1400,116 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         </thead>
                         <tbody>
                             <?php if (count($grouped_payments) > 0): ?>
-                                <?php foreach ($grouped_payments as $uid => $data):
-                                    $latest = $data['history'][0]; // First item is latest
-                                    $count = count($data['history']);
-                                    ?>
-                                    <!-- Main User Row -->
-                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                        <td>
-                                            <div style="display: flex; flex-direction: column;">
-                                                <span
-                                                    style="font-weight: bold; font-size: 1rem; color: #fff;"><?php echo htmlspecialchars($data['user']['full_name']); ?></span>
-                                                <small
-                                                    style="color: var(--text-gray); font-size: 0.8rem;"><?php echo htmlspecialchars($data['user']['user_email']); ?></small>
-                                            </div>
-                                        </td>
-                                        <td><span
-                                                style="color: var(--primary-color);"><?php echo htmlspecialchars($latest['plan_name']); ?></span>
-                                        </td>
-                                        <td>
-                                            <?php echo date('M d, Y', strtotime($latest['created_at'])); ?>
-                                            <span
-                                                class="badge <?php echo $latest['status'] == 'completed' ? 'badge-success' : ($latest['status'] == 'pending' ? 'badge-warning' : ''); ?>"
-                                                style="margin-left: 5px; font-size: 0.7rem;">
-                                                <?php echo ucfirst($latest['status']); ?>
-                                            </span>
-                                        </td>
-                                        <td style="text-align: right;">
-                                            <button onclick="toggleHistory(<?php echo $uid; ?>)" class="btn-sm"
-                                                style="background: rgba(255, 255, 255, 0.1); color: #fff; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border: 1px solid rgba(255,255,255,0.1);">
-                                                <i class="fa-solid fa-clock-rotate-left"></i> History (<?php echo $count; ?>) <i
-                                                    class="fa-solid fa-chevron-down" id="icon-<?php echo $uid; ?>"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
+                                    <?php foreach ($grouped_payments as $uid => $data):
+                                        $latest = $data['history'][0]; // First item is latest
+                                        $count = count($data['history']);
+                                        ?>
+                                            <!-- Main User Row -->
+                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                <td>
+                                                    <div style="display: flex; flex-direction: column;">
+                                                        <span
+                                                            style="font-weight: bold; font-size: 1rem; color: #fff;"><?php echo htmlspecialchars($data['user']['full_name']); ?></span>
+                                                        <small
+                                                            style="color: var(--text-gray); font-size: 0.8rem;"><?php echo htmlspecialchars($data['user']['user_email']); ?></small>
+                                                    </div>
+                                                </td>
+                                                <td><span
+                                                        style="color: var(--primary-color);"><?php echo htmlspecialchars($latest['plan_name']); ?></span>
+                                                </td>
+                                                <td>
+                                                    <?php echo date('M d, Y', strtotime($latest['created_at'])); ?>
+                                                    <span
+                                                        class="badge <?php echo $latest['status'] == 'completed' ? 'badge-success' : ($latest['status'] == 'pending' ? 'badge-warning' : ''); ?>"
+                                                        style="margin-left: 5px; font-size: 0.7rem;">
+                                                        <?php echo ucfirst($latest['status']); ?>
+                                                    </span>
+                                                </td>
+                                                <td style="text-align: right;">
+                                                    <button onclick="toggleHistory(<?php echo $uid; ?>)" class="btn-sm"
+                                                        style="background: rgba(255, 255, 255, 0.1); color: #fff; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border: 1px solid rgba(255,255,255,0.1);">
+                                                        <i class="fa-solid fa-clock-rotate-left"></i> History (<?php echo $count; ?>) <i
+                                                            class="fa-solid fa-chevron-down" id="icon-<?php echo $uid; ?>"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
 
-                                    <!-- Hidden History Row -->
-                                    <tr id="history-<?php echo $uid; ?>" style="display: none; background: rgba(0,0,0,0.15);">
-                                        <td colspan="4" style="padding: 0;">
-                                            <div style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                                <div style="background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden;">
-                                                    <table style="width: 100%; border-collapse: collapse;">
-                                                        <thead>
-                                                            <tr style="background: rgba(255,255,255,0.03);">
-                                                                <th
-                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                    Plan</th>
-                                                                <th
-                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                    Amount</th>
-                                                                <th
-                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                    Method</th>
-                                                                <th
-                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                    Date</th>
-                                                                <th
-                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                    Status</th>
-                                                                <th
-                                                                    style="font-size: 0.75rem; padding: 10px; text-align: right; color: var(--text-gray); text-transform: uppercase;">
-                                                                    Invoice</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            <?php foreach ($data['history'] as $payment): ?>
-                                                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
-                                                                    <td style="padding: 10px; font-size: 0.9rem;">
-                                                                        <?php echo htmlspecialchars($payment['plan_name']); ?>
-                                                                    </td>
-                                                                    <td
-                                                                        style="padding: 10px; font-size: 0.9rem; color: var(--primary-color);">
-                                                                        ₹<?php echo number_format($payment['amount'], 2); ?></td>
-                                                                    <td
-                                                                        style="padding: 10px; font-size: 0.9rem; text-transform: capitalize;">
-                                                                        <?php echo htmlspecialchars($payment['payment_method']); ?>
-                                                                    </td>
-                                                                    <td style="padding: 10px; font-size: 0.9rem; color: #ddd;">
-                                                                        <?php echo date('M d, Y', strtotime($payment['created_at'])); ?>
-                                                                    </td>
-                                                                    <td style="padding: 10px;">
-                                                                        <span
-                                                                            class="badge <?php echo $payment['status'] == 'completed' ? 'badge-success' : ($payment['status'] == 'pending' ? 'badge-warning' : ''); ?>"
-                                                                            style="font-size: 0.65rem;">
-                                                                            <?php echo ucfirst($payment['status']); ?>
-                                                                        </span>
-                                                                    </td>
-                                                                    <td style="padding: 10px; text-align: right;">
-                                                                        <a href="invoice.php?tid=<?php echo $payment['id']; ?>"
-                                                                            target="_blank"
-                                                                            style="color: var(--text-gray); font-size: 1rem;"
-                                                                            title="Download Invoice">
-                                                                            <i class="fa-solid fa-file-pdf"></i>
-                                                                        </a>
-                                                                    </td>
-                                                                </tr>
-                                                            <?php endforeach; ?>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
+                                            <!-- Hidden History Row -->
+                                            <tr id="history-<?php echo $uid; ?>" style="display: none; background: rgba(0,0,0,0.15);">
+                                                <td colspan="4" style="padding: 0;">
+                                                    <div style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                        <div style="background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden;">
+                                                            <table style="width: 100%; border-collapse: collapse;">
+                                                                <thead>
+                                                                    <tr style="background: rgba(255,255,255,0.03);">
+                                                                        <th
+                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                            Plan</th>
+                                                                        <th
+                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                            Amount</th>
+                                                                        <th
+                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                            Method</th>
+                                                                        <th
+                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                            Date</th>
+                                                                        <th
+                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                            Status</th>
+                                                                        <th
+                                                                            style="font-size: 0.75rem; padding: 10px; text-align: right; color: var(--text-gray); text-transform: uppercase;">
+                                                                            Invoice</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    <?php foreach ($data['history'] as $payment): ?>
+                                                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                                                                                <td style="padding: 10px; font-size: 0.9rem;">
+                                                                                    <?php echo htmlspecialchars($payment['plan_name']); ?>
+                                                                                </td>
+                                                                                <td
+                                                                                    style="padding: 10px; font-size: 0.9rem; color: var(--primary-color);">
+                                                                                    ₹<?php echo number_format($payment['amount'], 2); ?></td>
+                                                                                <td
+                                                                                    style="padding: 10px; font-size: 0.9rem; text-transform: capitalize;">
+                                                                                    <?php echo htmlspecialchars($payment['payment_method']); ?>
+                                                                                </td>
+                                                                                <td style="padding: 10px; font-size: 0.9rem; color: #ddd;">
+                                                                                    <?php echo date('M d, Y', strtotime($payment['created_at'])); ?>
+                                                                                </td>
+                                                                                <td style="padding: 10px;">
+                                                                                    <span
+                                                                                        class="badge <?php echo $payment['status'] == 'completed' ? 'badge-success' : ($payment['status'] == 'pending' ? 'badge-warning' : ''); ?>"
+                                                                                        style="font-size: 0.65rem;">
+                                                                                        <?php echo ucfirst($payment['status']); ?>
+                                                                                    </span>
+                                                                                </td>
+                                                                                <td style="padding: 10px; text-align: right;">
+                                                                                    <a href="invoice.php?tid=<?php echo $payment['id']; ?>"
+                                                                                        target="_blank"
+                                                                                        style="color: var(--text-gray); font-size: 1rem;"
+                                                                                        title="Download Invoice">
+                                                                                        <i class="fa-solid fa-file-pdf"></i>
+                                                                                    </a>
+                                                                                </td>
+                                                                            </tr>
+                                                                    <?php endforeach; ?>
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                    <?php endforeach; ?>
+                            <?php else: ?>
+                                    <tr>
+                                        <td colspan="4" style="text-align: center; color: var(--text-gray); padding: 30px;">
+                                            <i class="fa-solid fa-receipt"
+                                                style="font-size: 2rem; display: block; margin-bottom: 10px; opacity: 0.3;"></i>
+                                            No payment records found.
                                         </td>
                                     </tr>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <tr>
-                                    <td colspan="4" style="text-align: center; color: var(--text-gray); padding: 30px;">
-                                        <i class="fa-solid fa-receipt"
-                                            style="font-size: 2rem; display: block; margin-bottom: 10px; opacity: 0.3;"></i>
-                                        No payment records found.
-                                    </td>
-                                </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -1291,15 +1530,15 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         <form method="POST" style="display:flex; justify-content:center;">
                             <input type="hidden" name="mark_staff_attendance" value="1">
                             <?php if ($is_staff_present): ?>
-                                <button type="button" class="btn-action"
-                                    style="width: auto; padding: 15px 40px; background:rgba(255,255,255,0.05); cursor:not-allowed; border: 1px solid var(--primary-color); color: var(--primary-color);">
-                                    <i class="fa-solid fa-check-double"></i> Checked In Today
-                                </button>
+                                    <button type="button" class="btn-action"
+                                        style="width: auto; padding: 15px 40px; background:rgba(255,255,255,0.05); cursor:not-allowed; border: 1px solid var(--primary-color); color: var(--primary-color);">
+                                        <i class="fa-solid fa-check-double"></i> Checked In Today
+                                    </button>
                             <?php else: ?>
-                                <button type="submit" class="btn-action"
-                                    style="width: auto; padding: 15px 50px; font-size: 1.1rem; transform: scale(1.05);">
-                                    <i class="fa-solid fa-hand-point-up"></i> Check In Now
-                                </button>
+                                    <button type="submit" class="btn-action"
+                                        style="width: auto; padding: 15px 50px; font-size: 1.1rem; transform: scale(1.05);">
+                                        <i class="fa-solid fa-hand-point-up"></i> Check In Now
+                                    </button>
                             <?php endif; ?>
                         </form>
 
@@ -1312,10 +1551,10 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                                         style="color: var(--primary-color); margin-right: 10px;"></i>
                                     ATTENDANCE HISTORY (<?php echo date('F Y'); ?>)
                                 </h4>
-                                <a href="staff_attendance_report.php" target="_blank"
-                                    style="font-size: 0.8rem; color: var(--primary-color); text-decoration: none; border: 1px solid var(--primary-color); padding: 6px 15px; border-radius: 4px; transition: 0.3s; background: rgba(206, 255, 0, 0.05);">
-                                    <i class="fa-solid fa-file-arrow-down"></i> Download PDF
-                                </a>
+                                <button onclick="document.getElementById('staff-reports-modal').style.display='flex'"
+                                    style="background:none; color:var(--primary-color); cursor:pointer; font-size:0.8rem; border:1px solid var(--primary-color); padding:6px 15px; border-radius:4px; transition:0.3s; background:rgba(206, 255, 0, 0.05);">
+                                    <i class="fa-solid fa-folder-open"></i> View Attendance
+                                </button>
                             </div>
                             <div
                                 style="display: grid; grid-template-columns: repeat(auto-fill, minmax(45px, 1fr)); gap: 15px; justify-content: start;">
@@ -1332,11 +1571,11 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                                     $s_op = $s_is_fut ? '0.2' : '1';
                                     $s_border = $s_is_pres ? 'none' : '1px solid rgba(255,255,255,0.1)';
                                     ?>
-                                    <div style="height:45px; display:flex; align-items:center; justify-content:center; background:<?php echo $s_bg; ?>; color:<?php echo $s_col; ?>; border-radius:10px; font-weight:bold; font-size:0.9rem; opacity:<?php echo $s_op; ?>; border: <?php echo $s_border; ?>; transition: 0.3s; cursor: pointer;"
-                                        onclick="showAttendanceStatus('<?php echo date('M d, Y', strtotime($s_date)); ?>', '<?php echo $s_is_pres ? 'Present' : 'Absent'; ?>', <?php echo $s_is_fut ? 'true' : 'false'; ?>)"
-                                        title="<?php echo $s_date; ?>">
-                                        <?php echo $d; ?>
-                                    </div>
+                                        <div style="height:45px; display:flex; align-items:center; justify-content:center; background:<?php echo $s_bg; ?>; color:<?php echo $s_col; ?>; border-radius:10px; font-weight:bold; font-size:0.9rem; opacity:<?php echo $s_op; ?>; border: <?php echo $s_border; ?>; transition: 0.3s; cursor: pointer;"
+                                            onclick="showAttendanceStatus('<?php echo date('M d, Y', strtotime($s_date)); ?>', '<?php echo $s_is_pres ? 'Present' : 'Absent'; ?>', <?php echo $s_is_fut ? 'true' : 'false'; ?>)"
+                                            title="<?php echo $s_date; ?>">
+                                            <?php echo $d; ?>
+                                        </div>
                                 <?php endfor; ?>
                             </div>
                             <div
@@ -1399,29 +1638,29 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         if (mysqli_num_rows($report_members_res) > 0):
                             while ($m = mysqli_fetch_assoc($report_members_res)):
                                 ?>
-                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                    <td style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
-                                        <?php echo htmlspecialchars($m['full_name']); ?>
-                                    </td>
-                                    <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
-                                        <?php echo htmlspecialchars($m['email']); ?>
-                                    </td>
-                                    <td style="padding: 15px 20px; text-align: right;">
-                                        <a href="staff_view_member_report.php?uid=<?php echo $m['id']; ?>" target="_blank"
-                                            style="display: inline-block; padding: 6px 12px; font-size: 0.8rem; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; text-decoration: none; transition: 0.3s; background: rgba(206, 255, 0, 0.05);">
-                                            <i class="fa-solid fa-file-invoice"></i> View Report
-                                        </a>
-                                    </td>
-                                </tr>
-                                <?php
+                                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                            <td style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
+                                                <?php echo htmlspecialchars($m['full_name']); ?>
+                                            </td>
+                                            <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
+                                                <?php echo htmlspecialchars($m['email']); ?>
+                                            </td>
+                                            <td style="padding: 15px 20px; text-align: right;">
+                                                <a href="staff_view_member_report.php?uid=<?php echo $m['id']; ?>" target="_blank"
+                                                    style="display: inline-block; padding: 6px 12px; font-size: 0.8rem; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; text-decoration: none; transition: 0.3s; background: rgba(206, 255, 0, 0.05);">
+                                                    <i class="fa-solid fa-file-invoice"></i> View Report
+                                                </a>
+                                            </td>
+                                        </tr>
+                                        <?php
                             endwhile;
                         else:
                             ?>
-                            <tr>
-                                <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
-                                    No members found.
-                                </td>
-                            </tr>
+                                <tr>
+                                    <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
+                                        No members found.
+                                    </td>
+                                </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -1901,6 +2140,125 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                 }
             }
         }
+    </script>
+    <!-- Staff Reports Modal -->
+    <div id="staff-reports-modal" class="modal-overlay"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center;">
+        <div class="modal-content"
+            style="background:#1a1a2e; padding:0; border-radius:15px; width:95%; max-width:800px; max-height:85vh; overflow:hidden; border:1px solid rgba(255,255,255,0.1); display:flex; flex-direction:column; box-shadow: 0 0 40px rgba(0,0,0,0.6);">
+
+            <!-- Header -->
+            <div
+                style="padding:20px 25px; border-bottom:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.2);">
+                <h3 style="font-family:'Oswald'; color:#fff; margin:0; font-size:1.4rem;"><i
+                        class="fa-solid fa-calendar-days" style="color:var(--primary-color); margin-right:10px;"></i>
+                    Attendance Reports</h3>
+                <button onclick="document.getElementById('staff-reports-modal').style.display='none'"
+                    style="background:none; border:none; color:var(--text-gray); font-size:1.4rem; cursor:pointer;"
+                    onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-gray)'"><i
+                        class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Year Selector Dropdown -->
+            <div style="padding:15px 25px; background:#141424; display:flex; align-items:center; gap:15px;">
+                <label style="color:#ceff00; font-family:'Oswald'; font-size:1rem; letter-spacing:1px;">
+                    <i class="fa-solid fa-calendar-alt" style="margin-right:8px;"></i>SELECT YEAR:
+                </label>
+                <select id="staff-year-selector" onchange="switchStaffReportYear(this.value)"
+                    style="padding:10px 15px; border-radius:8px; border:1px solid rgba(206,255,0,0.3); background:rgba(0,0,0,0.3); color:#fff; font-family:'Oswald'; font-size:1rem; cursor:pointer; min-width:120px; transition:0.3s;"
+                    onmouseover="this.style.borderColor='#ceff00'"
+                    onmouseout="this.style.borderColor='rgba(206,255,0,0.3)'">
+                    <?php
+                    $is_first = true;
+                    foreach ($staff_attendance_by_year as $year => $data):
+                        $selected = $is_first ? 'selected' : '';
+                        ?>
+                            <option value="<?php echo $year; ?>" <?php echo $selected; ?>
+                                style="background:#1a1a2e; color:#fff;">
+                                <?php echo $year; ?>
+                            </option>
+                            <?php
+                            $is_first = false;
+                    endforeach;
+                    ?>
+                </select>
+            </div>
+
+            <!-- Content Area -->
+            <div style="padding:25px; overflow-y:auto; flex-grow:1; background:rgba(255,255,255,0.02);">
+                <?php $is_first = true;
+                foreach ($staff_attendance_by_year as $year => $months): ?>
+                        <div id="staff-year-content-<?php echo $year; ?>" class="staff-year-content-group"
+                            style="display:<?php echo $is_first ? 'grid' : 'none'; ?>; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:15px;">
+                            <?php foreach ($months as $m_num => $m_data):
+                                $has_data = $m_data['count'] > 0;
+                                // Check if future month
+                                $is_future_month = ($year == date('Y') && $m_num > date('n')) || ($year > date('Y'));
+                                ?>
+                                    <?php if ($is_future_month): ?>
+                                            <div style="text-decoration:none; display:block; cursor:not-allowed;">
+                                                <div
+                                                    style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:15px; text-align:center; position:relative; overflow:hidden; opacity:0.3;">
+                                                    <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
+                                                        <?php echo $m_data['short']; ?>
+                                                    </h4>
+                                                    <div style="font-size:1.8rem; font-weight:bold; color:#444; margin:5px 0;">
+                                                        -
+                                                    </div>
+                                                    <div
+                                                        style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
+                                                        Future</div>
+                                                </div>
+                                            </div>
+                                    <?php else: ?>
+                                            <a href="staff_attendance_report.php?m=<?php echo $m_num; ?>&y=<?php echo $year; ?>" target="_blank"
+                                                style="text-decoration:none; display:block; cursor:pointer;">
+                                                <div style="background:<?php echo $has_data ? 'rgba(206, 255, 0, 0.05)' : 'rgba(255,255,255,0.02)'; ?>; border:1px solid <?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>; border-radius:12px; padding:15px; text-align:center; transition:0.3s; position:relative; overflow:hidden;"
+                                                    onmouseover="this.style.transform='translateY(-3px)'; this.style.borderColor='var(--primary-color)'; this.style.boxShadow='0 5px 15px rgba(206,255,0,0.2)'"
+                                                    onmouseout="this.style.transform='translateY(0)'; this.style.borderColor='<?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>'; this.style.boxShadow='none'">
+
+                                                    <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
+                                                        <?php echo $m_data['short']; ?>
+                                                    </h4>
+
+                                                    <div
+                                                        style="font-size:1.8rem; font-weight:bold; color:<?php echo $has_data ? 'var(--primary-color)' : '#444'; ?>; margin:5px 0;">
+                                                        <?php echo $m_data['count']; ?>
+                                                    </div>
+                                                    <div
+                                                        style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
+                                                        Days</div>
+
+                                                    <?php if ($has_data): ?>
+                                                            <div
+                                                                style="position:absolute; top:10px; right:10px; width:8px; height:8px; background:var(--primary-color); border-radius:50%; box-shadow:0 0 5px var(--primary-color);">
+                                                            </div>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </a>
+                                    <?php endif; ?>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php $is_first = false; endforeach; ?>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function switchStaffReportYear(year) {
+            // Hide all contents
+            document.querySelectorAll('.staff-year-content-group').forEach(el => el.style.display = 'none');
+            // Show selected
+            document.getElementById('staff-year-content-' + year).style.display = 'grid';
+        }
+
+        // Close modal on outside click
+        window.addEventListener('click', function (e) {
+            const modal = document.getElementById('staff-reports-modal');
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
     </script>
 </body>
 

@@ -53,6 +53,18 @@ while ($row = mysqli_fetch_assoc($result)) {
 }
 
 $total_present = count($attendance_map);
+
+// Calculate total trackable days (only count days after joining)
+$join_timestamp = strtotime($join_date_str);
+$total_days = 0;
+for ($d = 1; $d <= $days_in_month; $d++) {
+    $check_date = "$year-" . sprintf('%02d', $month) . "-" . sprintf('%02d', $d);
+    $check_ts = strtotime($check_date);
+    // Only count if: after join date AND not in future
+    if ($check_ts >= $join_timestamp && $check_ts <= time()) {
+        $total_days++;
+    }
+}
 // For report stats
 ?>
 <!DOCTYPE html>
@@ -271,6 +283,59 @@ $total_present = count($attendance_map);
 
 <body>
 
+    <!-- Month/Year Selector - Fixed on Right Side -->
+    <div class="no-print"
+        style="position: fixed; top: 100px; right: 20px; z-index: 1000; padding: 15px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 10px; display: inline-flex; flex-direction: column; gap: 10px; box-shadow: 0 5px 20px rgba(0,0,0,0.4); width: 230px; max-height: 220px;">
+        <label
+            style="font-weight: bold; color: #ceff00; font-family: 'Oswald', sans-serif; letter-spacing: 1px; font-size: 0.9rem; margin: 0;">
+            <i class="fa-solid fa-calendar-days" style="margin-right: 8px;"></i>SELECT MONTH:
+        </label>
+        <select id="month-selector"
+            style="padding: 10px 15px; border-radius: 8px; border: 1px solid rgba(206, 255, 0, 0.3); font-size: 0.95rem; cursor: pointer; background: rgba(0,0,0,0.3); color: #fff; font-family: 'Roboto', sans-serif; transition: 0.3s; width: 100%;"
+            onmouseover="this.style.borderColor='#ceff00'" onmouseout="this.style.borderColor='rgba(206, 255, 0, 0.3)'">
+            <?php
+            $months_list = [
+                1 => 'January',
+                2 => 'February',
+                3 => 'March',
+                4 => 'April',
+                5 => 'May',
+                6 => 'June',
+                7 => 'July',
+                8 => 'August',
+                9 => 'September',
+                10 => 'October',
+                11 => 'November',
+                12 => 'December'
+            ];
+            foreach ($months_list as $m_num => $m_name) {
+                $selected = ($m_num == $month) ? 'selected' : '';
+                echo "<option value='$m_num' $selected style='background: #1a1a2e; color: #fff;'>$m_name</option>";
+            }
+            ?>
+        </select>
+
+        <select id="year-selector"
+            style="padding: 10px 15px; border-radius: 8px; border: 1px solid rgba(206, 255, 0, 0.3); font-size: 0.95rem; cursor: pointer; background: rgba(0,0,0,0.3); color: #fff; font-family: 'Roboto', sans-serif; transition: 0.3s; width: 100%;"
+            onmouseover="this.style.borderColor='#ceff00'" onmouseout="this.style.borderColor='rgba(206, 255, 0, 0.3)'">
+            <?php
+            $current_year = (int) date('Y');
+            $join_year = (int) date('Y', strtotime($user_data['created_at']));
+            for ($y = $current_year; $y >= $join_year; $y--) {
+                $selected = ($y == $year) ? 'selected' : '';
+                echo "<option value='$y' $selected style='background: #1a1a2e; color: #fff;'>$y</option>";
+            }
+            ?>
+        </select>
+
+        <button onclick="changeMonthYear()"
+            style="padding: 10px 25px; background: #ceff00; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; color: #000; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px; box-shadow: 0 3px 10px rgba(206, 255, 0, 0.3); margin: 0;"
+            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 5px 15px rgba(206, 255, 0, 0.5)'"
+            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 3px 10px rgba(206, 255, 0, 0.3)'">
+            <i class="fa-solid fa-rotate"></i> UPDATE
+        </button>
+    </div>
+
     <div class="report-box" id="report-content">
         <div class="header">
             <div class="logo">
@@ -298,7 +363,7 @@ $total_present = count($attendance_map);
         <div class="stats-grid">
             <div class="stat-card">
                 <h4>Total Days Tracked</h4>
-                <div class="val"><?php echo $days_in_month; ?></div>
+                <div class="val"><?php echo $total_days; ?></div>
             </div>
             <div class="stat-card">
                 <h4>Days Present</h4>
@@ -307,7 +372,8 @@ $total_present = count($attendance_map);
             <div class="stat-card">
                 <h4>Attendance Rate</h4>
                 <div class="val">
-                    <?php echo ($days_in_month > 0) ? round(($total_present / $days_in_month) * 100) : 0; ?>%</div>
+                    <?php echo ($total_days > 0) ? round(($total_present / $total_days) * 100) : 0; ?>%
+                </div>
             </div>
         </div>
 
@@ -383,6 +449,13 @@ $total_present = count($attendance_map);
                 jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
             };
             html2pdf().set(opt).from(element).save();
+        }
+
+        function changeMonthYear() {
+            const month = document.getElementById('month-selector').value;
+            const year = document.getElementById('year-selector').value;
+            const uid = <?php echo $target_user_id; ?>;
+            window.location.href = `staff_view_member_report.php?uid=${uid}&m=${month}&y=${year}`;
         }
     </script>
 </body>
