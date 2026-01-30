@@ -1,5 +1,5 @@
 <?php
-define('DB_SERVER', 'localhost');
+define('DB_SERVER', '127.0.0.1');
 define('DB_USERNAME', 'root');
 define('DB_PASSWORD', '');
 define('DB_NAME', 'gym_management');
@@ -10,13 +10,13 @@ try {
     $link = @mysqli_connect(DB_SERVER, DB_USERNAME, DB_PASSWORD);
 
     if ($link === false) {
-        throw new Exception("Connection failed");
+        throw new Exception(mysqli_connect_error());
     }
 } catch (Exception $e) {
     die("<div style='font-family:sans-serif; padding:40px; text-align:center; background-color:#0f0f1a; color:#fff; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center;'>
             <h2 style='color:#ceff00;'>Database Connection Error</h2>
             <p style='font-size:1.2rem;'>Please ensure that <strong>MySQL</strong> is started in your <strong>XAMPP Control Panel</strong>.</p>
-            <p style='color:#aaa; font-size:0.9rem; margin-top:20px;'>Your gym system requires a running database to function.</p>
+            <p style='color:#ff4444; font-size:0.9rem; margin-top:20px; background: rgba(255,0,0,0.1); padding: 10px; border-radius: 5px;'><strong>Debug Error:</strong> " . $e->getMessage() . "</p>
             <div style='margin-top:30px; border:1px dashed #555; padding:15px; border-radius:10px;'>
                 <p>1. Open XAMPP Control Panel</p>
                 <p>2. Click 'Start' next to MySQL</p>

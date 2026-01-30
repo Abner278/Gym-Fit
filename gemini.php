@@ -1,73 +1,56 @@
 <?php
-$API_KEY = "AIzaSyDERp8bNwhecn8oZUUSrMQwqP79TH5SX4E";
+header("Content-Type: application/json");
+
+// Your FREE HF token here
+$HF_TOKEN = "token";
 
 $input = json_decode(file_get_contents("php://input"), true);
-$userMsg = $input["message"];
+$message = trim($input["message"] ?? "");
 
-$url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$API_KEY";
+if ($message === "") {
+    echo json_encode(["reply" => "Please type a message 🙂"]);
+    exit;
+}
+
+$prompt = "You are a fitness coach chatbot. User says: \"$message\". Reply helpfully.";
 
 $data = [
-    "contents" => [
-        [
-            "role" => "user",
-            "parts" => [
-                [
-                    "text" => "You are a gym fitness assistant.
-Give simple, educational, non-medical answers.
-Question: $userMsg"
-                ]
-            ]
-        ]
-    ],
-    "generationConfig" => [
-        "temperature" => 0.6,
-        "maxOutputTokens" => 300
-    ],
-    "safetySettings" => [
-        [
-            "category" => "HARM_CATEGORY_DANGEROUS_CONTENT",
-            "threshold" => "BLOCK_ONLY_HIGH"
-        ],
-        [
-            "category" => "HARM_CATEGORY_HARASSMENT",
-            "threshold" => "BLOCK_ONLY_HIGH"
-        ],
-        [
-            "category" => "HARM_CATEGORY_HATE_SPEECH",
-            "threshold" => "BLOCK_ONLY_HIGH"
-        ],
-        [
-            "category" => "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-            "threshold" => "BLOCK_ONLY_HIGH"
-        ]
+    "inputs" => $prompt,
+    "parameters" => [
+        "max_new_tokens" => 150,
+        "temperature" => 0.7
     ]
 ];
 
-$ch = curl_init($url);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json"]);
-curl_setopt($ch, CURLOPT_POST, true);
-curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+$ch = curl_init("https://api-inference.huggingface.co/models/google/flan-t5-large");
+curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_POST => true,
+    CURLOPT_HTTPHEADER => [
+        "Authorization: Bearer $HF_TOKEN",
+        "Content-Type: application/json"
+    ],
+    CURLOPT_POSTFIELDS => json_encode($data),
+    CURLOPT_TIMEOUT => 30
+]);
 
 $response = curl_exec($ch);
 curl_close($ch);
 
-// Debug logging
-file_put_contents("gemini_debug.json", $response);
-
 $result = json_decode($response, true);
 
-if (isset($result["candidates"][0]["content"]["parts"][0]["text"])) {
-    echo json_encode([
-        "reply" => $result["candidates"][0]["content"]["parts"][0]["text"]
-    ]);
-} else {
-    // Return the actual error if available for debugging, or generic message
-    $errorMsg = "AI is temporarily unavailable.";
-    if (isset($result["error"]["message"])) {
-        $errorMsg .= " (Debug: " . $result["error"]["message"] . ")";
-    }
-    echo json_encode([
-        "reply" => $errorMsg
-    ]);
+// If HF says model is loading, ask user to retry shortly
+if (isset($result["error"]) && strpos($result["error"], "loading") !== false) {
+    echo json_encode(["reply" => "Model is waking up — please try again in 10 seconds."]);
+    exit;
 }
+
+// For safety if key fails or unclear
+if (!isset($result[0]["generated_text"])) {
+    echo json_encode(["reply" => "AI model is unavailable right now. Try again soon."]);
+    exit;
+}
+
+echo json_encode([
+    "reply" => $result[0]["generated_text"]
+]);

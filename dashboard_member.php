@@ -1860,8 +1860,9 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     </p>
                     <div
                         style="background: #fff; padding: 15px; border-radius: 12px; display: inline-block; margin-bottom: 10px;">
-                        <img id="upi-qr-code" src="" alt="UPI QR Code"
-                            style="width: 180px; height: 180px; display: block;">
+                        <div id="upi-qr-code"
+                            style="width: 200px; height: 200px; margin: 0 auto; background: #fff; padding: 10px; display: flex; align-items: center; justify-content: center;">
+                        </div>
                     </div>
                     <p style="font-size: 0.75rem; color: var(--text-gray); margin-bottom: 15px; cursor: help;"
                         title="Make sure your phone is on the same Wi-Fi and your computer's firewall allows incoming connections on port <?php echo $_SERVER['SERVER_PORT']; ?>.">
@@ -2282,7 +2283,51 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             </div>
 
             <script>
-                // API Key moved to gemini.php
+                // LOCAL AI KNOWLEDGE BASE
+                const GYM_INFO = `GymFit - Fitness Center Information
+
+ABOUT US
+We provide a world-class environment for athletes of all levels. Join a community dedicated to strength, wellness, and progress. Whether you are a beginner or a pro, we have the tools you need.
+- 6+ Certified Trainers
+- 1000+ Active Members
+- 10+ Years Of Experience
+- 5k+ Google Reviews
+
+SERVICES
+1. Personal Trainer: One-on-one customized workouts to smash your goals.
+2. Group Training: High-energy classes to keep you motivated and moving.
+3. Treadmill: State-of-the-art cardio equipment for endurance.
+4. Yoga: Find your balance and improve flexibility with experts.
+5. Workout Videos: Access expert-guided workout videos anytime, anywhere.
+6. Diet And Tips: Nutrition guidance ensuring you fuel your gains properly.
+
+EQUIPMENT
+- Dumbbells (Adjustable weights)
+- Cardio Bikes (High-intensity cardio)
+- Treadmill Elite (Smart incline run)
+- Cable Machine (Full body workout)
+- Flat Bench (Steel frame support)
+- Smith Machine (Guided weight training)
+- Kettlebells, Pull-up Bars, Medicine Balls, Resistance Bands, Rowing Machines, Leg Press Machines.
+
+CONTACT INFORMATION
+- Phone: +91 9283754672
+- Email: GymFit@gmail.com
+- Address: (Visit us at our local branch)
+
+MEMBERSHIP
+We offer flexible monthly and yearly plans with features including:
+- Gym Access
+- Free Locker
+- Group Classes
+- Personal Trainer Access
+- Protein Drinks (Select plans)
+- Customized Workout Plans
+- Bio-Metric Attendance
+- Steam Bath Access
+
+WHY CHOOSE US?
+Regular exercise boosts your immunity, improves mental health, and builds a resilient, powerful body. Invest in yourself today with GymFit.`;
 
                 async function sendMessage() {
                     const input = document.getElementById('chat-input');
@@ -2293,17 +2338,20 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     input.value = '';
                     const loadingId = addLoading();
 
+                    // Call the PHP backend which handles the AI API
                     const replyText = await getAIReply(message);
+
                     removeLoading(loadingId);
 
+                    // Format bold text
                     const formattedReply = replyText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
                     addMessage(formattedReply, 'bot');
                 }
 
+                // API Handler Function
                 async function getAIReply(userMsg) {
                     try {
-                        const res = await fetch(
-                            "gemini.php", {
+                        const res = await fetch("gemini.php", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ message: userMsg })
@@ -2313,9 +2361,56 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         return data.reply;
 
                     } catch (err) {
-                        console.error("Gemini Error:", err);
-                        return "Connection error.";
+                        console.error("AI API Error:", err);
+                        return "I'm having trouble connecting to the network. Please checks your connection.";
                     }
+                }
+
+                function getLocalAIReply(userMsg) {
+                    const msg = userMsg.toLowerCase();
+
+                    // 1. Greetings
+                    if (msg.match(/\b(hi|hello|hey|good morning|evening)\b/)) {
+                        return "Hello! I'm your GymFit AI Coach. I can help you with gym info, membership plans, exercise tips, or trainer details. What do you need?";
+                    }
+
+                    // 2. Specific Keyword Matching from Knowledge Base
+                    if (msg.includes('price') || msg.includes('cost') || msg.includes('membership') || msg.includes('plan')) {
+                        return "MEMBERSHIP: We offer flexible monthly and yearly plans. Features include Gym Access, Free Locker, Group Classes, and Bio-Metric Attendance. Check the 'Membership' section for current pricing!";
+                    }
+                    if (msg.includes('trainer') || msg.includes('coach')) {
+                        return "TRAINERS: We have 6+ Certified Trainers available for Personal Application. You can book an appointment directly from the 'Trainers' tab on your dashboard.";
+                    }
+                    if (msg.includes('equipment') || msg.includes('machine') || msg.includes('dumbbell')) {
+                        return "EQUIPMENT: We are fully equipped with Dumbbells, Cardio Bikes, Treadmill Elite, Cable Machines, Smith Machines, Kettlebells, Leg Press, and more!";
+                    }
+                    if (msg.includes('contact') || msg.includes('phone') || msg.includes('email') || msg.includes('address') || msg.includes('location')) {
+                        return "CONTACT: Phone: +91 9283754672\nEmail: GymFit@gmail.com\nVisit us at our local branch.";
+                    }
+                    if (msg.includes('time') || msg.includes('open') || msg.includes('hour')) {
+                        return "HOURS: We are open 24/7 for our members! Come in whenever it fits your schedule.";
+                    }
+                    if (msg.includes('diet') || msg.includes('food') || msg.includes('nutrition') || msg.includes('eat')) {
+                        return "NUTRITION TIP: Focus on a balanced diet with sufficient protein for muscle recovery. Stay hydrated and avoid processed sugars for better performance.";
+                    }
+                    if (msg.includes('yoga')) {
+                        return "YOGA: We offer specialized Yoga sessions to improve flexibility and mental clarity. Check the class schedule!";
+                    }
+
+                    // 3. General Search in Knowledge Base
+                    // Split content by sections
+                    const sections = GYM_INFO.split('\n\n');
+                    for (let section of sections) {
+                        const lines = section.split('\n');
+                        const title = lines[0];
+                        // If any significant word in message matches title
+                        if (msg.includes(title.toLowerCase())) {
+                            return section;
+                        }
+                    }
+
+                    // 4. Default Fallback
+                    return "I can help with Membership details, Trainers, Equipment lists, or Contact info. Try asking 'What equipment do you have?' or 'Tell me about membership'.";
                 }
 
                 function addMessage(text, sender) {
@@ -3120,10 +3215,22 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             const baseUrl = window.location.protocol + "//" + host + port + window.location.pathname.replace('dashboard_member.php', '');
             const mockUrl = `${baseUrl}gpay_mock.php?amt=${amt}&plan=${encodeURIComponent(plan)}&uid=<?php echo $user_id; ?>`;
 
-            // Generate QR
-            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(mockUrl)}`;
-            const qrImg = document.getElementById('upi-qr-code');
-            if (qrImg) qrImg.src = qrUrl;
+            // Generate QR Locally
+            const qrContainer = document.getElementById('upi-qr-code');
+            if (qrContainer && typeof QRCode !== 'undefined') {
+                qrContainer.innerHTML = ''; // Clear previous
+                new QRCode(qrContainer, {
+                    text: mockUrl,
+                    width: 180,
+                    height: 180,
+                    colorDark: "#000000",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+            } else if (qrContainer) {
+                // Fallback if lib failed to load
+                qrContainer.innerHTML = 'QR Lib loading...';
+            }
         }
 
         function openPaymentModal() {
@@ -3573,6 +3680,9 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             }
         });
     </script>
+    <script src="assets/js/qrcode.min.js"></script>
+    
+    
 </body>
 
 </html>
