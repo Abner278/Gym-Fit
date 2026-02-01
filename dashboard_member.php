@@ -13,6 +13,46 @@ if (isset($_SESSION['flash_message'])) {
     $message = $_SESSION['flash_message'];
     unset($_SESSION['flash_message']);
 }
+
+// --- ENSURE DATABASE SCHEMA EXISTS ---
+// Ensure attendance table exists
+$attendance_sql = "CREATE TABLE IF NOT EXISTS attendance (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    date DATE NOT NULL,
+    status VARCHAR(20) DEFAULT 'present',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_attendance (user_id, date)
+)";
+mysqli_query($link, $attendance_sql);
+
+// Ensure appointments table exists
+$appt_sql = "CREATE TABLE IF NOT EXISTS appointments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    trainer_id INT NOT NULL,
+    booking_date DATE NOT NULL,
+    booking_time VARCHAR(20) NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending',
+    staff_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)";
+mysqli_query($link, $appt_sql);
+
+// Ensure body_measurements table exists
+$measure_sql = "CREATE TABLE IF NOT EXISTS body_measurements (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    chest DECIMAL(5,2),
+    waist DECIMAL(5,2),
+    arms DECIMAL(5,2),
+    thighs DECIMAL(5,2),
+    recorded_at DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_measurement_date (user_id, recorded_at)
+)";
+mysqli_query($link, $measure_sql);
+
 // --- AJAX TASK HANDLING ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_action'])) {
     header('Content-Type: application/json');
@@ -49,6 +89,55 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_action'])) {
     exit;
 }
 
+
+// --- BODY MEASUREMENTS POST HANDLING ---
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_measurement'])) {
+    $measure_id = (int) $_POST['measure_id'];
+    if (mysqli_query($link, "DELETE FROM body_measurements WHERE id = $measure_id AND user_id = $user_id")) {
+        $_SESSION['flash_message'] = "Measurement deleted successfully!";
+    } else {
+        $_SESSION['flash_message'] = "Error deleting measurement.";
+    }
+    header("location: dashboard_member.php?section=measurements");
+    exit;
+}
+
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['log_measurements'])) {
+    $chest = (float) $_POST['chest'];
+    $waist = (float) $_POST['waist'];
+    $arms = (float) $_POST['arms'];
+    $thighs = (float) $_POST['thighs'];
+    $date = mysqli_real_escape_string($link, $_POST['date']);
+
+    // Check if entry exists for date
+    $check = mysqli_query($link, "SELECT id FROM body_measurements WHERE user_id = $user_id AND recorded_at = '$date'");
+    if (mysqli_num_rows($check) > 0) {
+        $sql = "UPDATE body_measurements SET chest=$chest, waist=$waist, arms=$arms, thighs=$thighs WHERE user_id=$user_id AND recorded_at='$date'";
+    } else {
+        $sql = "INSERT INTO body_measurements (user_id, chest, waist, arms, thighs, recorded_at) VALUES ($user_id, $chest, $waist, $arms, $thighs, '$date')";
+    }
+
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['flash_message'] = "Measurements logged successfully!";
+    } else {
+        $_SESSION['flash_message'] = "Error logging measurements.";
+    }
+    // We'll let it fall through to render or redirect. Ideally redirect to avoid resubmission.
+    header("location: dashboard_member.php?section=measurements");
+    exit;
+}
+
+// Refined Auto-Fix: Restore correct plan from transaction history
+if (isset($user_id)) {
+    // Find key last valid membership payment to sync status
+    $restore_q = mysqli_query($link, "SELECT plan_name FROM transactions WHERE user_id = $user_id AND plan_name != 'Trainer Appointment' ORDER BY created_at DESC LIMIT 1");
+    if ($restore_row = mysqli_fetch_assoc($restore_q)) {
+        $real_plan = mysqli_real_escape_string($link, $restore_row['plan_name']);
+        // Restore plan if it was incorrectly set to Trainer Appointment or fallback Standard
+        mysqli_query($link, "UPDATE users SET membership_plan = '$real_plan' WHERE id = $user_id AND (membership_plan = 'Trainer Appointment' OR membership_plan = 'Standard')");
+    }
+}
+
 // FETCH LATEST USER DATA
 $stmt = mysqli_prepare($link, "SELECT full_name, email, profile_image, membership_plan, membership_status, membership_expiry, created_at FROM users WHERE id = ?");
 mysqli_stmt_bind_param($stmt, "i", $user_id);
@@ -65,35 +154,21 @@ $join_date = date('Y-m-d', strtotime($user_data['created_at']));
 // FETCH TRAINERS
 $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_at DESC");
 
+
 // FETCH LATEST ANNOUNCEMENT
 $ann_res = mysqli_query($link, "SELECT * FROM announcements ORDER BY created_at DESC LIMIT 1");
 $latest_announcement = mysqli_fetch_assoc($ann_res);
 
+// FETCH MEMBERSHIP PLANS
+$plans_res = mysqli_query($link, "SELECT * FROM membership_plans ORDER BY id ASC");
 
-// Ensure attendance table exists
-$attendance_sql = "CREATE TABLE IF NOT EXISTS attendance (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    date DATE NOT NULL,
-    status VARCHAR(20) DEFAULT 'present',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_attendance (user_id, date)
-)";
-mysqli_query($link, $attendance_sql);
+// FETCH MEASUREMENTS
+$measure_res = mysqli_query($link, "SELECT * FROM body_measurements WHERE user_id = $user_id ORDER BY recorded_at DESC");
 
-// Ensure appointments table exists
-// Ensure appointments table exists
-$appt_sql = "CREATE TABLE IF NOT EXISTS appointments (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    trainer_id INT NOT NULL,
-    booking_date DATE NOT NULL,
-    booking_time VARCHAR(20) NOT NULL,
-    status VARCHAR(20) DEFAULT 'pending',
-    staff_message TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)";
-mysqli_query($link, $appt_sql);
+
+
+
+
 
 // Check if staff_message column exists (schema update)
 $check_col = mysqli_query($link, "SHOW COLUMNS FROM appointments LIKE 'staff_message'");
@@ -102,9 +177,9 @@ if (mysqli_num_rows($check_col) == 0) {
 }
 
 // FETCH APPOINTMENTS
-$my_appts_query = "SELECT a.*, u.full_name as trainer_name, u.profile_image 
+$my_appts_query = "SELECT a.*, t.name as trainer_name, t.image as profile_image 
                    FROM appointments a 
-                   JOIN users u ON a.trainer_id = u.id 
+                   JOIN trainers t ON a.trainer_id = t.id 
                    WHERE a.user_id = $user_id 
                    ORDER BY a.booking_date DESC, a.booking_time DESC";
 $my_appts_res = mysqli_query($link, $my_appts_query);
@@ -139,12 +214,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['book_appointment'])) {
 
     if (mysqli_stmt_execute($stmt)) {
         $_SESSION['flash_message'] = "Appointment booked successfully!";
+
+        // Record Transaction if paid
+        if (isset($_POST['payment_confirmed']) && $_POST['payment_confirmed'] == '1') {
+            $txn_amount = 100.00;
+            $txn_method = isset($_POST['payment_method']) ? mysqli_real_escape_string($link, $_POST['payment_method']) : 'Online';
+            $txn_desc = "Trainer Appointment";
+
+            mysqli_query($link, "INSERT INTO transactions (user_id, plan_name, amount, payment_method) VALUES ($user_id, '$txn_desc', $txn_amount, '$txn_method')");
+        }
+
+        mysqli_stmt_close($stmt);
+        // Redirect to Appointments section to show history as requested
+        header("Location: dashboard_member.php?section=my-appointments");
+        exit;
     } else {
         $_SESSION['flash_message'] = "Error booking appointment.";
+        mysqli_stmt_close($stmt);
+        header("Location: dashboard_member.php?section=trainers");
+        exit;
     }
-    mysqli_stmt_close($stmt);
-    header("Location: dashboard_member.php");
-    exit;
 }
 
 // HANDLE APPOINTMENT DELETION
@@ -312,6 +401,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['complete_payment'])) {
     $amount = (float) $_POST['amount'];
     $method = mysqli_real_escape_string($link, $_POST['method']);
 
+    if ($plan_name === 'Trainer Appointment') {
+        header("Location: dashboard_member.php?section=trainers");
+        exit;
+    }
+
     // Insert Transaction
     mysqli_query($link, "INSERT INTO transactions (user_id, plan_name, amount, payment_method) VALUES ($user_id, '$plan_name', $amount, '$method')");
 
@@ -334,7 +428,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['complete_payment'])) {
 
 // FETCH DATA FOR DISPLAY
 $tasks = mysqli_query($link, "SELECT * FROM tasks WHERE user_id = $user_id ORDER BY created_at DESC");
-$transactions = mysqli_query($link, "SELECT * FROM transactions WHERE user_id = $user_id ORDER BY created_at DESC");
+// Split transactions
+$membership_transactions = mysqli_query($link, "SELECT * FROM transactions WHERE user_id = $user_id AND plan_name != 'Trainer Appointment' ORDER BY created_at DESC");
+$trainer_transactions = mysqli_query($link, "SELECT * FROM transactions WHERE user_id = $user_id AND plan_name = 'Trainer Appointment' ORDER BY created_at DESC");
 
 // --- MONTHLY NAVIGATION LOGIC ---
 $view_month = isset($_GET['m']) ? (int) $_GET['m'] : (int) date('n');
@@ -1246,13 +1342,141 @@ $is_beginner_completed = count($completed_weeks) >= 4;
         .icon-btn.edit:hover {
             background: rgba(206, 255, 0, 0.1);
         }
+
+        /* PRICING STYLES */
+        .pricing-section-container {
+            padding: 20px 0;
+            grid-column: 1 / -1;
+        }
+
+        .pricing-section-container.monthly .yearly-only {
+            display: none !important;
+        }
+
+        .pricing-section-container.yearly .monthly-only {
+            display: none !important;
+        }
+
+        .pricing-toggle {
+            background: rgba(255, 255, 255, 0.05);
+            display: flex;
+            justify-content: center;
+            width: fit-content;
+            margin: 0 auto 30px;
+            padding: 5px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .toggle-btn {
+            padding: 10px 30px;
+            border-radius: 25px;
+            color: var(--text-gray);
+            background: transparent;
+            cursor: pointer;
+            font-weight: 600;
+            transition: 0.3s;
+            border: none;
+        }
+
+        .toggle-btn.active {
+            background: var(--primary-color);
+            color: #000;
+            box-shadow: 0 0 15px rgba(206, 255, 0, 0.4);
+        }
+
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+        }
+
+        .pricing-card {
+            background: var(--card-bg);
+            padding: 30px 25px;
+            border-radius: 15px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            transition: 0.4s;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .pricing-card:hover,
+        .pricing-card.selected-plan {
+            transform: translateY(-5px);
+            border-color: var(--primary-color);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .pricing-card.selected-plan {
+            background: rgba(206, 255, 0, 0.05);
+        }
+
+        .pricing-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            font-family: 'Oswald', sans-serif;
+            color: #fff;
+        }
+
+        .price-tag {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 25px;
+        }
+
+        .price-tag span {
+            font-size: 1rem;
+            color: var(--text-gray);
+            font-weight: 400;
+        }
+
+        .features-list {
+            list-style: none;
+            text-align: left;
+            margin-bottom: 30px;
+            flex: 1;
+        }
+
+        .features-list li {
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #ddd;
+            font-size: 0.9rem;
+        }
+
+        .features-list li i.check {
+            color: var(--primary-color);
+        }
+
+        .features-list li i.cross {
+            color: #555;
+        }
+
+        .badge {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: var(--primary-color);
+            color: #000;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
     </style>
 </head>
 
 <body>
     <?php if (!empty($message)): ?>
-        <div class="toast show" id="status-toast"><?php echo $message; ?></div>
-        <script>setTimeout(() => document.getElementById('status-toast').classList.remove('show'), 3000);</script>
+            <div class="toast show" id="status-toast"><?php echo $message; ?></div>
+            <script>setTimeout(() => document.getElementById('status-toast').classList.remove('show'), 3000);</script>
     <?php endif; ?>
 
     <!-- Sidebar -->
@@ -1275,8 +1499,13 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     Appointments</a></li>
 
 
+
             <li><a href="#" onclick="showSection('profile')"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
             </li>
+            <li><a href="#" onclick="showSection('bmi-calculator')"><i class="fa-solid fa-weight-scale"></i> BMI
+                    Calculator</a></li>
+            <li><a href="#" onclick="showSection('measurements')"><i class="fa-solid fa-ruler-combined"></i>
+                    Measurements</a></li>
         </ul>
         <div class="sidebar-footer">
             <a href="logout.php" class="btn-logout">
@@ -1331,28 +1560,28 @@ $is_beginner_completed = count($completed_weeks) >= 4;
 
                 <!-- Announcement Section -->
                 <?php if ($latest_announcement): ?>
-                    <div class="dashboard-card">
-                        <h3>Announcements <i class="fa-solid fa-bullhorn"></i></h3>
-                        <div
-                            style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; border-left: 4px solid var(--primary-color);">
-                            <h4
-                                style="color: #fff; margin-bottom: 8px; font-family: 'Oswald', sans-serif; font-size: 1.1rem;">
-                                <?php echo htmlspecialchars($latest_announcement['title']); ?>
-                            </h4>
-                            <p style="color: var(--text-gray); font-size: 0.95rem; line-height: 1.5;">
-                                <?php echo nl2br(htmlspecialchars($latest_announcement['message'])); ?>
-                            </p>
+                        <div class="dashboard-card">
+                            <h3>Announcements <i class="fa-solid fa-bullhorn"></i></h3>
+                            <div
+                                style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; border-left: 4px solid var(--primary-color);">
+                                <h4
+                                    style="color: #fff; margin-bottom: 8px; font-family: 'Oswald', sans-serif; font-size: 1.1rem;">
+                                    <?php echo htmlspecialchars($latest_announcement['title']); ?>
+                                </h4>
+                                <p style="color: var(--text-gray); font-size: 0.95rem; line-height: 1.5;">
+                                    <?php echo nl2br(htmlspecialchars($latest_announcement['message'])); ?>
+                                </p>
+                            </div>
                         </div>
-                    </div>
                 <?php else: ?>
-                    <!-- Fallback if no announcement -->
-                    <div class="dashboard-card">
-                        <h3>Announcements <i class="fa-solid fa-bullhorn"></i></h3>
-                        <div
-                            style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; text-align:center;">
-                            <p style="color: var(--text-gray);">No new announcements.</p>
+                        <!-- Fallback if no announcement -->
+                        <div class="dashboard-card">
+                            <h3>Announcements <i class="fa-solid fa-bullhorn"></i></h3>
+                            <div
+                                style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; text-align:center;">
+                                <p style="color: var(--text-gray);">No new announcements.</p>
+                            </div>
                         </div>
-                    </div>
                 <?php endif; ?>
             </div>
         </div>
@@ -1374,8 +1603,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     </div>
 
                     <?php if (!$is_beginner_completed): ?>
-                        <p style="color: var(--text-gray); margin-bottom: 20px;">Complete this foundation phase to unlock
-                            Daily Challenges.</p>
+                            <p style="color: var(--text-gray); margin-bottom: 20px;">Complete this foundation phase to unlock
+                                Daily Challenges.</p>
                     <?php endif; ?>
 
                     <div class="timeline-weeks" style="display: flex; flex-direction: column; gap: 15px;">
@@ -1384,217 +1613,217 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                             $is_done = in_array($week_id, $completed_weeks);
                             $opacity = $is_done ? '0.6' : '1';
                             ?>
-                            <div class="week-card"
-                                style="background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden; opacity: <?php echo $opacity; ?>;">
-                                <div class="week-header" onclick="toggleWrapper('week-content-<?php echo $num; ?>')"
-                                    style="padding: 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2);">
-                                    <strong style="font-size: 1.1rem;">Week <?php echo $num; ?>:
-                                        <?php echo $week['title']; ?></strong>
-                                    <div>
-                                        <?php if ($is_done): ?>
-                                            <i class="fa-solid fa-circle-check" style="color: var(--primary-color);"></i>
-                                        <?php else: ?>
-                                            <i class="fa-solid fa-chevron-down"></i>
+                                <div class="week-card"
+                                    style="background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden; opacity: <?php echo $opacity; ?>;">
+                                    <div class="week-header" onclick="toggleWrapper('week-content-<?php echo $num; ?>')"
+                                        style="padding: 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2);">
+                                        <strong style="font-size: 1.1rem;">Week <?php echo $num; ?>:
+                                            <?php echo $week['title']; ?></strong>
+                                        <div>
+                                            <?php if ($is_done): ?>
+                                                    <i class="fa-solid fa-circle-check" style="color: var(--primary-color);"></i>
+                                            <?php else: ?>
+                                                    <i class="fa-solid fa-chevron-down"></i>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                    <div id="week-content-<?php echo $num; ?>"
+                                        style="display: <?php echo $is_done ? 'none' : 'block'; ?>; padding: 15px; border-top: 1px solid rgba(255,255,255,0.05);">
+                                        <p style="color: #fff; margin-bottom: 10px;"><strong>Goal:</strong>
+                                            <?php echo $week['goal']; ?></p>
+
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                                            <div>
+                                                <h5 style="color: var(--primary-color); margin-bottom: 8px;">Activities</h5>
+                                                <ul
+                                                    style="list-style: none; padding-left: 0; font-size: 0.9rem; color: var(--text-gray);">
+                                                    <?php foreach ($week['activities'] as $act): ?>
+                                                            <li style="margin-bottom: 5px;"><i class="fa-solid fa-angle-right"
+                                                                    style="color: var(--primary-color); margin-right: 5px;"></i>
+                                                                <?php echo $act; ?></li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                            </div>
+                                            <div>
+                                                <h5 style="color: var(--primary-color); margin-bottom: 8px;">Video Topics</h5>
+                                                <ul
+                                                    style="list-style: none; padding-left: 0; font-size: 0.9rem; color: var(--text-gray);">
+                                                    <?php foreach ($week['topics'] as $topic): ?>
+                                                            <li style="margin-bottom: 5px;"><i class="fa-solid fa-play"
+                                                                    style="font-size: 0.7rem; color: var(--primary-color); margin-right: 5px;"></i>
+                                                                <?php echo $topic; ?></li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                            </div>
+                                        </div>
+
+                                        <?php if (!$is_done): ?>
+                                                <button onclick="markBeginnerWeek('<?php echo $week_id; ?>')" class="btn-action"
+                                                    style="margin-top: 15px; width: auto; padding: 8px 20px; font-size: 0.9rem;">
+                                                    Mark Week as Complete <i class="fa-solid fa-check"></i>
+                                                </button>
                                         <?php endif; ?>
                                     </div>
                                 </div>
-                                <div id="week-content-<?php echo $num; ?>"
-                                    style="display: <?php echo $is_done ? 'none' : 'block'; ?>; padding: 15px; border-top: 1px solid rgba(255,255,255,0.05);">
-                                    <p style="color: #fff; margin-bottom: 10px;"><strong>Goal:</strong>
-                                        <?php echo $week['goal']; ?></p>
-
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                                        <div>
-                                            <h5 style="color: var(--primary-color); margin-bottom: 8px;">Activities</h5>
-                                            <ul
-                                                style="list-style: none; padding-left: 0; font-size: 0.9rem; color: var(--text-gray);">
-                                                <?php foreach ($week['activities'] as $act): ?>
-                                                    <li style="margin-bottom: 5px;"><i class="fa-solid fa-angle-right"
-                                                            style="color: var(--primary-color); margin-right: 5px;"></i>
-                                                        <?php echo $act; ?></li>
-                                                <?php endforeach; ?>
-                                            </ul>
-                                        </div>
-                                        <div>
-                                            <h5 style="color: var(--primary-color); margin-bottom: 8px;">Video Topics</h5>
-                                            <ul
-                                                style="list-style: none; padding-left: 0; font-size: 0.9rem; color: var(--text-gray);">
-                                                <?php foreach ($week['topics'] as $topic): ?>
-                                                    <li style="margin-bottom: 5px;"><i class="fa-solid fa-play"
-                                                            style="font-size: 0.7rem; color: var(--primary-color); margin-right: 5px;"></i>
-                                                        <?php echo $topic; ?></li>
-                                                <?php endforeach; ?>
-                                            </ul>
-                                        </div>
-                                    </div>
-
-                                    <?php if (!$is_done): ?>
-                                        <button onclick="markBeginnerWeek('<?php echo $week_id; ?>')" class="btn-action"
-                                            style="margin-top: 15px; width: auto; padding: 8px 20px; font-size: 0.9rem;">
-                                            Mark Week as Complete <i class="fa-solid fa-check"></i>
-                                        </button>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
                         <?php endforeach; ?>
                     </div>
                 </div>
 
                 <!-- DAILY CHALLENGES WRAPPER (Gated) -->
                 <?php if (!$is_beginner_completed): ?>
-                    <div
-                        style="text-align: center; padding: 40px; background: rgba(0,0,0,0.3); border-radius: 12px; border: 1px dashed var(--text-gray);">
-                        <i class="fa-solid fa-lock"
-                            style="font-size: 3rem; color: var(--text-gray); margin-bottom: 15px;"></i>
-                        <h3>Daily Challenges Locked</h3>
-                        <p style="color: var(--text-gray);">Please complete the Beginner Gym Timeline to unlock your daily
-                            workout schedule.</p>
-                    </div>
+                        <div
+                            style="text-align: center; padding: 40px; background: rgba(0,0,0,0.3); border-radius: 12px; border: 1px dashed var(--text-gray);">
+                            <i class="fa-solid fa-lock"
+                                style="font-size: 3rem; color: var(--text-gray); margin-bottom: 15px;"></i>
+                            <h3>Daily Challenges Locked</h3>
+                            <p style="color: var(--text-gray);">Please complete the Beginner Gym Timeline to unlock your daily
+                                workout schedule.</p>
+                        </div>
                 <?php else: ?>
 
-                    <!-- Workout Search & Month Selector -->
-                    <div
-                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap; gap: 15px;">
-                        <div class="month-selector-tabs"
-                            style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; scrollbar-width: none;">
-                            <?php
-                            for ($m = 1; $m <= 12; $m++) {
-                                $month_name = date('M', mktime(0, 0, 0, $m, 1));
-                                $is_active = ($m == $view_month);
-                                $url = "?m=$m&y=$view_year";
-                                ?>
-                                <a href="<?php echo $url; ?>"
-                                    style="flex: 0 0 auto; padding: 10px 20px; border-radius: 30px; background: <?php echo $is_active ? 'var(--primary-color)' : 'rgba(255,255,255,0.05)'; ?>; color: <?php echo $is_active ? 'var(--secondary-color)' : '#fff'; ?>; text-decoration: none; font-family: 'Oswald'; font-weight: bold; transition: 0.3s; border: 1px solid <?php echo $is_active ? 'var(--primary-color)' : 'rgba(255,255,255,0.1)'; ?>;">
-                                    <?php echo strtoupper($month_name); ?>
-                                </a>
+                        <!-- Workout Search & Month Selector -->
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap; gap: 15px;">
+                            <div class="month-selector-tabs"
+                                style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; scrollbar-width: none;">
                                 <?php
-                            }
-                            ?>
-                        </div>
-
-
-
-                        <!-- Search Bar -->
-                        <div style="position: relative; width: 300px;">
-                            <i class="fa-solid fa-magnifying-glass"
-                                style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
-                            <input type="text" id="video-search-input" placeholder="Search workouts"
-                                style="width: 100%; padding: 12px 15px 12px 45px; border-radius: 30px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;"
-                                onkeyup="searchVideos(this.value)">
-
-                            <!-- Search Results Dropdown -->
-                            <div id="search-results-dropdown"
-                                style="display: none; position: absolute; top: calc(100% + 10px); left: 0; width: 100%; background: #1a1a2e; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; z-index: 1000; max-height: 400px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); padding: 10px;">
-                            </div>
-                        </div>
-                    </div>
-
-
-
-                    <!-- Calendar Strip -->
-                    <div class="calendar-strip" id="calendar-strip">
-                        <?php
-                        for ($d = 1; $d <= $days_in_month; $d++):
-                            $date_str = "$view_year-" . sprintf('%02d', $view_month) . "-" . sprintf('%02d', $d);
-                            $day_name = date('D', strtotime($date_str));
-                            $is_completed = mysqli_query($link, "SELECT id FROM completed_workouts WHERE user_id = $user_id AND DATE(completed_at) = '$date_str' AND video_id NOT LIKE 'beg_week_%'")->num_rows > 0;
-                            $is_today = ($d == date('d') && $view_month == date('n') && $view_year == date('Y'));
-                            ?>
-                            <div class="calendar-day <?php echo ($d === $today_day) ? 'active' : ''; ?> <?php echo $is_completed ? 'completed' : ''; ?> <?php echo $is_today ? 'today' : ''; ?>"
-                                onclick="selectDay(<?php echo $d; ?>)" id="day-<?php echo $d; ?>"
-                                data-date="<?php echo $date_str; ?>">
-                                <span class="day-name"><?php echo $day_name; ?></span>
-                                <span class="day-num"><?php echo $d; ?></span>
-                            </div>
-                        <?php endfor; ?>
-                    </div>
-
-                    <div class="dashboard-grid" style="grid-template-columns: 2fr 1fr;">
-                        <div class="video-main-area">
-                            <!-- Video Player Container -->
-                            <div id="video-player-container">
-                                <iframe id="video-iframe" width="100%" height="100%" src="" frameborder="0"
-                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                    allowfullscreen></iframe>
-                                <!-- Overlay controls removed for simplicity in this step, can be re-added if needed -->
-                            </div>
-                            <!-- <div id="video-completion-overlay" ... (kept hidden logic if needed later) -->
-                            <div id="video-completion-overlay"
-                                style="display:none; position:absolute; bottom:20px; right:20px; gap: 10px; z-index: 10;">
-                                <button type="button" id="mark-finished-btn" onclick="markVideoFinished('complete')"
-                                    class="btn-action" style="width:auto; padding:10px 20px;">
-                                    <i class="fa-solid fa-check"></i> Mark as Finished
-                                </button>
-                                <button type="button" id="redo-workout-btn" onclick="markVideoFinished('redo')"
-                                    class="btn-action"
-                                    style="width:auto; padding:10px 20px; background: #333; color: #fff; display: none;">
-                                    <i class="fa-solid fa-rotate-right"></i> Redo Workout
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="dashboard-card" style="margin-bottom: 0;">
-                            <h3 id="playlist-title">Today's Routine</h3>
-                            <div class="video-list" id="video-list-container">
-                                <!-- Videos will be injected here by JS -->
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="side-info">
-                        <div class="dashboard-card" style="height: 100%; position: relative;">
-                            <button onclick="markVideoFinished('reset_all')" title="Reset Month"
-                                style="position: absolute; top: 20px; right: 20px; background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 0.8rem; opacity: 0.6; transition: 0.3s;">
-                                <i class="fa-solid fa-trash-can"></i> Reset All
-                            </button>
-                            <h3>Monthly Summary</h3>
-                            <p style="color: var(--text-gray); font-size: 0.9rem;">Target: Complete videos daily for
-                                full
-                                progress.</p>
-
-                            <div class="progress-bar-container">
-                                <div class="progress-bar-fill" id="monthly-progress-bar"
-                                    style="width: <?php echo $progress_percent; ?>%;"></div>
-                            </div>
-                            <p
-                                style="text-align: right; font-size: 0.9rem; font-weight: bold; color: var(--primary-color);">
-                                <span id="completed-days-text"><?php echo $completed_this_month; ?></span> / <span
-                                    id="total-days-text"><?php echo $total_videos_target; ?></span> Days Completed
-                                (<span id="progress-percent-text"><?php echo round($progress_percent); ?></span>%)
-                            </p>
-
-                            <div style="margin-top:25px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 20px;">
-                                <h4
-                                    style="font-family:'Oswald'; font-size: 0.9rem; margin-bottom:10px; color: var(--text-gray);">
-                                    Dates Completed:</h4>
-                                <div id="completed-dates-badges" style="display:flex; flex-wrap:wrap; gap:8px;">
-                                    <?php if (empty($recent_completed_dates)): ?>
-                                        <p style="font-size: 0.8rem; color: #555;">No workouts completed yet.</p>
-                                    <?php else: ?>
-                                        <?php foreach ($recent_completed_dates as $rd_label): ?>
-                                            <span
-                                                style="background: rgba(0,255,0,0.1); color: #00ff00; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; border: 1px solid rgba(0,255,0,0.2);">
-                                                <i class="fa-solid fa-check" style="font-size: 0.6rem;"></i>
-                                                <?php echo $rd_label; ?>
-                                            </span>
-                                        <?php endforeach; ?>
-                                    <?php endif; ?>
-                                </div>
+                                for ($m = 1; $m <= 12; $m++) {
+                                    $month_name = date('M', mktime(0, 0, 0, $m, 1));
+                                    $is_active = ($m == $view_month);
+                                    $url = "?m=$m&y=$view_year";
+                                    ?>
+                                        <a href="<?php echo $url; ?>"
+                                            style="flex: 0 0 auto; padding: 10px 20px; border-radius: 30px; background: <?php echo $is_active ? 'var(--primary-color)' : 'rgba(255,255,255,0.05)'; ?>; color: <?php echo $is_active ? 'var(--secondary-color)' : '#fff'; ?>; text-decoration: none; font-family: 'Oswald'; font-weight: bold; transition: 0.3s; border: 1px solid <?php echo $is_active ? 'var(--primary-color)' : 'rgba(255,255,255,0.1)'; ?>;">
+                                            <?php echo strtoupper($month_name); ?>
+                                        </a>
+                                        <?php
+                                }
+                                ?>
                             </div>
 
-                            <div style="margin-top:30px;">
-                                <h4 style="font-family:'Oswald'; margin-bottom:15px;">Achievement Medals</h4>
-                                <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-                                    <i id="medal-half" class="fa-solid fa-medal" title="Half Month Master"
-                                        style="font-size: 2.5rem; color: <?php echo $progress_percent >= 50 ? '#ffd700' : '#333'; ?>;"></i>
-                                    <i id="medal-full" class="fa-solid fa-trophy" title="Month Master"
-                                        style="font-size: 2.5rem; color: <?php echo $progress_percent >= 100 ? '#ceff00' : '#333'; ?>;"></i>
-                                    <i id="medal-fire" class="fa-solid fa-fire" title="Dedication"
-                                        style="font-size: 2.5rem; color: <?php echo $progress_percent >= 75 ? '#ff4500' : '#333'; ?>;"></i>
+
+
+                            <!-- Search Bar -->
+                            <div style="position: relative; width: 300px;">
+                                <i class="fa-solid fa-magnifying-glass"
+                                    style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
+                                <input type="text" id="video-search-input" placeholder="Search workouts"
+                                    style="width: 100%; padding: 12px 15px 12px 45px; border-radius: 30px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;"
+                                    onkeyup="searchVideos(this.value)">
+
+                                <!-- Search Results Dropdown -->
+                                <div id="search-results-dropdown"
+                                    style="display: none; position: absolute; top: calc(100% + 10px); left: 0; width: 100%; background: #1a1a2e; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; z-index: 1000; max-height: 400px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); padding: 10px;">
                                 </div>
                             </div>
                         </div>
-                    </div> <!-- Close side-info (line 1188) -->
+
+
+
+                        <!-- Calendar Strip -->
+                        <div class="calendar-strip" id="calendar-strip">
+                            <?php
+                            for ($d = 1; $d <= $days_in_month; $d++):
+                                $date_str = "$view_year-" . sprintf('%02d', $view_month) . "-" . sprintf('%02d', $d);
+                                $day_name = date('D', strtotime($date_str));
+                                $is_completed = mysqli_query($link, "SELECT id FROM completed_workouts WHERE user_id = $user_id AND DATE(completed_at) = '$date_str' AND video_id NOT LIKE 'beg_week_%'")->num_rows > 0;
+                                $is_today = ($d == date('d') && $view_month == date('n') && $view_year == date('Y'));
+                                ?>
+                                    <div class="calendar-day <?php echo ($d === $today_day) ? 'active' : ''; ?> <?php echo $is_completed ? 'completed' : ''; ?> <?php echo $is_today ? 'today' : ''; ?>"
+                                        onclick="selectDay(<?php echo $d; ?>)" id="day-<?php echo $d; ?>"
+                                        data-date="<?php echo $date_str; ?>">
+                                        <span class="day-name"><?php echo $day_name; ?></span>
+                                        <span class="day-num"><?php echo $d; ?></span>
+                                    </div>
+                            <?php endfor; ?>
+                        </div>
+
+                        <div class="dashboard-grid" style="grid-template-columns: 2fr 1fr;">
+                            <div class="video-main-area">
+                                <!-- Video Player Container -->
+                                <div id="video-player-container">
+                                    <iframe id="video-iframe" width="100%" height="100%" src="" frameborder="0"
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                        allowfullscreen></iframe>
+                                    <!-- Overlay controls removed for simplicity in this step, can be re-added if needed -->
+                                </div>
+                                <!-- <div id="video-completion-overlay" ... (kept hidden logic if needed later) -->
+                                <div id="video-completion-overlay"
+                                    style="display:none; position:absolute; bottom:20px; right:20px; gap: 10px; z-index: 10;">
+                                    <button type="button" id="mark-finished-btn" onclick="markVideoFinished('complete')"
+                                        class="btn-action" style="width:auto; padding:10px 20px;">
+                                        <i class="fa-solid fa-check"></i> Mark as Finished
+                                    </button>
+                                    <button type="button" id="redo-workout-btn" onclick="markVideoFinished('redo')"
+                                        class="btn-action"
+                                        style="width:auto; padding:10px 20px; background: #333; color: #fff; display: none;">
+                                        <i class="fa-solid fa-rotate-right"></i> Redo Workout
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="dashboard-card" style="margin-bottom: 0;">
+                                <h3 id="playlist-title">Today's Routine</h3>
+                                <div class="video-list" id="video-list-container">
+                                    <!-- Videos will be injected here by JS -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="side-info">
+                            <div class="dashboard-card" style="height: 100%; position: relative;">
+                                <button onclick="markVideoFinished('reset_all')" title="Reset Month"
+                                    style="position: absolute; top: 20px; right: 20px; background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 0.8rem; opacity: 0.6; transition: 0.3s;">
+                                    <i class="fa-solid fa-trash-can"></i> Reset All
+                                </button>
+                                <h3>Monthly Summary</h3>
+                                <p style="color: var(--text-gray); font-size: 0.9rem;">Target: Complete videos daily for
+                                    full
+                                    progress.</p>
+
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill" id="monthly-progress-bar"
+                                        style="width: <?php echo $progress_percent; ?>%;"></div>
+                                </div>
+                                <p
+                                    style="text-align: right; font-size: 0.9rem; font-weight: bold; color: var(--primary-color);">
+                                    <span id="completed-days-text"><?php echo $completed_this_month; ?></span> / <span
+                                        id="total-days-text"><?php echo $total_videos_target; ?></span> Days Completed
+                                    (<span id="progress-percent-text"><?php echo round($progress_percent); ?></span>%)
+                                </p>
+
+                                <div style="margin-top:25px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 20px;">
+                                    <h4
+                                        style="font-family:'Oswald'; font-size: 0.9rem; margin-bottom:10px; color: var(--text-gray);">
+                                        Dates Completed:</h4>
+                                    <div id="completed-dates-badges" style="display:flex; flex-wrap:wrap; gap:8px;">
+                                        <?php if (empty($recent_completed_dates)): ?>
+                                                <p style="font-size: 0.8rem; color: #555;">No workouts completed yet.</p>
+                                        <?php else: ?>
+                                                <?php foreach ($recent_completed_dates as $rd_label): ?>
+                                                        <span
+                                                            style="background: rgba(0,255,0,0.1); color: #00ff00; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; border: 1px solid rgba(0,255,0,0.2);">
+                                                            <i class="fa-solid fa-check" style="font-size: 0.6rem;"></i>
+                                                            <?php echo $rd_label; ?>
+                                                        </span>
+                                                <?php endforeach; ?>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+
+                                <div style="margin-top:30px;">
+                                    <h4 style="font-family:'Oswald'; margin-bottom:15px;">Achievement Medals</h4>
+                                    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                                        <i id="medal-half" class="fa-solid fa-medal" title="Half Month Master"
+                                            style="font-size: 2.5rem; color: <?php echo $progress_percent >= 50 ? '#ffd700' : '#333'; ?>;"></i>
+                                        <i id="medal-full" class="fa-solid fa-trophy" title="Month Master"
+                                            style="font-size: 2.5rem; color: <?php echo $progress_percent >= 100 ? '#ceff00' : '#333'; ?>;"></i>
+                                        <i id="medal-fire" class="fa-solid fa-fire" title="Dedication"
+                                            style="font-size: 2.5rem; color: <?php echo $progress_percent >= 75 ? '#ff4500' : '#333'; ?>;"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div> <!-- Close side-info (line 1188) -->
                 <?php endif; // End Beginner Check ?>
             </div> <!-- Close wrapper (line 1028) or grid? Let's check -->
         </div> <!-- Close workouts section (line 1027) -->
@@ -1646,23 +1875,23 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 <div class="dashboard-card" style="max-width: 800px;">
                     <div id="todo-list-container">
                         <?php while ($row = mysqli_fetch_assoc($tasks)): ?>
-                            <div class="todo-item" id="task-<?php echo $row['id']; ?>">
-                                <input type="checkbox" onchange="toggleTask(<?php echo $row['id']; ?>)" <?php echo $row['is_done'] ? 'checked' : ''; ?>>
-                                <span
-                                    style="flex-grow: 1; <?php echo $row['is_done'] ? 'text-decoration: line-through; opacity: 0.5;' : ''; ?>">
-                                    <?php echo htmlspecialchars($row['task_name']); ?>
-                                </span>
-                                <div style="display: flex; gap: 5px;">
-                                    <button type="button" class="icon-btn edit"
-                                        onclick="openEditTask(<?php echo $row['id']; ?>, '<?php echo addslashes(htmlspecialchars($row['task_name'])); ?>')">
-                                        <i class="fa-solid fa-pen"></i>
-                                    </button>
-                                    <button type="button" class="icon-btn delete"
-                                        onclick="deleteTask(<?php echo $row['id']; ?>)">
-                                        <i class="fa-solid fa-trash"></i>
-                                    </button>
+                                <div class="todo-item" id="task-<?php echo $row['id']; ?>">
+                                    <input type="checkbox" onchange="toggleTask(<?php echo $row['id']; ?>)" <?php echo $row['is_done'] ? 'checked' : ''; ?>>
+                                    <span
+                                        style="flex-grow: 1; <?php echo $row['is_done'] ? 'text-decoration: line-through; opacity: 0.5;' : ''; ?>">
+                                        <?php echo htmlspecialchars($row['task_name']); ?>
+                                    </span>
+                                    <div style="display: flex; gap: 5px;">
+                                        <button type="button" class="icon-btn edit"
+                                            onclick="openEditTask(<?php echo $row['id']; ?>, '<?php echo addslashes(htmlspecialchars($row['task_name'])); ?>')">
+                                            <i class="fa-solid fa-pen"></i>
+                                        </button>
+                                        <button type="button" class="icon-btn delete"
+                                            onclick="deleteTask(<?php echo $row['id']; ?>)">
+                                            <i class="fa-solid fa-trash"></i>
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
                         <?php endwhile; ?>
                     </div>
 
@@ -1699,7 +1928,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
         <!-- Membership Section -->
         <div id="membership" class="dashboard-section">
             <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Membership & Payments</h2>
-            <div class="dashboard-grid">
+            <div class="dashboard-grid" style="grid-template-columns: 1fr 1.5fr; gap: 30px; margin-bottom: 40px;">
                 <div class="dashboard-card">
                     <h3>Current Plan</h3>
                     <div style="text-align: center; padding: 30px 0;">
@@ -1742,77 +1971,236 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     </div>
                 </div>
 
-                <div class="dashboard-card">
-                    <h3>Renew / Upgrade Plan</h3>
-                    <div style="margin-bottom: 20px;">
-                        <label
-                            style="display: block; font-size: 0.9rem; color: var(--text-gray); margin-bottom: 8px;">Select
-                            New Plan</label>
-                        <select id="plan-selector"
-                            style="width: 100%; padding: 12px 40px 12px 15px; border-radius: 8px; background-color: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); font-family: 'Roboto', sans-serif;">
-                            <optgroup label="Monthly Plans">
-                                <option value="399">Basic - ₹399/mo</option>
-                                <option value="899" selected>Standard - ₹899/mo</option>
-                                <option value="999">Premium - ₹999/mo</option>
-                            </optgroup>
-                            <optgroup label="Yearly Plans">
-                                <option value="3999">Basic (Yearly) - ₹3999/yr</option>
-                                <option value="8999">Standard (Yearly) - ₹8999/yr</option>
-                                <option value="9999">Premium (Yearly) - ₹9999/yr</option>
-                            </optgroup>
-                        </select>
-                    </div>
-                    <div id="payment-box" style="margin-top: 10px;">
-                        <p
-                            style="font-size: 1.1rem; color: var(--primary-color); font-weight: bold; margin-bottom: 20px;">
-                            Total to Pay: <span id="payment-amt-display">₹899.00</span>
-                        </p>
-                        <button type="button" class="btn-action" onclick="openPaymentModal()">
-                            <i class="fa-solid fa-credit-card"></i> PROCEED TO PAY
-                        </button>
-                    </div>
-                </div>
-
+                <!-- Recent Transactions (Moved Here) -->
                 <div class="dashboard-card">
                     <h3>Recent Transactions</h3>
                     <div class="transaction-list-container" style="font-size: 0.95rem;">
-                        <?php if (mysqli_num_rows($transactions) > 0): ?>
-                            <?php while ($txn = mysqli_fetch_assoc($transactions)): ?>
-                                <div class="transaction-item"
-                                    style="display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: center; transition: 0.3s;">
-                                    <div>
-                                        <p style="font-weight: bold;">
-                                            <?php echo date('M d, Y', strtotime($txn['created_at'])); ?>
-                                        </p>
-                                        <p style="font-size: 0.8rem; color: var(--text-gray);">
-                                            <?php echo $txn['plan_name']; ?>
-                                            • <?php echo $txn['payment_method']; ?>
-                                        </p>
-                                    </div>
-                                    <div style="display:flex; align-items:center; gap:12px;">
-                                        <span style="color: var(--primary-color); font-weight: bold;">-
-                                            ₹<?php echo number_format($txn['amount'], 2); ?></span>
-                                        <a href="invoice.php?tid=<?php echo $txn['id']; ?>" target="_blank"
-                                            style="color: var(--primary-color); font-size: 1.1rem;"
-                                            title="Download / Print Invoice">
-                                            <i class="fa-solid fa-file-pdf"></i>
-                                        </a>
-                                        <button type="button"
-                                            onclick="deleteTransaction(<?php echo $txn['id']; ?>, this.closest('.transaction-item'))"
-                                            style="background:none; border:none; color:#ff4d4d; cursor:pointer; font-size: 1.1rem; padding: 0;"
-                                            title="Delete Transaction">
-                                            <i class="fa-solid fa-trash-can"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            <?php endwhile; ?>
+                        <?php if (mysqli_num_rows($membership_transactions) > 0): ?>
+                                <?php while ($txn = mysqli_fetch_assoc($membership_transactions)): ?>
+                                        <div class="transaction-item"
+                                            style="display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: center; transition: 0.3s;">
+                                            <div>
+                                                <p style="font-weight: bold;">
+                                                    <?php echo date('M d, Y', strtotime($txn['created_at'])); ?>
+                                                </p>
+                                                <p style="font-size: 0.8rem; color: var(--text-gray);">
+                                                    <?php echo $txn['plan_name']; ?>
+                                                    • <?php echo $txn['payment_method']; ?>
+                                                </p>
+                                            </div>
+                                            <div style="display:flex; align-items:center; gap:12px;">
+                                                <span style="color: var(--primary-color); font-weight: bold;">-
+                                                    ₹<?php echo number_format($txn['amount'], 2); ?></span>
+                                                <a href="invoice.php?tid=<?php echo $txn['id']; ?>" target="_blank"
+                                                    style="color: var(--primary-color); font-size: 1.1rem;"
+                                                    title="Download / Print Invoice">
+                                                    <i class="fa-solid fa-file-invoice"></i>
+                                                </a>
+                                                <button type="button"
+                                                    onclick="deleteTransaction(<?php echo $txn['id']; ?>, this.closest('.transaction-item'))"
+                                                    style="background:none; border:none; color:#ff4d4d; cursor:pointer; font-size: 1.1rem; padding: 0;"
+                                                    title="Delete Transaction">
+                                                    <i class="fa-solid fa-trash-can"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                <?php endwhile; ?>
                         <?php else: ?>
-                            <p style="text-align: center; color: var(--text-gray); padding: 20px;">No transaction
-                                history
-                                yet.</p>
+                                <p style="text-align: center; color: var(--text-gray); padding: 20px;">No transaction
+                                    history
+                                    yet.</p>
                         <?php endif; ?>
                     </div>
                 </div>
+
+                <!-- Upgrade / Renew Plans (Full Width) -->
+                <div class="pricing-section-container monthly" id="pricing-container">
+                    <h3 style="font-family:'Oswald'; margin-bottom:20px; text-align:center;">Renew or Upgrade Your Plan
+                    </h3>
+
+                    <div class="pricing-toggle">
+                        <button class="toggle-btn active" onclick="togglePricingPeriod('monthly')">Monthly</button>
+                        <button class="toggle-btn" onclick="togglePricingPeriod('yearly')">Yearly</button>
+                    </div>
+
+                    <!-- Hidden Selector for Compatibility -->
+                    <div style="display:none;">
+                        <select id="plan-selector">
+                            <?php
+                            mysqli_data_seek($plans_res, 0);
+                            while ($p = mysqli_fetch_assoc($plans_res)):
+                                ?>
+                                    <option value="<?php echo $p['price_monthly']; ?>"
+                                        data-plan="<?php echo htmlspecialchars($p['name']); ?>" data-period="monthly">
+                                        <?php echo htmlspecialchars($p['name']); ?> - ₹<?php echo $p['price_monthly']; ?>/mo
+                                    </option>
+                                    <option value="<?php echo $p['price_yearly']; ?>"
+                                        data-plan="<?php echo htmlspecialchars($p['name']); ?> (Yearly)" data-period="yearly">
+                                        <?php echo htmlspecialchars($p['name']); ?> (Yearly) -
+                                        ₹<?php echo $p['price_yearly']; ?>/yr
+                                    </option>
+                            <?php endwhile; ?>
+                        </select>
+                        <span id="payment-amt-display">₹0</span>
+                    </div>
+
+                    <div class="pricing-grid">
+                        <?php
+                        mysqli_data_seek($plans_res, 0);
+                        while ($plan = mysqli_fetch_assoc($plans_res)):
+                            $labels = json_decode($plan['feature_labels'] ?? '{}', true);
+                            $hidden_features = json_decode($plan['hidden_features'] ?? '[]', true);
+                            ?>
+                                <div class="pricing-card <?php echo $plan['is_popular'] ? 'popular' : ''; ?>">
+                                    <?php if ($plan['is_popular']): ?>
+                                            <div class="badge">Popular</div>
+                                    <?php endif; ?>
+
+                                    <h3><?php echo htmlspecialchars($plan['name']); ?></h3>
+
+                                    <div class="price-tag monthly-only">
+                                        ₹<?php echo number_format($plan['price_monthly']); ?> <span>/ Mo</span>
+                                    </div>
+                                    <div class="price-tag yearly-only">
+                                        ₹<?php echo number_format($plan['price_yearly']); ?> <span>/ Yr</span>
+                                    </div>
+
+                                    <ul class="features-list">
+                                        <?php if (!in_array('gym_access', $hidden_features)): ?>
+                                                <li><?php echo htmlspecialchars($labels['gym_access'] ?? 'Gym Access'); ?>
+                                                    <?php echo $plan['gym_access'] ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                                </li>
+                                        <?php endif; ?>
+                                        <?php if (!in_array('free_locker', $hidden_features)): ?>
+                                                <li><?php echo htmlspecialchars($labels['free_locker'] ?? 'Free Locker'); ?>
+                                                    <?php echo $plan['free_locker'] ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                                </li>
+                                        <?php endif; ?>
+                                        <?php if (!in_array('group_class', $hidden_features)): ?>
+                                                <li><?php echo htmlspecialchars($labels['group_class'] ?? 'Group Class'); ?>
+                                                    <?php echo $plan['group_class'] ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                                </li>
+                                        <?php endif; ?>
+                                        <?php if (!in_array('personal_trainer', $hidden_features)): ?>
+                                                <li><?php echo htmlspecialchars($labels['personal_trainer'] ?? 'Personal Trainer'); ?>
+                                                    <?php echo $plan['personal_trainer'] ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                                </li>
+                                        <?php endif; ?>
+                                        <?php if ($plan['protein_drinks_monthly'] || $plan['protein_drinks_yearly']): ?>
+                                                <?php if (!in_array('protein_drinks_monthly', $hidden_features)): ?>
+                                                        <li class="monthly-only">
+                                                            <?php echo htmlspecialchars($labels['protein_drinks_monthly'] ?? 'Protein Drinks'); ?>
+                                                            <?php echo $plan['protein_drinks_monthly'] ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                                        </li>
+                                                <?php endif; ?>
+                                                <?php if (!in_array('protein_drinks_yearly', $hidden_features)): ?>
+                                                        <li class="yearly-only">
+                                                            <?php echo htmlspecialchars($labels['protein_drinks_yearly'] ?? 'Protein Drinks'); ?>
+                                                            <?php echo $plan['protein_drinks_yearly'] ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                                        </li>
+                                                <?php endif; ?>
+                                        <?php endif; ?>
+                                        <?php if ($plan['customized_workout_plan'] && !in_array('customized_workout_plan', $hidden_features)): ?>
+                                                <li><?php echo htmlspecialchars($labels['customized_workout_plan'] ?? 'Customized Workout Plan'); ?>
+                                                    <i class="fa-solid fa-check check"></i>
+                                                </li>
+                                        <?php endif; ?>
+
+                                        <?php if ($plan['nutrition_guide_yearly'] && !in_array('nutrition_guide_yearly', $hidden_features)): ?>
+                                                <li class="yearly-only">
+                                                    <?php echo htmlspecialchars($labels['nutrition_guide_yearly'] ?? 'Nutrition Guide'); ?>
+                                                    <i class="fa-solid fa-check check"></i>
+                                                </li>
+                                        <?php endif; ?>
+
+                                        <?php if ($plan['diet_consultation_yearly'] && !in_array('diet_consultation_yearly', $hidden_features)): ?>
+                                                <li class="yearly-only">
+                                                    <?php echo htmlspecialchars($labels['diet_consultation_yearly'] ?? 'Diet Consultation'); ?>
+                                                    <i class="fa-solid fa-check check"></i>
+                                                </li>
+                                        <?php endif; ?>
+
+                                        <?php if ($plan['personal_locker_yearly'] && !in_array('personal_locker_yearly', $hidden_features)): ?>
+                                                <li class="yearly-only">
+                                                    <?php echo htmlspecialchars($labels['personal_locker_yearly'] ?? 'Personal Locker'); ?>
+                                                    <i class="fa-solid fa-check check"></i>
+                                                </li>
+                                        <?php endif; ?>
+
+                                        <?php if ($plan['guest_pass_yearly'] && !in_array('guest_pass_yearly', $hidden_features)): ?>
+                                                <li class="yearly-only">
+                                                    <?php echo htmlspecialchars($labels['guest_pass_yearly'] ?? '1 Guest Pass/Mo'); ?>
+                                                    <i class="fa-solid fa-check check"></i>
+                                                </li>
+                                        <?php endif; ?>
+
+                                        <!-- Custom Attributes -->
+                                        <?php
+                                        $custom_attrs = json_decode($plan['custom_attributes'] ?? '[]', true);
+                                        if (!empty($custom_attrs)):
+                                            foreach ($custom_attrs as $attr):
+                                                $class = "";
+                                                if ($attr['monthly'] && !$attr['yearly'])
+                                                    $class = "monthly-only";
+                                                elseif (!$attr['monthly'] && $attr['yearly'])
+                                                    $class = "yearly-only";
+                                                ?>
+                                                        <li class="<?php echo $class; ?>">
+                                                            <?php echo htmlspecialchars($attr['name']); ?>
+                                                            <?php echo (!isset($attr['included']) || $attr['included'] != 0) ? '<i class="fa-solid fa-check check"></i>' : '<i class="fa-solid fa-xmark cross"></i>'; ?>
+                                                        </li>
+                                                        <?php
+                                            endforeach;
+                                        endif;
+                                        ?>
+                                    </ul>
+
+                                    <button class="btn-action monthly-only" style="width:100%;"
+                                        onclick="selectVisualPlan('<?php echo $plan['name']; ?>', 'monthly')">
+                                        Select <?php echo htmlspecialchars($plan['name']); ?> / Mo
+                                    </button>
+                                    <button class="btn-action yearly-only" style="width:100%;"
+                                        onclick="selectVisualPlan('<?php echo $plan['name']; ?>', 'yearly')">
+                                        Select <?php echo htmlspecialchars($plan['name']); ?> / Yr
+                                    </button>
+
+                                </div>
+                        <?php endwhile; ?>
+                    </div>
+                </div>
+
+                <script>
+                    function togglePricingPeriod(period) {
+                        const container = document.getElementById('pricing-container');
+                        const buttons = container.querySelectorAll('.toggle-btn');
+
+                        if (period === 'monthly') {
+                            container.classList.remove('yearly');
+                            container.classList.add('monthly');
+                            buttons[0].classList.add('active');
+                            buttons[1].classList.remove('active');
+                        } else {
+                            container.classList.remove('monthly');
+                            container.classList.add('yearly');
+                            buttons[0].classList.remove('active');
+                            buttons[1].classList.add('active');
+                        }
+                    }
+
+                    function selectVisualPlan(planName, period) {
+                        const select = document.getElementById('plan-selector');
+                        const targetName = period === 'yearly' ? planName + ' (Yearly)' : planName;
+
+                        for (let i = 0; i < select.options.length; i++) {
+                            if (select.options[i].getAttribute('data-plan') === targetName) {
+                                select.selectedIndex = i;
+                                break;
+                            }
+                        }
+
+                        openPaymentModal();
+                    }
+                </script>
             </div>
         </div>
 
@@ -1953,26 +2341,26 @@ $is_beginner_completed = count($completed_weeks) >= 4;
 
             <div class="trainer-grid">
                 <?php if (mysqli_num_rows($trainers_query) > 0): ?>
-                    <?php while ($trainer = mysqli_fetch_assoc($trainers_query)): ?>
-                        <div class="trainer-card">
-                            <img src="<?php echo $trainer['image'] ? $trainer['image'] : 'https://ui-avatars.com/api/?name=' . urlencode($trainer['name']) . '&background=ceff00&color=1a1a2e'; ?>"
-                                alt="<?php echo htmlspecialchars($trainer['name']); ?>" class="trainer-img">
-                            <div class="trainer-info">
-                                <h4><?php echo htmlspecialchars($trainer['name']); ?></h4>
-                                <button class="btn-action" style="margin-top:10px; width:100%; font-size:0.8rem;"
-                                    onclick="openBookingModal('<?php echo $trainer['id']; ?>', '<?php echo htmlspecialchars($trainer['name'], ENT_QUOTES); ?>')">
-                                    <i class="fa-solid fa-calendar-plus"></i> Book Appointment
-                                </button>
-                            </div>
-                        </div>
-                    <?php endwhile; ?>
+                        <?php while ($trainer = mysqli_fetch_assoc($trainers_query)): ?>
+                                <div class="trainer-card">
+                                    <img src="<?php echo $trainer['image'] ? $trainer['image'] : 'https://ui-avatars.com/api/?name=' . urlencode($trainer['name']) . '&background=ceff00&color=1a1a2e'; ?>"
+                                        alt="<?php echo htmlspecialchars($trainer['name']); ?>" class="trainer-img">
+                                    <div class="trainer-info">
+                                        <h4><?php echo htmlspecialchars($trainer['name']); ?></h4>
+                                        <button class="btn-action" style="margin-top:10px; width:100%; font-size:0.8rem;"
+                                            onclick="openBookingModal('<?php echo $trainer['id']; ?>', '<?php echo htmlspecialchars($trainer['name'], ENT_QUOTES); ?>')">
+                                            <i class="fa-solid fa-calendar-plus"></i> Book Appointment
+                                        </button>
+                                    </div>
+                                </div>
+                        <?php endwhile; ?>
                 <?php else: ?>
-                    <div
-                        style="grid-column: 1 / -1; text-align: center; padding: 50px; background: var(--card-bg); border-radius: 15px;">
-                        <i class="fa-solid fa-users-slash"
-                            style="font-size: 3rem; color: var(--text-gray); margin-bottom: 15px;"></i>
-                        <p style="color: var(--text-gray);">No trainers available at the moment.</p>
-                    </div>
+                        <div
+                            style="grid-column: 1 / -1; text-align: center; padding: 50px; background: var(--card-bg); border-radius: 15px;">
+                            <i class="fa-solid fa-users-slash"
+                                style="font-size: 3rem; color: var(--text-gray); margin-bottom: 15px;"></i>
+                            <p style="color: var(--text-gray);">No trainers available at the moment.</p>
+                        </div>
                 <?php endif; ?>
             </div>
 
@@ -1985,98 +2373,306 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             mysqli_data_seek($my_appts_res, 0);
             if (mysqli_num_rows($my_appts_res) > 0):
                 ?>
+                    <div class="dashboard-card">
+                        <div style="overflow-x: auto;">
+                            <table style="width:100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                                        <th style="text-align:left; padding:15px; color:var(--text-gray); font-size:0.85rem;">
+                                            Trainer</th>
+                                        <th style="text-align:left; padding:15px; color:var(--text-gray); font-size:0.85rem;">
+                                            Date & Time</th>
+                                        <th style="text-align:left; padding:15px; color:var(--text-gray); font-size:0.85rem;">
+                                            Status</th>
+                                        <th style="text-align:left; padding:15px; color:var(--text-gray); font-size:0.85rem;">
+                                            Message</th>
+                                        <th style="text-align:center; padding:15px; color:var(--text-gray); font-size:0.85rem;">
+                                            Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php while ($appt = mysqli_fetch_assoc($my_appts_res)):
+                                        $status_color = match ($appt['status']) {
+                                            'approved' => '#00ff85',
+                                            'rejected' => '#ff4d4d',
+                                            default => '#ffc107'
+                                        };
+                                        ?>
+                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                <td style="padding:20px 15px; display:flex; align-items:center; gap:15px;">
+                                                    <div
+                                                        style="width:40px; height:40px; border-radius:50%; background: #333; overflow:hidden;">
+                                                        <img src="<?php echo $appt['profile_image'] ? $appt['profile_image'] : 'https://ui-avatars.com/api/?name=' . urlencode($appt['trainer_name']); ?>"
+                                                            style="width:100%; height:100%; object-fit:cover;">
+                                                    </div>
+                                                    <span
+                                                        style="font-size:1rem; font-weight:500;"><?php echo htmlspecialchars($appt['trainer_name']); ?></span>
+                                                </td>
+                                                <td style="padding:20px 15px;">
+                                                    <div style="font-size:0.95rem; font-weight:500; margin-bottom:5px;">
+                                                        <?php echo date('M d, Y', strtotime($appt['booking_date'])); ?>
+                                                    </div>
+                                                    <span
+                                                        style="font-size:0.85rem; color: #ceff00; background: rgba(206, 255, 0, 0.1); padding: 5px 10px; border-radius: 20px;">
+                                                        <i class="fa-regular fa-clock"
+                                                            style="margin-right:5px;"></i><?php echo $appt['booking_time']; ?>
+                                                    </span>
+                                                </td>
+                                                <td style="padding:20px 15px;">
+                                                    <span
+                                                        style="color:<?php echo $status_color; ?>; font-weight:bold; text-transform:uppercase; font-size:0.75rem; padding: 6px 12px; background: rgba(255,255,255,0.05); border-radius: 6px; letter-spacing: 0.5px;">
+                                                        <?php echo $appt['status']; ?>
+                                                    </span>
+                                                </td>
+                                                <td
+                                                    style="padding:20px 15px; font-size:0.9rem; color: #ddd; max-width: 250px; line-height: 1.5;">
+                                                    <?php echo $appt['staff_message'] ? htmlspecialchars($appt['staff_message']) : '<span style="color:var(--text-gray); font-style:italic; opacity:0.5;">No message</span>'; ?>
+                                                </td>
+                                                <td style="padding:20px 15px; text-align:center;">
+                                                    <form method="POST"
+                                                        onsubmit="return confirm('Are you sure you want to delete this appointment?');"
+                                                        style="margin:0;">
+                                                        <input type="hidden" name="delete_appointment" value="1">
+                                                        <input type="hidden" name="appt_id" value="<?php echo $appt['id']; ?>">
+                                                        <button type="submit"
+                                                            style="background:rgba(255, 77, 77, 0.1); border:none; color:#ff4d4d; cursor:pointer; width:35px; height:35px; border-radius:50%; transition:0.3s; display:inline-flex; align-items:center; justify-content:center;"
+                                                            title="Delete Appointment"
+                                                            onmouseover="this.style.background='#ff4d4d'; this.style.color='#fff';"
+                                                            onmouseout="this.style.background='rgba(255, 77, 77, 0.1)'; this.style.color='#ff4d4d';">
+                                                            <i class="fa-solid fa-trash"></i>
+                                                        </button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                    <?php endwhile; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+            <?php else: ?>
+                    <div
+                        style="text-align: center; padding: 60px; background: var(--card-bg); border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                        <div
+                            style="width: 80px; height: 80px; background: rgba(255,255,255,0.05); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px;">
+                            <i class="fa-regular fa-calendar-xmark" style="font-size: 2.5rem; color: var(--text-gray);"></i>
+                        </div>
+                        <h3 style="font-family: 'Oswald'; margin-bottom: 10px; color: #fff;">No Appointments Yet</h3>
+                        <p style="color: var(--text-gray); margin-bottom: 25px;">You haven't booked any sessions with our
+                            trainers.</p>
+                        <button onclick="showSection('trainers')" class="btn-action" style="max-width: 200px; margin: 0 auto;">
+                            Book Now
+                        </button>
+                    </div>
+            <?php endif; ?>
+            <!-- Trainer Payment History -->
+            <div style="margin-top: 40px;">
+                <h3 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Appointment Payment History</h3>
                 <div class="dashboard-card">
-                    <div style="overflow-x: auto;">
-                        <table style="width:100%; border-collapse: collapse;">
-                            <thead>
-                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
-                                    <th style="text-align:left; padding:15px; color:var(--text-gray); font-size:0.85rem;">
-                                        Trainer</th>
-                                    <th style="text-align:left; padding:15px; color:var(--text-gray); font-size:0.85rem;">
-                                        Date & Time</th>
-                                    <th style="text-align:left; padding:15px; color:var(--text-gray); font-size:0.85rem;">
-                                        Status</th>
-                                    <th style="text-align:left; padding:15px; color:var(--text-gray); font-size:0.85rem;">
-                                        Message</th>
-                                    <th style="text-align:center; padding:15px; color:var(--text-gray); font-size:0.85rem;">
-                                        Action</th>
+                    <div class="transaction-list-container" style="max-height: 300px; overflow-y: auto;">
+                        <?php if (mysqli_num_rows($trainer_transactions) > 0): ?>
+                                <?php while ($txn = mysqli_fetch_assoc($trainer_transactions)): ?>
+                                        <div class="transaction-item"
+                                            style="display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: center; transition: 0.3s;">
+                                            <div>
+                                                <p style="font-weight: bold;">
+                                                    <?php echo date('M d, Y', strtotime($txn['created_at'])); ?>
+                                                </p>
+                                                <p style="font-size: 0.8rem; color: var(--text-gray);">
+                                                    <?php echo $txn['plan_name']; ?>
+                                                    • <?php echo $txn['payment_method']; ?>
+                                                </p>
+                                            </div>
+                                            <div style="display:flex; align-items:center; gap:12px;">
+                                                <span style="color: var(--primary-color); font-weight: bold;">-
+                                                    ₹<?php echo number_format($txn['amount'], 2); ?></span>
+                                                <a href="invoice.php?tid=<?php echo $txn['id']; ?>" target="_blank"
+                                                    style="color: var(--primary-color); font-size: 1.1rem;"
+                                                    title="Download / Print Invoice">
+                                                    <i class="fa-solid fa-file-invoice"></i>
+                                                </a>
+                                                <button type="button"
+                                                    onclick="deleteApptTransaction(<?php echo $txn['id']; ?>, this.closest('.transaction-item'))"
+                                                    style="background:none; border:none; color:#ff4d4d; cursor:pointer; font-size: 1.1rem; padding: 0;"
+                                                    title="Delete Transaction">
+                                                    <i class="fa-solid fa-trash-can"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                <?php endwhile; ?>
+                        <?php else: ?>
+                                <p style="text-align: center; color: var(--text-gray); padding: 20px;">No trainer payments
+                                    recorded yet.</p>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Body Measurement History Section -->
+        <div id="measurements" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Body Measurement History</h2>
+
+            <div class="dashboard-grid">
+                <!-- Log Form -->
+                <div class="dashboard-card">
+                    <h3>Log New Measurements</h3>
+                    <form method="POST" onsubmit="return validateMeasurements()">
+                        <input type="hidden" name="log_measurements" value="1">
+                        <div style="margin-bottom: 15px;">
+                            <label style="display:block; margin-bottom:5px; color:#ddd;">Date</label>
+                            <input type="date" name="date" required value="<?php echo date('Y-m-d'); ?>"
+                                max="<?php echo date('Y-m-d'); ?>"
+                                style="width:100%; padding:12px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff; font-family:'Roboto', sans-serif;">
+                        </div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-bottom:15px;">
+                            <div>
+                                <label style="display:block; margin-bottom:5px; color:#ddd;">Chest (in)</label>
+                                <input type="number" step="0.1" name="chest" placeholder="0.0" required min="10"
+                                    max="100"
+                                    style="width:100%; padding:12px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff;">
+                            </div>
+                            <div>
+                                <label style="display:block; margin-bottom:5px; color:#ddd;">Waist (in)</label>
+                                <input type="number" step="0.1" name="waist" placeholder="0.0" required min="10"
+                                    max="100"
+                                    style="width:100%; padding:12px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff;">
+                            </div>
+                        </div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-bottom:20px;">
+                            <div>
+                                <label style="display:block; margin-bottom:5px; color:#ddd;">Arms (in)</label>
+                                <input type="number" step="0.1" name="arms" placeholder="0.0" required min="5" max="30"
+                                    style="width:100%; padding:12px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff;">
+                            </div>
+                            <div>
+                                <label style="display:block; margin-bottom:5px; color:#ddd;">Thighs (in)</label>
+                                <input type="number" step="0.1" name="thighs" placeholder="0.0" required min="10"
+                                    max="50"
+                                    style="width:100%; padding:12px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff;">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-action">Save Log</button>
+                    </form>
+                </div>
+
+                <!-- History Table -->
+                <div class="dashboard-card">
+                    <h3>History (Monthly View)</h3>
+                    <style>
+                        /* Custom Scrollbar for History Table */
+                        .history-scroll::-webkit-scrollbar {
+                            width: 8px;
+                        }
+
+                        .history-scroll::-webkit-scrollbar-track {
+                            background: rgba(255, 255, 255, 0.05);
+                            border-radius: 4px;
+                        }
+
+                        .history-scroll::-webkit-scrollbar-thumb {
+                            background: var(--primary-color);
+                            border-radius: 4px;
+                        }
+
+                        .history-scroll::-webkit-scrollbar-thumb:hover {
+                            background: #b3dd00;
+                        }
+                    </style>
+                    <div class="history-scroll" style="overflow-y:auto; max-height: 400px; padding-right: 5px;">
+                        <table style="width:100%; border-collapse:collapse; color:#ddd; font-size:0.9rem;">
+                            <thead style="position: sticky; top: 0; background: var(--card-bg); z-index: 10;">
+                                <tr style="border-bottom:1px solid rgba(255,255,255,0.1); text-align:left;">
+                                    <th style="padding:15px; color:var(--text-gray);">Date</th>
+                                    <th style="padding:15px; color:var(--text-gray);">Chest</th>
+                                    <th style="padding:15px; color:var(--text-gray);">Waist</th>
+                                    <th style="padding:15px; color:var(--text-gray);">Arms</th>
+                                    <th style="padding:15px; color:var(--text-gray);">Thighs</th>
+                                    <th style="padding:15px; color:var(--text-gray); text-align: center;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php while ($appt = mysqli_fetch_assoc($my_appts_res)):
-                                    $status_color = match ($appt['status']) {
-                                        'approved' => '#00ff85',
-                                        'rejected' => '#ff4d4d',
-                                        default => '#ffc107'
-                                    };
-                                    ?>
-                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                        <td style="padding:20px 15px; display:flex; align-items:center; gap:15px;">
-                                            <div
-                                                style="width:40px; height:40px; border-radius:50%; background: #333; overflow:hidden;">
-                                                <img src="<?php echo $appt['profile_image'] ? $appt['profile_image'] : 'https://ui-avatars.com/api/?name=' . urlencode($appt['trainer_name']); ?>"
-                                                    style="width:100%; height:100%; object-fit:cover;">
-                                            </div>
-                                            <span
-                                                style="font-size:1rem; font-weight:500;"><?php echo htmlspecialchars($appt['trainer_name']); ?></span>
-                                        </td>
-                                        <td style="padding:20px 15px;">
-                                            <div style="font-size:0.95rem; font-weight:500; margin-bottom:5px;">
-                                                <?php echo date('M d, Y', strtotime($appt['booking_date'])); ?>
-                                            </div>
-                                            <span
-                                                style="font-size:0.85rem; color: #ceff00; background: rgba(206, 255, 0, 0.1); padding: 5px 10px; border-radius: 20px;">
-                                                <i class="fa-regular fa-clock"
-                                                    style="margin-right:5px;"></i><?php echo $appt['booking_time']; ?>
-                                            </span>
-                                        </td>
-                                        <td style="padding:20px 15px;">
-                                            <span
-                                                style="color:<?php echo $status_color; ?>; font-weight:bold; text-transform:uppercase; font-size:0.75rem; padding: 6px 12px; background: rgba(255,255,255,0.05); border-radius: 6px; letter-spacing: 0.5px;">
-                                                <?php echo $appt['status']; ?>
-                                            </span>
-                                        </td>
-                                        <td
-                                            style="padding:20px 15px; font-size:0.9rem; color: #ddd; max-width: 250px; line-height: 1.5;">
-                                            <?php echo $appt['staff_message'] ? htmlspecialchars($appt['staff_message']) : '<span style="color:var(--text-gray); font-style:italic; opacity:0.5;">No message</span>'; ?>
-                                        </td>
-                                        <td style="padding:20px 15px; text-align:center;">
-                                            <form method="POST"
-                                                onsubmit="return confirm('Are you sure you want to delete this appointment?');"
-                                                style="margin:0;">
-                                                <input type="hidden" name="delete_appointment" value="1">
-                                                <input type="hidden" name="appt_id" value="<?php echo $appt['id']; ?>">
-                                                <button type="submit"
-                                                    style="background:rgba(255, 77, 77, 0.1); border:none; color:#ff4d4d; cursor:pointer; width:35px; height:35px; border-radius:50%; transition:0.3s; display:inline-flex; align-items:center; justify-content:center;"
-                                                    title="Delete Appointment"
-                                                    onmouseover="this.style.background='#ff4d4d'; this.style.color='#fff';"
-                                                    onmouseout="this.style.background='rgba(255, 77, 77, 0.1)'; this.style.color='#ff4d4d';">
-                                                    <i class="fa-solid fa-trash"></i>
-                                                </button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                <?php endwhile; ?>
+                                <?php if (mysqli_num_rows($measure_res) > 0): ?>
+                                        <?php
+                                        mysqli_data_seek($measure_res, 0);
+                                        while ($row = mysqli_fetch_assoc($measure_res)):
+                                            ?>
+                                                <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                                    <td style="padding:15px; color:var(--primary-color); font-weight:bold;">
+                                                        <?php echo date('M d, Y', strtotime($row['recorded_at'])); ?>
+                                                    </td>
+                                                    <td style="padding:15px;"><?php echo $row['chest']; ?>"</td>
+                                                    <td style="padding:15px;"><?php echo $row['waist']; ?>"</td>
+                                                    <td style="padding:15px;"><?php echo $row['arms']; ?>"</td>
+                                                    <td style="padding:15px;"><?php echo $row['thighs']; ?>"</td>
+                                                    <td style="padding:15px; text-align:center;">
+                                                        <button
+                                                            onclick="editMeasurement('<?php echo $row['recorded_at']; ?>', '<?php echo $row['chest']; ?>', '<?php echo $row['waist']; ?>', '<?php echo $row['arms']; ?>', '<?php echo $row['thighs']; ?>')"
+                                                            style="background:none; border:none; color:var(--text-gray); cursor:pointer; margin-right: 10px; transition: 0.3s;"
+                                                            onmouseover="this.style.color='#fff'"
+                                                            onmouseout="this.style.color='var(--text-gray)'" title="Edit">
+                                                            <i class="fa-solid fa-pen"></i>
+                                                        </button>
+                                                        <form method="POST" onsubmit="return confirm('Delete this entry?');"
+                                                            style="display:inline;">
+                                                            <input type="hidden" name="delete_measurement" value="1">
+                                                            <input type="hidden" name="measure_id" value="<?php echo $row['id']; ?>">
+                                                            <button type="submit"
+                                                                style="background:none; border:none; color:#ff4d4d; cursor:pointer; transition: 0.3s;"
+                                                                title="Delete">
+                                                                <i class="fa-solid fa-trash"></i>
+                                                            </button>
+                                                        </form>
+                                                    </td>
+                                                </tr>
+                                        <?php endwhile; ?>
+                                <?php else: ?>
+                                        <tr>
+                                            <td colspan="6" style="padding:30px; text-align:center; color:var(--text-gray);">No
+                                                logs yet. Start tracking today!</td>
+                                        </tr>
+                                <?php endif; ?>
                             </tbody>
                         </table>
                     </div>
                 </div>
-            <?php else: ?>
-                <div
-                    style="text-align: center; padding: 60px; background: var(--card-bg); border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
-                    <div
-                        style="width: 80px; height: 80px; background: rgba(255,255,255,0.05); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px;">
-                        <i class="fa-regular fa-calendar-xmark" style="font-size: 2.5rem; color: var(--text-gray);"></i>
-                    </div>
-                    <h3 style="font-family: 'Oswald'; margin-bottom: 10px; color: #fff;">No Appointments Yet</h3>
-                    <p style="color: var(--text-gray); margin-bottom: 25px;">You haven't booked any sessions with our
-                        trainers.</p>
-                    <button onclick="showSection('trainers')" class="btn-action" style="max-width: 200px; margin: 0 auto;">
-                        Book Now
-                    </button>
-                </div>
-            <?php endif; ?>
+            </div>
         </div>
+
+
+        <script>
+            function editMeasurement(date, chest, waist, arms, thighs) {
+                const form = document.querySelector('#measurements form');
+                form.querySelector('[name="date"]').value = date;
+                form.querySelector('[name="chest"]').value = chest;
+                form.querySelector('[name="waist"]').value = waist;
+                form.querySelector('[name="arms"]').value = arms;
+                form.querySelector('[name="thighs"]').value = thighs;
+
+                // Scroll to top of form
+                form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                // Highlight form temporarily
+                form.style.transition = 'box-shadow 0.5s';
+                form.style.boxShadow = '0 0 20px rgba(206, 255, 0, 0.3)';
+                setTimeout(() => {
+                    form.style.boxShadow = 'none';
+                }, 1500);
+            }
+            function validateMeasurements() {
+                const form = document.querySelector('#measurements form');
+                const chest = parseFloat(form.querySelector('[name="chest"]').value);
+                const waist = parseFloat(form.querySelector('[name="waist"]').value);
+                const arms = parseFloat(form.querySelector('[name="arms"]').value);
+                const thighs = parseFloat(form.querySelector('[name="thighs"]').value);
+
+                if (chest <= 0 || waist <= 0 || arms <= 0 || thighs <= 0) {
+                    alert('All measurements must be positive numbers!');
+                    return false;
+                }
+                // Optional: stricter checks here if needed
+                return true;
+            }
+        </script>
 
         <!-- Attendance Section -->
         <div id="attendance" class="dashboard-section">
@@ -2088,16 +2684,16 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 <form method="POST">
                     <input type="hidden" name="mark_attendance" value="1">
                     <?php if ($is_present_today): ?>
-                        <button type="button" class="btn-action"
-                            style="background:rgba(255,255,255,0.1); cursor:not-allowed; max-width:300px; margin:0 auto; color: var(--primary-color); border: 1px solid var(--primary-color);">
-                            <i class="fa-solid fa-check-double"></i> Attendance Marked
-                        </button>
-                        <p style="margin-top: 10px; font-size: 0.9rem; color: var(--primary-color);">You have marked
-                            attendance for today (<?php echo date('M d'); ?>).</p>
+                            <button type="button" class="btn-action"
+                                style="background:rgba(255,255,255,0.1); cursor:not-allowed; max-width:300px; margin:0 auto; color: var(--primary-color); border: 1px solid var(--primary-color);">
+                                <i class="fa-solid fa-check-double"></i> Attendance Marked
+                            </button>
+                            <p style="margin-top: 10px; font-size: 0.9rem; color: var(--primary-color);">You have marked
+                                attendance for today (<?php echo date('M d'); ?>).</p>
                     <?php else: ?>
-                        <button type="submit" class="btn-action" style="max-width:300px; margin:0 auto;">
-                            <i class="fa-solid fa-hand-point-up"></i> Mark Attendance
-                        </button>
+                            <button type="submit" class="btn-action" style="max-width:300px; margin:0 auto;">
+                                <i class="fa-solid fa-hand-point-up"></i> Mark Attendance
+                            </button>
                     <?php endif; ?>
                 </form>
             </div>
@@ -2143,7 +2739,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         }
 
                         ?>
-                        <div style="
+                            <div style="
                         width: 45px; height: 45px; 
                         background: <?php echo $bg_color; ?>; 
                         color: <?php echo $text_color; ?>;
@@ -2154,9 +2750,9 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         cursor: <?php echo ($is_before_join || $is_future) ? 'default' : 'pointer'; ?>;
                         opacity: <?php echo $opacity; ?>;
                     " onclick="<?php echo ($is_before_join || $is_future) ? '' : "showAttendanceStatus('" . date('M d, Y', strtotime($d_str)) . "', '$status_js', $is_future_js)"; ?>"
-                            title="<?php echo date('M d, Y', strtotime($d_str)) . ($is_before_join ? ' - Not Joined' : ($is_att ? ' - Present' : ($is_future ? '' : ' - Absent'))); ?>">
-                            <?php echo $d; ?>
-                        </div>
+                                title="<?php echo date('M d, Y', strtotime($d_str)) . ($is_before_join ? ' - Not Joined' : ($is_att ? ' - Present' : ($is_future ? '' : ' - Absent'))); ?>">
+                                <?php echo $d; ?>
+                            </div>
                     <?php endfor; ?>
                 </div>
                 <div style="margin-top:20px; display:flex; gap:20px; font-size:0.85rem; color:var(--text-gray);">
@@ -2236,6 +2832,174 @@ $is_beginner_completed = count($completed_weeks) >= 4;
         </div>
 
 
+
+        <!-- BMI Calculator Section -->
+        <div id="bmi-calculator" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">BMI Calculator & Health Guide</h2>
+            <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr; gap:30px;">
+                <!-- Calculator Card -->
+                <div class="dashboard-card">
+                    <h3 style="font-family:'Oswald'; color: var(--primary-color); margin-bottom: 20px;">Calculate Your
+                        BMI</h3>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label style="display:block; margin-bottom: 8px; font-weight: 500;">Weight (kg)</label>
+                        <input type="number" id="bmi-weight-input" placeholder="e.g. 70" min="20" max="300"
+                            style="width: 100%; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 25px;">
+                        <label style="display:block; margin-bottom: 8px; font-weight: 500;">Height (cm)</label>
+                        <input type="number" id="bmi-height-input" placeholder="e.g. 175" min="50" max="300"
+                            style="width: 100%; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px;">
+                    </div>
+                    <button class="btn-action" onclick="calculateBMI()" style="width: 100%; border-radius: 8px;">
+                        <i class="fa-solid fa-calculator"></i> Calculate BMI
+                    </button>
+                </div>
+
+                <!-- Result Card -->
+                <div class="dashboard-card" id="bmi-result-card"
+                    style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; opacity: 0.5; pointer-events: none;">
+
+                    <div style="position: relative; width: 250px; height: 150px; margin-bottom: 20px;">
+                        <!-- Gauge Background -->
+                        <div
+                            style="width: 100%; height: 100%; border-radius: 150px 150px 0 0; background: linear-gradient(to right, #7fa8d1 0%, #7fa8d1 25%, #8bc34a 25%, #8bc34a 50%, #ffb74d 50%, #ffb74d 75%, #e57373 75%, #e57373 100%); opacity: 0.3;">
+                        </div>
+                        <!-- Needle -->
+                        <div id="bmi-needle"
+                            style="position: absolute; bottom: 0; left: 50%; width: 4px; height: 110px; background: #fff; transform-origin: bottom center; transform: rotate(-90deg); transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 10px rgba(0,0,0,0.5);">
+                        </div>
+                        <div
+                            style="position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); width: 20px; height: 20px; background: #fff; border-radius: 50%;">
+                        </div>
+                    </div>
+
+                    <h1 id="bmi-val-display" style="font-family: 'Oswald'; font-size: 4rem; margin: 0; color: #fff;">
+                        --.-</h1>
+                    <h4 id="bmi-cat-display"
+                        style="font-family: 'Oswald'; letter-spacing: 1px; color: var(--text-gray); text-transform: uppercase; margin-bottom: 20px;">
+                        Enter Details</h4>
+
+                    <p id="bmi-advice" style="font-size: 0.9rem; color: #ccc; line-height: 1.5; max-width: 90%;">
+                        Start by entering your weight and height to get a personalized health assessment.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Suggestion Chart -->
+            <div class="dashboard-card" style="margin-top: 30px;">
+                <h3 style="font-family:'Oswald'; margin-bottom: 20px;">BMI Classification Reference</h3>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                                <th style="text-align: left; padding: 12px; color: var(--text-gray);">Category</th>
+                                <th style="text-align: left; padding: 12px; color: var(--text-gray);">BMI Range</th>
+                                <th style="text-align: left; padding: 12px; color: var(--text-gray);">Health Suggestion
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 12px; color: #7fa8d1;"><i class="fa-solid fa-circle"></i>
+                                    Underweight</td>
+                                <td style="padding: 12px;">&lt; 18.5</td>
+                                <td style="padding: 12px; color: #ccc;">Focus on nutrient-rich foods and strength
+                                    training to build muscle mass safely.</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 12px; color: #8bc34a;"><i class="fa-solid fa-circle"></i> Normal
+                                    Weight</td>
+                                <td style="padding: 12px;">18.5 – 24.9</td>
+                                <td style="padding: 12px; color: #ccc;">Great job! Maintain a balanced diet and regular
+                                    exercise routine.</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 12px; color: #ffb74d;"><i class="fa-solid fa-circle"></i> Overweight
+                                </td>
+                                <td style="padding: 12px;">25 – 29.9</td>
+                                <td style="padding: 12px; color: #ccc;">Consider a slight caloric deficit and increased
+                                    cardio activity.</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 12px; color: #e57373;"><i class="fa-solid fa-circle"></i> Obese</td>
+                                <td style="padding: 12px;">30 & Above</td>
+                                <td style="padding: 12px; color: #ccc;">Consult a professional provided at gym. Focus on
+                                    low-impact cardio and dietary changes.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <script>
+                function calculateBMI() {
+                    const weight = parseFloat(document.getElementById('bmi-weight-input').value);
+                    const height = parseFloat(document.getElementById('bmi-height-input').value);
+
+                    if (!weight || !height || weight <= 0 || height <= 0) {
+                        alert("Please enter valid positive numbers for weight and height.");
+                        return;
+                    }
+
+                    // Calculate BMI
+                    const heightInMeters = height / 100;
+                    const bmi = (weight / (heightInMeters * heightInMeters)).toFixed(1);
+
+                    // UI Updates
+                    const resultCard = document.getElementById('bmi-result-card');
+                    const valDisplay = document.getElementById('bmi-val-display');
+                    const catDisplay = document.getElementById('bmi-cat-display');
+                    const adviceDisplay = document.getElementById('bmi-advice');
+                    const needle = document.getElementById('bmi-needle');
+
+                    resultCard.style.opacity = '1';
+                    resultCard.style.pointerEvents = 'all';
+                    valDisplay.innerText = bmi;
+
+                    // Determine Category
+                    let category = '';
+                    let color = '';
+                    let rotation = -90; // Start at left
+                    let advice = '';
+
+                    // Rotation logic: Map BMI 10-40 to -90 to +90 degrees (approx)
+                    // Min 15, Max 40 for gauge visual
+                    let clampedBMI = Math.max(15, Math.min(40, bmi));
+                    // 15 = -90deg, 40 = 90deg -> Range 25 units, 180 degrees
+                    // degrees = (bmi - 15) * (180/25) - 90
+                    rotation = ((clampedBMI - 15) * (180 / 25)) - 90;
+
+
+                    if (bmi < 18.5) {
+                        category = 'Underweight';
+                        color = '#7fa8d1';
+                        advice = 'You are in the underweight range. It is recommended to eat more frequently, choose nutrient-rich foods, and incorporate strength training to build muscle.';
+                    } else if (bmi >= 18.5 && bmi < 25) {
+                        category = 'Normal Weight';
+                        color = '#8bc34a'; // Primary brand color is visually clearer
+                        advice = 'You have a healthy body weight! Keep maintaining your balanced diet and regular physical activity to stay fit.';
+                    } else if (bmi >= 25 && bmi < 30) {
+                        category = 'Overweight';
+                        color = '#ffb74d';
+                        advice = 'You are in the overweight range. A combination of a healthy, controlled diet and increased daily physical activity can help you reach a healthy weight.';
+                    } else {
+                        category = 'Obese';
+                        color = '#e57373';
+                        advice = 'Your BMI indicates obesity. It is advisable to consult a healthcare provider or a professional trainer for a safe and effective weight loss plan.';
+                    }
+
+                    valDisplay.style.color = color;
+                    catDisplay.innerText = category;
+                    catDisplay.style.color = color;
+                    adviceDisplay.innerText = advice;
+
+                    // Animate Needle
+                    needle.style.transform = `rotate(${rotation}deg)`;
+                    needle.style.background = color;
+                }
+            </script>
+        </div>
 
     </div>
 
@@ -2402,6 +3166,70 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 }
                 reader.readAsDataURL(input.files[0]);
             }
+        }
+
+        // BMI CALCULATOR
+        function calculateBMI() {
+            const weightInput = document.getElementById('bmi-weight-input');
+            const heightInput = document.getElementById('bmi-height-input');
+            const weight = parseFloat(weightInput.value);
+            const height = parseFloat(heightInput.value);
+
+            if (!weight || !height || weight <= 0 || height <= 0) {
+                alert("Please enter valid positive numbers for weight and height.");
+                return;
+            }
+            // Additional bounds check
+            if (weight < 20 || weight > 500) {
+                alert("Please enter a realistic weight (20kg - 500kg).");
+                return;
+            }
+            if (height < 50 || height > 300) {
+                alert("Please enter a realistic height (50cm - 300cm).");
+                return;
+            }
+
+            const bmi = (weight / ((height / 100) ** 2)).toFixed(1);
+
+            // Update UI
+            const resultCard = document.getElementById('bmi-result-card');
+            const needle = document.getElementById('bmi-needle');
+            const valueText = document.getElementById('bmi-val-display'); // Correct code id
+            const categoryText = document.getElementById('bmi-cat-display'); // Correct code id
+
+            resultCard.style.opacity = '1';
+            resultCard.style.pointerEvents = 'auto';
+            valueText.innerText = bmi; // Use value defined earlier
+
+            let category = '';
+            let color = '';
+            let rotation = -90; // Default start
+
+            if (bmi < 18.5) {
+                category = 'Underweight';
+                color = '#7fa8d1';
+            } else if (bmi < 25) {
+                category = 'Normal Weight';
+                color = '#8bc34a';
+            } else if (bmi < 30) {
+                category = 'Overweight';
+                color = '#ffb74d';
+            } else {
+                category = 'Obese';
+                color = '#e57373';
+            }
+
+            categoryText.innerText = category;
+            categoryText.style.color = color;
+            valueText.style.color = color;
+
+            // map BMI 15-40 to -90 to 90 deg
+            // 15 -> -90
+            // 40 -> 90
+            let clampedBMI = Math.max(15, Math.min(bmi, 40));
+            rotation = ((clampedBMI - 15) / (40 - 15)) * 180 - 90;
+
+            needle.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
         }
 
         // VIDEO Logic
@@ -2943,11 +3771,15 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             const urlParams = new URLSearchParams(window.location.search);
             const isMonthChange = urlParams.has('m');
 
+            const sectionParam = urlParams.get('section');
+
             // Check for temporary section redirect (e.g. from completion actions)
             const tempSection = localStorage.getItem('temp_redirect_section');
             localStorage.removeItem('temp_redirect_section'); // Clear immediately so normal refresh goes to Overview
 
-            if (tempSection) {
+            if (sectionParam) {
+                showSection(sectionParam);
+            } else if (tempSection) {
                 showSection(tempSection);
             } else if (isMonthChange) {
                 showSection('workouts');
@@ -2975,18 +3807,32 @@ $is_beginner_completed = count($completed_weeks) >= 4;
 
         // PAYMENT Logic
         let currentMethod = 'Credit Card';
+        let paymentContext = 'membership'; // 'membership' or 'appointment'
+        let currentPayAmount = 0;
+        let currentPayDesc = '';
+        let appointmentData = null; // Store temp data
 
         const planSelector = document.getElementById('plan-selector');
         if (planSelector) {
             planSelector.addEventListener('change', function () {
-                document.getElementById('payment-amt-display').innerText = "₹" + this.value + ".00";
-                updateUPI_QR();
+                if (paymentContext === 'membership') {
+                    document.getElementById('payment-amt-display').innerText = "₹" + this.value + ".00";
+                    updateUPI_QR();
+                }
             });
         }
 
         function updateUPI_QR() {
-            const amt = document.getElementById('plan-selector').value;
-            const plan = document.getElementById('plan-selector').options[document.getElementById('plan-selector').selectedIndex].text.split(' - ')[0];
+            let amt, plan;
+
+            if (paymentContext === 'appointment') {
+                amt = currentPayAmount;
+                plan = currentPayDesc;
+            } else {
+                // Membership context
+                amt = document.getElementById('plan-selector').value;
+                plan = document.getElementById('plan-selector').options[document.getElementById('plan-selector').selectedIndex].text.split(' - ')[0];
+            }
 
             let host = window.location.hostname;
             let port = window.location.port ? ':' + window.location.port : '';
@@ -2997,7 +3843,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             }
 
             const baseUrl = window.location.protocol + "//" + host + port + window.location.pathname.replace('dashboard_member.php', '');
-            const mockUrl = `${baseUrl}gpay_mock.php?amt=${amt}&plan=${encodeURIComponent(plan)}&uid=<?php echo $user_id; ?>`;
+            // Append timestamp to ensure QR is unique every time
+            const mockUrl = `${baseUrl}gpay_mock.php?amt=${amt}&plan=${encodeURIComponent(plan)}&uid=<?php echo $user_id; ?>&ts=${Date.now()}`;
 
             // Generate QR Locally
             const qrContainer = document.getElementById('upi-qr-code');
@@ -3017,10 +3864,24 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             }
         }
 
-        function openPaymentModal() {
-            updateUPI_QR();
+        function openPaymentModal(context = 'membership', amount = 0, desc = '') {
+            paymentContext = context;
+            currentPayAmount = amount;
+            currentPayDesc = desc;
+
+            if (context === 'membership') {
+                // Default logic pulls from selector
+                updateUPI_QR();
+            } else if (context === 'appointment') {
+                // Custom fixed amount
+                document.getElementById('payment-amt-display').innerText = "₹" + amount + ".00";
+                updateUPI_QR();
+            }
+
             document.getElementById('payment-modal').style.display = 'flex';
         }
+
+
 
         function closePaymentModal() {
             document.getElementById('payment-modal').style.display = 'none';
@@ -3082,17 +3943,72 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 document.getElementById('processing-payment').style.display = 'none';
                 document.getElementById('payment-success').style.display = 'block';
 
-                const planName = planSelector.options[planSelector.selectedIndex].text.split(' - ')[0];
-                const amt = planSelector.value;
+                if (paymentContext === 'membership') {
+                    const planName = planSelector.options[planSelector.selectedIndex].text.split(' - ')[0];
+                    const amt = planSelector.value;
 
-                document.getElementById('final-plan').value = planName;
-                document.getElementById('final-amt').value = amt;
-                document.getElementById('final-method').value = currentMethod;
+                    document.getElementById('final-plan').value = planName;
+                    document.getElementById('final-amt').value = amt;
+                    document.getElementById('final-method').value = currentMethod;
 
-                // Update Success UI
-                document.getElementById('success-amt-display').innerText = parseFloat(amt).toFixed(2);
+                    // Allow user to click Done to submit membership form
+                } else if (paymentContext === 'appointment') {
+                    // Update Appointment Success UI
+                    document.getElementById('success-amt-display').innerText = "100.00";
+                    document.getElementById('success-method-display').innerText = currentMethod;
+
+                    // Change the Done button behavior or auto-submit
+                    // We will attach a specific handler or just trigger the booking form submit
+
+                    // Change the form action or use JS to submit the original booking form
+                    const confirmForm = document.getElementById('confirm-payment-form');
+                    // Remove existing hidden inputs to avoid conflict if any, or just repurpose?
+                    // Actually, for appointments, we just need to submit the booking form data
+
+                    // Helper: Hide the membership submit button, show a "Finish Booking" button
+                    confirmForm.innerHTML = `
+                        <button type="button" class="btn-action" style="width: 100%; border-radius: 30px;" onclick="finalizeBooking()">
+                            Finish Booking
+                        </button>
+                     `;
+                }
+
+                // Update Success UI Common Parts
+                if (paymentContext === 'membership') {
+                    const amt = planSelector.value;
+                    document.getElementById('success-amt-display').innerText = parseFloat(amt).toFixed(2);
+                }
                 document.getElementById('success-method-display').innerText = currentMethod;
             }, 2500);
+        }
+
+        function finalizeBooking() {
+            // Submit the booking form programmatically
+            const bookingForm = document.querySelector('#booking-modal form');
+
+            // Append confirmed flag
+            const inputConfirmed = document.createElement('input');
+            inputConfirmed.type = 'hidden';
+            inputConfirmed.name = 'payment_confirmed';
+            inputConfirmed.value = '1';
+            bookingForm.appendChild(inputConfirmed);
+
+            // Append Payment Method
+            const inputMethod = document.createElement('input');
+            inputMethod.type = 'hidden';
+            inputMethod.name = 'payment_method';
+            inputMethod.value = currentMethod; // defined globally
+            bookingForm.appendChild(inputMethod);
+
+            // Append Amount (for recording transaction)
+            const inputAmount = document.createElement('input');
+            inputAmount.type = 'hidden';
+            inputAmount.name = 'payment_amount';
+            inputAmount.value = '100';
+            bookingForm.appendChild(inputAmount);
+
+            // Submit
+            bookingForm.submit();
         }
 
         // Add popIn animation for success screen
@@ -3316,10 +4232,17 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                             <button type="button" class="time-slot" onclick="selectTime(this, '07:00 PM')">07:00
                                 PM</button>
                         </div>
-                    </div>
-                    <button type="submit" class="btn-action"
-                        style="width:100%; border-radius: 30px; font-weight: bold; padding: 14px; font-size: 1rem; text-transform: uppercase;">Confirm
-                        Booking</button>
+                        <div
+                            style="margin-top: 30px; margin-bottom: 20px; padding: 15px 20px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #bbb; font-size: 0.95rem;">Appointment Fee</span>
+                            <span
+                                style="color: var(--primary-color); font-weight: bold; font-size: 1.2rem; font-family:'Oswald', sans-serif;">₹
+                                100.00</span>
+                        </div>
+                        <button type="button" class="btn-action" onclick="initiateAppointmentPayment()"
+                            style="width:100%; border-radius: 30px; font-weight: bold; padding: 14px; font-size: 1rem; text-transform: uppercase;">
+                            Pay ₹100 & Confirm Interest
+                        </button>
                 </form>
             </div>
         </div>
@@ -3342,6 +4265,22 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             document.querySelectorAll('.time-slot').forEach(el => el.classList.remove('selected'));
             btn.classList.add('selected');
             document.getElementById('selected-time-input').value = time;
+        }
+        function initiateAppointmentPayment() {
+            const date = document.getElementById('flatpickr-date').value;
+            const time = document.getElementById('selected-time-input').value;
+
+            if (!date || !time) {
+                alert("Please select both a date and a time slot.");
+                return;
+            }
+
+            // Hide booking modal
+            document.getElementById('booking-modal').style.display = 'none';
+
+            // Open payment modal
+            // Context 'appointment', Amount 100, Desc 'Trainer Appointment'
+            openPaymentModal('appointment', 100, 'Trainer Appointment');
         }
     </script>
 
@@ -3463,6 +4402,33 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 modal.style.display = 'none';
             }
         });
+    </script>
+    <script>
+        function deleteApptTransaction(id, rowElement) {
+            if (!confirm('Are you sure you want to delete this payment record?')) return;
+
+            const formData = new FormData();
+            formData.append('ajax_action', 'delete_transaction');
+            formData.append('trans_id', id);
+
+            fetch('dashboard_member.php', {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        rowElement.style.opacity = '0';
+                        setTimeout(() => rowElement.remove(), 300);
+                    } else {
+                        alert('Error deleting transaction.');
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert('Request failed.');
+                });
+        }
     </script>
     <script src="assets/js/qrcode.min.js"></script>
 
