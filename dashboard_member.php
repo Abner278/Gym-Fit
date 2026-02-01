@@ -1274,8 +1274,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             <li><a href="#" onclick="showSection('my-appointments')"><i class="fa-solid fa-calendar-check"></i>
                     Appointments</a></li>
 
-            <li><a href="#" onclick="showSection('chatbot')"><i class="fa-solid fa-robot"></i> AI Health Assistant</a>
-            </li>
+
             <li><a href="#" onclick="showSection('profile')"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
             </li>
         </ul>
@@ -2236,222 +2235,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             </div>
         </div>
 
-        <!-- Chatbot Section -->
-        <div id="chatbot" class="dashboard-section">
-            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">AI Health Assistant</h2>
-            <div class="dashboard-card" style="height: 600px; display: flex; flex-direction: column; padding: 0;">
 
-                <!-- Chat Header -->
-                <div
-                    style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; gap: 15px; background: rgba(0,0,0,0.2);">
-                    <div
-                        style="width: 45px; height: 45px; background: var(--primary-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #000; font-size: 1.5rem;">
-                        <i class="fa-solid fa-robot"></i>
-                    </div>
-                    <div>
-                        <h4 style="margin: 0; color: #fff;">GymFit AI Coach</h4>
-                        <small style="color: var(--primary-color);">Online • Connected to Gemini Pro</small>
-                    </div>
-                </div>
-
-                <!-- Chat Messages -->
-                <div id="chat-messages"
-                    style="flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px;">
-                    <div style="display: flex; gap: 10px; align-items: flex-start; max-width: 80%;">
-                        <div
-                            style="min-width: 35px; height: 35px; background: var(--primary-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #000; font-size: 1rem;">
-                            <i class="fa-solid fa-robot"></i>
-                        </div>
-                        <div
-                            style="background: rgba(255,255,255,0.1); padding: 12px 15px; border-radius: 0 15px 15px 15px; color: #eee; font-size: 0.95rem; line-height: 1.5;">
-                            Hello! I'm your AI personal trainer. Ask me anything about workouts, diet, or health!
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Input Area -->
-                <div
-                    style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); display: flex; gap: 10px;">
-                    <input type="text" id="chat-input" placeholder="Type your question..."
-                        style="flex-grow: 1; padding: 15px; border-radius: 30px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; outline: none;"
-                        onkeypress="if(event.key === 'Enter') sendMessage()">
-                    <button onclick="sendMessage()" class="btn-action"
-                        style="width: 50px; height: 50px; border-radius: 50%; padding: 0; display: flex; align-items: center; justify-content: center;">
-                        <i class="fa-solid fa-paper-plane"></i>
-                    </button>
-                </div>
-            </div>
-
-            <script>
-                // LOCAL AI KNOWLEDGE BASE
-                const GYM_INFO = `GymFit - Fitness Center Information
-
-ABOUT US
-We provide a world-class environment for athletes of all levels. Join a community dedicated to strength, wellness, and progress. Whether you are a beginner or a pro, we have the tools you need.
-- 6+ Certified Trainers
-- 1000+ Active Members
-- 10+ Years Of Experience
-- 5k+ Google Reviews
-
-SERVICES
-1. Personal Trainer: One-on-one customized workouts to smash your goals.
-2. Group Training: High-energy classes to keep you motivated and moving.
-3. Treadmill: State-of-the-art cardio equipment for endurance.
-4. Yoga: Find your balance and improve flexibility with experts.
-5. Workout Videos: Access expert-guided workout videos anytime, anywhere.
-6. Diet And Tips: Nutrition guidance ensuring you fuel your gains properly.
-
-EQUIPMENT
-- Dumbbells (Adjustable weights)
-- Cardio Bikes (High-intensity cardio)
-- Treadmill Elite (Smart incline run)
-- Cable Machine (Full body workout)
-- Flat Bench (Steel frame support)
-- Smith Machine (Guided weight training)
-- Kettlebells, Pull-up Bars, Medicine Balls, Resistance Bands, Rowing Machines, Leg Press Machines.
-
-CONTACT INFORMATION
-- Phone: +91 9283754672
-- Email: GymFit@gmail.com
-- Address: (Visit us at our local branch)
-
-MEMBERSHIP
-We offer flexible monthly and yearly plans with features including:
-- Gym Access
-- Free Locker
-- Group Classes
-- Personal Trainer Access
-- Protein Drinks (Select plans)
-- Customized Workout Plans
-- Bio-Metric Attendance
-- Steam Bath Access
-
-WHY CHOOSE US?
-Regular exercise boosts your immunity, improves mental health, and builds a resilient, powerful body. Invest in yourself today with GymFit.`;
-
-                async function sendMessage() {
-                    const input = document.getElementById('chat-input');
-                    const message = input.value.trim();
-                    if (!message) return;
-
-                    addMessage(message, 'user');
-                    input.value = '';
-                    const loadingId = addLoading();
-
-                    // Call the PHP backend which handles the AI API
-                    const replyText = await getAIReply(message);
-
-                    removeLoading(loadingId);
-
-                    // Format bold text
-                    const formattedReply = replyText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
-                    addMessage(formattedReply, 'bot');
-                }
-
-                // API Handler Function
-                async function getAIReply(userMsg) {
-                    try {
-                        const res = await fetch("gemini.php", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ message: userMsg })
-                        });
-
-                        const data = await res.json();
-                        return data.reply;
-
-                    } catch (err) {
-                        console.error("AI API Error:", err);
-                        return "I'm having trouble connecting to the network. Please checks your connection.";
-                    }
-                }
-
-                function getLocalAIReply(userMsg) {
-                    const msg = userMsg.toLowerCase();
-
-                    // 1. Greetings
-                    if (msg.match(/\b(hi|hello|hey|good morning|evening)\b/)) {
-                        return "Hello! I'm your GymFit AI Coach. I can help you with gym info, membership plans, exercise tips, or trainer details. What do you need?";
-                    }
-
-                    // 2. Specific Keyword Matching from Knowledge Base
-                    if (msg.includes('price') || msg.includes('cost') || msg.includes('membership') || msg.includes('plan')) {
-                        return "MEMBERSHIP: We offer flexible monthly and yearly plans. Features include Gym Access, Free Locker, Group Classes, and Bio-Metric Attendance. Check the 'Membership' section for current pricing!";
-                    }
-                    if (msg.includes('trainer') || msg.includes('coach')) {
-                        return "TRAINERS: We have 6+ Certified Trainers available for Personal Application. You can book an appointment directly from the 'Trainers' tab on your dashboard.";
-                    }
-                    if (msg.includes('equipment') || msg.includes('machine') || msg.includes('dumbbell')) {
-                        return "EQUIPMENT: We are fully equipped with Dumbbells, Cardio Bikes, Treadmill Elite, Cable Machines, Smith Machines, Kettlebells, Leg Press, and more!";
-                    }
-                    if (msg.includes('contact') || msg.includes('phone') || msg.includes('email') || msg.includes('address') || msg.includes('location')) {
-                        return "CONTACT: Phone: +91 9283754672\nEmail: GymFit@gmail.com\nVisit us at our local branch.";
-                    }
-                    if (msg.includes('time') || msg.includes('open') || msg.includes('hour')) {
-                        return "HOURS: We are open 24/7 for our members! Come in whenever it fits your schedule.";
-                    }
-                    if (msg.includes('diet') || msg.includes('food') || msg.includes('nutrition') || msg.includes('eat')) {
-                        return "NUTRITION TIP: Focus on a balanced diet with sufficient protein for muscle recovery. Stay hydrated and avoid processed sugars for better performance.";
-                    }
-                    if (msg.includes('yoga')) {
-                        return "YOGA: We offer specialized Yoga sessions to improve flexibility and mental clarity. Check the class schedule!";
-                    }
-
-                    // 3. General Search in Knowledge Base
-                    // Split content by sections
-                    const sections = GYM_INFO.split('\n\n');
-                    for (let section of sections) {
-                        const lines = section.split('\n');
-                        const title = lines[0];
-                        // If any significant word in message matches title
-                        if (msg.includes(title.toLowerCase())) {
-                            return section;
-                        }
-                    }
-
-                    // 4. Default Fallback
-                    return "I can help with Membership details, Trainers, Equipment lists, or Contact info. Try asking 'What equipment do you have?' or 'Tell me about membership'.";
-                }
-
-                function addMessage(text, sender) {
-                    const container = document.getElementById('chat-messages');
-                    const div = document.createElement('div');
-
-                    if (sender === 'user') {
-                        div.style.cssText = "display: flex; gap: 10px; align-items: flex-end; justify-content: flex-end; margin-left: auto; max-width: 80%;";
-                        div.innerHTML = `
-                            <div style="background: var(--primary-color); padding: 12px 15px; border-radius: 15px 15px 0 15px; color: #000; font-size: 0.95rem; line-height: 1.5; font-weight: 500;">${text}</div>
-                            <div style="min-width: 35px; height: 35px; background: #333; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1rem;"><i class="fa-solid fa-user"></i></div>`;
-                    } else {
-                        div.style.cssText = "display: flex; gap: 10px; align-items: flex-start; max-width: 80%;";
-                        div.innerHTML = `
-                            <div style="min-width: 35px; height: 35px; background: var(--primary-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #000; font-size: 1rem;"><i class="fa-solid fa-robot"></i></div>
-                            <div style="background: rgba(255,255,255,0.1); padding: 12px 15px; border-radius: 0 15px 15px 15px; color: #eee; font-size: 0.95rem; line-height: 1.5;">${text}</div>`;
-                    }
-                    container.appendChild(div);
-                    container.scrollTop = container.scrollHeight;
-                }
-
-                function addLoading() {
-                    const container = document.getElementById('chat-messages');
-                    const id = 'loading-' + Date.now();
-                    const div = document.createElement('div');
-                    div.id = id;
-                    div.style.cssText = "display: flex; gap: 10px; align-items: flex-start; max-width: 80%;";
-                    div.innerHTML = `
-                        <div style="min-width: 35px; height: 35px; background: var(--primary-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #000; font-size: 1rem;"><i class="fa-solid fa-robot"></i></div>
-                        <div style="background: rgba(255,255,255,0.1); padding: 12px 15px; border-radius: 0 15px 15px 15px; color: #eee;"><i class="fa-solid fa-ellipsis fa-fade"></i></div>`;
-                    container.appendChild(div);
-                    container.scrollTop = container.scrollHeight;
-                    return id;
-                }
-
-                function removeLoading(id) {
-                    const el = document.getElementById(id);
-                    if (el) el.remove();
-                }
-            </script>
-        </div>
 
     </div>
 
@@ -3681,8 +3465,8 @@ Regular exercise boosts your immunity, improves mental health, and builds a resi
         });
     </script>
     <script src="assets/js/qrcode.min.js"></script>
-    
-    
+
+
 </body>
 
 </html>
