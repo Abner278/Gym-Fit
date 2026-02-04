@@ -47,12 +47,42 @@ $end_date = "$year-" . sprintf('%02d', $month) . "-" . $days_in_month;
 $sql = "SELECT date, status FROM attendance WHERE user_id = $target_user_id AND date BETWEEN '$start_date' AND '$end_date' ORDER BY date ASC";
 $result = mysqli_query($link, $sql);
 
+// Handle Attendance Toggle
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['toggle_attendance'])) {
+    $action = $_POST['action'];
+    $date_toggle = mysqli_real_escape_string($link, $_POST['date']);
+
+    if ($action == 'add') {
+        // Insert or update to 'present'
+        $sql = "INSERT INTO attendance (user_id, date, status) 
+                VALUES ($target_user_id, '$date_toggle', 'present')
+                ON DUPLICATE KEY UPDATE status = 'present'";
+        mysqli_query($link, $sql);
+    } elseif ($action == 'remove') {
+        // Update to 'absent' instead of deleting
+        $sql = "INSERT INTO attendance (user_id, date, status) 
+                VALUES ($target_user_id, '$date_toggle', 'absent')
+                ON DUPLICATE KEY UPDATE status = 'absent'";
+        mysqli_query($link, $sql);
+    }
+
+    // Refresh page
+    header("Location: staff_view_member_report.php?uid=$target_user_id&m=$month&y=$year");
+    exit;
+}
+
 $attendance_map = [];
 while ($row = mysqli_fetch_assoc($result)) {
     $attendance_map[$row['date']] = $row['status'];
 }
 
-$total_present = count($attendance_map);
+// Count only 'present' status, not 'absent'
+$total_present = 0;
+foreach ($attendance_map as $date => $status) {
+    if ($status === 'present') {
+        $total_present++;
+    }
+}
 
 // Calculate total trackable days (only count days after joining)
 $join_timestamp = strtotime($join_date_str);
@@ -263,20 +293,45 @@ for ($d = 1; $d <= $days_in_month; $d++) {
             color: #000;
         }
 
-        @media print {
-            .no-print {
-                display: none;
-            }
+        .report-box {
+            box-shadow: none;
+            padding: 0;
+        }
 
-            body {
-                padding: 0;
-                background: #fff;
-            }
+        .action-col {
+            display: none !important;
+        }
+        }
 
-            .report-box {
-                box-shadow: none;
-                padding: 0;
-            }
+        /* Actions */
+        .btn-action-sm {
+            padding: 4px 10px;
+            font-size: 0.75rem;
+            border-radius: 4px;
+            cursor: pointer;
+            border: none;
+            transition: 0.3s;
+            font-weight: bold;
+        }
+
+        .btn-mark {
+            background: rgba(206, 255, 0, 0.2);
+            color: #556b00;
+            border: 1px solid rgba(206, 255, 0, 0.5);
+        }
+
+        .btn-mark:hover {
+            background: rgba(206, 255, 0, 0.5);
+        }
+
+        .btn-remove {
+            background: rgba(255, 77, 77, 0.1);
+            color: #ff4d4d;
+            border: 1px solid rgba(255, 77, 77, 0.3);
+        }
+
+        .btn-remove:hover {
+            background: rgba(255, 77, 77, 0.2);
         }
     </style>
 </head>
@@ -383,6 +438,7 @@ for ($d = 1; $d <= $days_in_month; $d++) {
                     <th>Date</th>
                     <th>Day</th>
                     <th>Status</th>
+                    <th class="action-col no-print" style="width: 120px; text-align: right;">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -393,15 +449,19 @@ for ($d = 1; $d <= $days_in_month; $d++) {
                     $day_name = date('l', $timestamp);
                     $display_date = date('M d, Y', $timestamp);
 
-                    $is_present = isset($attendance_map[$current_date_str]);
+                    // Get actual status from database
+                    $db_status = isset($attendance_map[$current_date_str]) ? $attendance_map[$current_date_str] : null;
                     $is_future = $timestamp > time();
 
                     $status_label = 'Absent';
                     $status_class = 'status-absent';
 
-                    if ($is_present) {
+                    if ($db_status === 'present') {
                         $status_label = 'Present';
                         $status_class = 'status-present';
+                    } elseif ($db_status === 'absent') {
+                        $status_label = 'Absent';
+                        $status_class = 'status-absent';
                     } elseif ($current_date_str < $join_date_str) {
                         $status_label = 'Not Joined';
                         $status_class = 'status-not-joined';
@@ -414,6 +474,23 @@ for ($d = 1; $d <= $days_in_month; $d++) {
                         <td><?php echo $display_date; ?></td>
                         <td><?php echo $day_name; ?></td>
                         <td><span class="status-badge <?php echo $status_class; ?>"><?php echo $status_label; ?></span></td>
+                        <td class="action-col no-print" style="text-align: right;">
+                            <?php if (!$is_future && $current_date_str >= $join_date_str): ?>
+                                <?php if ($db_status === 'present'): ?>
+                                    <button class="btn-action-sm btn-remove"
+                                        onclick="toggleAttendance('<?php echo $current_date_str; ?>', 'remove')">
+                                        Remove
+                                    </button>
+                                <?php else: ?>
+                                    <button class="btn-action-sm btn-mark"
+                                        onclick="toggleAttendance('<?php echo $current_date_str; ?>', 'add')">
+                                        Mark Present
+                                    </button>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <span style="color: #ccc; font-size: 0.8rem;">-</span>
+                            <?php endif; ?>
+                        </td>
                     </tr>
                     <?php
                 }
@@ -436,9 +513,26 @@ for ($d = 1; $d <= $days_in_month; $d++) {
         </button>
     </div>
 
+    <!-- Hidden form for toggling attendance -->
+    <form id="toggleForm" method="POST" style="display:none;">
+        <input type="hidden" name="toggle_attendance" value="1">
+        <input type="hidden" name="action" id="form_action">
+        <input type="hidden" name="date" id="form_date">
+    </form>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
+        function toggleAttendance(date, action) {
+            document.getElementById('form_action').value = action;
+            document.getElementById('form_date').value = date;
+            document.getElementById('toggleForm').submit();
+        }
+
         function downloadPDF() {
+            // Temporarily hide action headers just in case no-print isn't enough for html2pdf
+            const headers = document.querySelectorAll('.action-col');
+            headers.forEach(h => h.style.display = 'none');
+
             const element = document.getElementById('report-content');
             const memberName = "<?php echo addslashes($full_name); ?>".replace(/[^a-zA-Z0-9]/g, '_');
             const opt = {
@@ -448,7 +542,11 @@ for ($d = 1; $d <= $days_in_month; $d++) {
                 html2canvas: { scale: 2 },
                 jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
             };
-            html2pdf().set(opt).from(element).save();
+
+            html2pdf().set(opt).from(element).save().then(() => {
+                // Restore headers
+                headers.forEach(h => h.style.display = '');
+            });
         }
 
         function changeMonthYear() {

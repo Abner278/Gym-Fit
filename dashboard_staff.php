@@ -81,6 +81,154 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
     }
 }
 
+// HANDLE AJAX REQUESTS
+if (isset($_POST['ajax_action'])) {
+    // Update Last Activity for the current user
+    mysqli_query($link, "UPDATE users SET last_activity = NOW() WHERE id = $user_id");
+
+    if ($_POST['ajax_action'] == 'fetch_messages') {
+        $partner_id = (int) $_POST['partner_id'];
+
+        // Mark messages from this partner as read
+        mysqli_query($link, "UPDATE messages SET is_read = 1 WHERE sender_id = $partner_id AND receiver_id = $user_id");
+
+        // Fetch chat between staff (me) and member (partner_id)
+        $chat_sql = "SELECT * FROM messages WHERE (sender_id = $user_id AND receiver_id = $partner_id) 
+                     OR (sender_id = $partner_id AND receiver_id = $user_id) ORDER BY created_at ASC";
+        $chat_res = mysqli_query($link, $chat_sql);
+        $msgs = [];
+        while ($row = mysqli_fetch_assoc($chat_res)) {
+            $msgs[] = [
+                'id' => $row['id'],
+                'sender_id' => $row['sender_id'],
+                'message' => $row['message'],
+                'time' => date('h:i A', strtotime($row['created_at'])),
+                'is_me' => ($row['sender_id'] == $user_id)
+            ];
+        }
+        echo json_encode(['success' => true, 'messages' => $msgs]);
+        exit;
+    } elseif ($_POST['ajax_action'] == 'send_message') {
+        $receiver_id = (int) $_POST['receiver_id'];
+        $message = mysqli_real_escape_string($link, $_POST['message']);
+        if (!empty($message)) {
+            mysqli_query($link, "INSERT INTO messages (sender_id, receiver_id, message) VALUES ($user_id, $receiver_id, '$message')");
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false]);
+        }
+        exit;
+    } elseif ($_POST['ajax_action'] == 'check_notifications') {
+        $res = mysqli_query($link, "SELECT COUNT(*) as count FROM messages WHERE receiver_id = $user_id AND is_read = 0");
+        $row = mysqli_fetch_assoc($res);
+        echo json_encode(['success' => true, 'count' => $row['count']]);
+        exit;
+    } elseif ($_POST['ajax_action'] == 'delete_message') {
+        $msg_id = (int) $_POST['message_id'];
+        // Ensure user can only delete their own messages
+        if (mysqli_query($link, "DELETE FROM messages WHERE id = $msg_id AND sender_id = $user_id")) {
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false]);
+        }
+        exit;
+    } elseif ($_POST['ajax_action'] == 'search_chat_users') {
+        $search = isset($_POST['search']) ? mysqli_real_escape_string($link, $_POST['search']) : '';
+
+        if (!empty($search)) {
+            // Search ALL members matching name
+            $sql = "SELECT id, full_name, profile_image FROM users WHERE role = 'member' AND full_name LIKE '%$search%'";
+        } else {
+            // Default: Show recent chats
+            $sql = "SELECT DISTINCT u.id, u.full_name, u.profile_image 
+                    FROM users u 
+                    JOIN messages m ON (u.id = m.sender_id OR u.id = m.receiver_id) 
+                    WHERE u.role = 'member' 
+                    AND (m.sender_id = $user_id OR m.receiver_id = $user_id)";
+        }
+
+        $res = mysqli_query($link, $sql);
+
+        if (mysqli_num_rows($res) > 0) {
+            while ($cm = mysqli_fetch_assoc($res)) {
+                $p_img = $cm['profile_image'] ? $cm['profile_image'] : 'https://ui-avatars.com/api/?name=' . urlencode($cm['full_name']);
+
+                // Check unread count (only relevant if we are not actively chatting with them, but fine to show)
+                $m_id = $cm['id'];
+                $unread_check = mysqli_query($link, "SELECT COUNT(*) as cnt FROM messages WHERE sender_id = $m_id AND receiver_id = $user_id AND is_read = 0");
+                $unread_data = mysqli_fetch_assoc($unread_check);
+                $unread_html = '';
+                if ($unread_data['cnt'] > 0) {
+                    $unread_html = '<i class="fa-solid fa-circle" style="color: #ceff00; font-size: 8px; margin-left: 8px; vertical-align: middle; box-shadow: 0 0 5px #ceff00;"></i>';
+                }
+
+                echo '<div class="chat-user-item"
+                    onclick="openChatWith(this, ' . $cm['id'] . ', \'' . htmlspecialchars($cm['full_name']) . '\', \'' . $p_img . '\')"
+                    style="padding:15px 20px; cursor:pointer; display:flex; align-items:center; gap:15px; border-bottom:1px solid rgba(255,255,255,0.05); transition:0.2s;">
+                    <img src="' . $p_img . '" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">
+                    <div>
+                        <h5 style="margin:0; font-size:0.95rem; color:#fff;" class="chat-user-name">
+                            ' . htmlspecialchars($cm['full_name']) . '
+                            ' . $unread_html . '
+                        </h5>
+                        <small style="color:#aaa;">Member</small>
+                    </div>
+                </div>';
+            }
+        } else {
+            echo '<p style="padding:20px; text-align:center; color:#666;">No members found.</p>';
+        }
+        exit;
+    } elseif ($_POST['ajax_action'] == 'fetch_member_attendance') {
+        $uid = (int) $_POST['member_id'];
+        $month = (int) $_POST['month'];
+        $year = (int) $_POST['year'];
+
+        $start_date = "$year-" . sprintf('%02d', $month) . "-01";
+        $end_date = date("Y-m-t", strtotime($start_date));
+
+        $sql = "SELECT date, status FROM attendance WHERE user_id = $uid AND date BETWEEN '$start_date' AND '$end_date'";
+        $res = mysqli_query($link, $sql);
+
+        $attendance_map = [];
+        while ($row = mysqli_fetch_assoc($res)) {
+            $attendance_map[$row['date']] = $row['status'];
+        }
+
+        echo json_encode(['success' => true, 'attendance_map' => $attendance_map]);
+        exit;
+    } elseif ($_POST['ajax_action'] == 'set_member_attendance') {
+        $uid = (int) $_POST['member_id'];
+        $date = mysqli_real_escape_string($link, $_POST['date']);
+        $status = mysqli_real_escape_string($link, $_POST['status']);
+
+        // Use INSERT ... ON DUPLICATE KEY UPDATE to handle both insert and update
+        // Assumes there's a UNIQUE constraint on (user_id, date)
+        $sql = "INSERT INTO attendance (user_id, date, status) 
+                VALUES ($uid, '$date', '$status')
+                ON DUPLICATE KEY UPDATE status = '$status'";
+
+        mysqli_query($link, $sql);
+
+        echo json_encode(['success' => true]);
+        exit;
+    } elseif ($_POST['ajax_action'] == 'toggle_attendance_date') {
+        $uid = (int) $_POST['member_id'];
+        $date = mysqli_real_escape_string($link, $_POST['date']);
+
+        $check = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = $uid AND date = '$date'");
+        if (mysqli_num_rows($check) > 0) {
+            mysqli_query($link, "DELETE FROM attendance WHERE user_id = $uid AND date = '$date'");
+            $status = 'absent';
+        } else {
+            mysqli_query($link, "INSERT INTO attendance (user_id, date, status) VALUES ($uid, '$date', 'present')");
+            $status = 'present';
+        }
+        echo json_encode(['success' => true, 'status' => $status]);
+        exit;
+    }
+}
+
 // Handle Add Content
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_content'])) {
     $title = mysqli_real_escape_string($link, $_POST['title']);
@@ -348,6 +496,31 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['mark_staff_attendance'
     } else {
         $_SESSION['msg'] = "Attendance already marked for today.";
     }
+    header("Location: dashboard_staff.php");
+    exit;
+}
+
+// 1.5 Handle Member Attendance Marking by Staff
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['mark_member_attendance'])) {
+    $target_member_id = (int) $_POST['member_id'];
+    $date = date('Y-m-d');
+
+    // specific check for member
+    $check = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = $target_member_id AND date = '$date'");
+    if (mysqli_num_rows($check) == 0) {
+        if (mysqli_query($link, "INSERT INTO attendance (user_id, date, status) VALUES ($target_member_id, '$date', 'present')")) {
+            $_SESSION['msg'] = "Member attendance marked as present!";
+        } else {
+            $_SESSION['msg'] = "Error marking attendance.";
+        }
+    } else {
+        $_SESSION['msg'] = "Attendance already marked for this member today.";
+    }
+    // Redirect back to the reports section
+    header("Location: dashboard_staff.php#section=reports");
+    // Note: The hash won't be picked up by PHP but useful if JS handles it, 
+    // though here we rely on 'showSection' state which resets on reload usually.
+    // For now simple redirect is fine, user will navigate back.
     header("Location: dashboard_staff.php");
     exit;
 }
@@ -829,7 +1002,7 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             <li><a href="#" onclick="showSection('members')"><i class="fa-solid fa-users"></i>
                     Members</a></li>
             <li><a href="#" onclick="showSection('reports')"><i class="fa-solid fa-users-rectangle"></i> Member
-                    Attendance Reports</a></li>
+                    Attendance </a></li>
 
             <li><a href="#" onclick="showSection('content')"><i class="fa-solid fa-cloud-arrow-up"></i> Upload
                     Content</a></li>
@@ -837,6 +1010,12 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             </li>
             <li><a href="#" onclick="showSection('payments')"><i class="fa-solid fa-file-invoice-dollar"></i>
                     Payments</a></li>
+
+
+            <li><a href="#" onclick="showSection('chat')" id="nav-chat"><i class="fa-solid fa-comments"></i>
+                    Messages <span id="msg-badge"
+                        style="margin-left:auto; display:none; background: #ff4d4d; color: white; padding: 2px 6px; border-radius: 50%; font-size: 0.7rem;">0</span></a>
+            </li>
 
 
             <li><a href="#" onclick="showSection('profile')"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
@@ -997,7 +1176,10 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                                                     </form>
                                                 </div>
                                             <?php else: ?>
-                                                "<?php echo substr(htmlspecialchars($appt['staff_message']), 0, 20) . '...'; ?>"
+                                                "<?php
+                                                $s_msg = htmlspecialchars($appt['staff_message']);
+                                                echo (strlen($s_msg) > 20) ? substr($s_msg, 0, 20) . '...' : $s_msg;
+                                                ?>"
                                                 </small>
                                                 <form method="POST" onsubmit="return confirm('Delete this record?');"
                                                     style="display:inline-block; margin-left:10px;">
@@ -1102,20 +1284,20 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
 
                 <!-- Success/Error Message for Members -->
                 <?php if (!empty($msg)): ?>
-                        <p id="staff-msg"
-                            style='color: <?php echo (strpos($msg, "Error") !== false ? "#ff4d4d" : "var(--primary-color)"); ?>; margin-bottom: 20px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 4px solid <?php echo (strpos($msg, "Error") !== false ? "#ff4d4d" : "var(--primary-color)"); ?>;'>
-                            <?php echo $msg; ?>
-                        </p>
-                        <script>
-                            setTimeout(() => {
-                                const msgBox = document.getElementById("staff-msg");
-                                if (msgBox) {
-                                    msgBox.style.transition = "opacity 0.5s";
-                                    msgBox.style.opacity = "0";
-                                    setTimeout(() => msgBox.remove(), 500);
-                                }
-                            }, 4000);
-                        </script>
+                    <p id="staff-msg"
+                        style='color: <?php echo (strpos($msg, "Error") !== false ? "#ff4d4d" : "var(--primary-color)"); ?>; margin-bottom: 20px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 4px solid <?php echo (strpos($msg, "Error") !== false ? "#ff4d4d" : "var(--primary-color)"); ?>;'>
+                        <?php echo $msg; ?>
+                    </p>
+                    <script>
+                        setTimeout(() => {
+                            const msgBox = document.getElementById("staff-msg");
+                            if (msgBox) {
+                                msgBox.style.transition = "opacity 0.5s";
+                                msgBox.style.opacity = "0";
+                                setTimeout(() => msgBox.remove(), 500);
+                            }
+                        }, 4000);
+                    </script>
                 <?php endif; ?>
 
                 <table class="data-table">
@@ -1129,29 +1311,29 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                     </thead>
                     <tbody>
                         <?php if (mysqli_num_rows($members_res) > 0): ?>
-                                <?php while ($member = mysqli_fetch_assoc($members_res)): ?>
-                                        <tr>
-                                            <td><?php echo htmlspecialchars($member['full_name']); ?></td>
-                                            <td><?php echo htmlspecialchars($member['email']); ?></td>
-                                            <td><?php echo date('M d, Y', strtotime($member['created_at'])); ?></td>
-                                            <td>
-                                                <div style="display: flex; gap: 5px;">
-                                                    <button class="btn-sm btn-edit"
-                                                        onclick='openEditMemberModal(<?php echo json_encode($member); ?>)'>Edit</button>
-                                                    <form method="POST" onsubmit="return confirm('Remove this member permanentely?');"
-                                                        style="margin:0;">
-                                                        <input type="hidden" name="delete_member" value="1">
-                                                        <input type="hidden" name="member_id" value="<?php echo $member['id']; ?>">
-                                                        <button type="submit" class="btn-sm btn-delete">Remove</button>
-                                                    </form>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                <?php endwhile; ?>
-                        <?php else: ?>
+                            <?php while ($member = mysqli_fetch_assoc($members_res)): ?>
                                 <tr>
-                                    <td colspan="4" style="text-align: center; color: var(--text-gray);">No members found.</td>
+                                    <td><?php echo htmlspecialchars($member['full_name']); ?></td>
+                                    <td><?php echo htmlspecialchars($member['email']); ?></td>
+                                    <td><?php echo date('M d, Y', strtotime($member['created_at'])); ?></td>
+                                    <td>
+                                        <div style="display: flex; gap: 5px;">
+                                            <button class="btn-sm btn-edit"
+                                                onclick='openEditMemberModal(<?php echo json_encode($member); ?>)'>Edit</button>
+                                            <form method="POST" onsubmit="return confirm('Remove this member permanentely?');"
+                                                style="margin:0;">
+                                                <input type="hidden" name="delete_member" value="1">
+                                                <input type="hidden" name="member_id" value="<?php echo $member['id']; ?>">
+                                                <button type="submit" class="btn-sm btn-delete">Remove</button>
+                                            </form>
+                                        </div>
+                                    </td>
                                 </tr>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <tr>
+                                <td colspan="4" style="text-align: center; color: var(--text-gray);">No members found.</td>
+                            </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -1240,13 +1422,13 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                 <h3>Upload Daily Content</h3>
                 <!-- Message Display -->
                 <?php if (!empty($msg)): ?>
-                        <p id="msg-box" style='color: #ceff00; margin-bottom: 15px;'><?php echo $msg; ?></p>
-                        <script>
-                            setTimeout(() => {
-                                const box = document.getElementById('msg-box');
-                                if (box) { box.style.transition = 'opacity 0.5s'; box.style.opacity = '0'; setTimeout(() => box.remove(), 500); }
-                            }, 3000);
-                        </script>
+                    <p id="msg-box" style='color: #ceff00; margin-bottom: 15px;'><?php echo $msg; ?></p>
+                    <script>
+                        setTimeout(() => {
+                            const box = document.getElementById('msg-box');
+                            if (box) { box.style.transition = 'opacity 0.5s'; box.style.opacity = '0'; setTimeout(() => box.remove(), 500); }
+                        }, 3000);
+                    </script>
                 <?php endif; ?>
 
                 <form method="POST" action="dashboard_staff.php" id="content-form">
@@ -1309,69 +1491,69 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         $icon_class = 'fa-chevron-down';
                         ?>
 
-                                <div class="month-group"
-                                    style="margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;">
-                                    <div class="month-header" onclick="toggleMonth(this)"
-                                        style="background: rgba(255,255,255,0.03); padding: 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold;">
-                                        <span><?php echo $month; ?> <span
-                                                style="font-size: 0.8rem; color: var(--text-gray); margin-left: 10px; font-weight: normal;">(<?php echo count($items); ?>
-                                                items)</span></span>
-                                        <i class="fa-solid <?php echo $icon_class; ?>"
-                                            style="font-size: 0.9rem; color: var(--text-gray);"></i>
-                                    </div>
-                                    <div class="month-content" style="display: <?php echo $display_style; ?>;">
-                                        <table class="data-table" style="margin-top: 0;">
-                                            <thead>
-                                                <tr>
-                                                    <th>Date</th>
-                                                    <th>Title</th>
-                                                    <th>Video Link</th>
-                                                    <th>Action</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <?php foreach ($items as $row): ?>
-                                                        <tr>
-                                                            <td style="color: var(--primary-color); font-weight: bold; width: 15%;">
-                                                                <?php echo date('D d', strtotime($row['date'])); ?>
-                                                            </td>
-                                                            <td><?php echo htmlspecialchars($row['title']); ?></td>
-                                                            <td>
-                                                                <a href="<?php echo htmlspecialchars($row['video_url']); ?>" target="_blank"
-                                                                    style="color: var(--text-gray); text-decoration: none; font-size: 0.9rem;">
-                                                                    <i class="fa-brands fa-youtube" style="color: #ff0000;"></i> View
-                                                                </a>
-                                                            </td>
-                                                            <td>
-                                                                <div style="display: flex; gap: 5px; align-items: center;">
-                                                                    <button type="button" class="btn-sm btn-edit"
-                                                                        onclick='editContent(<?php echo htmlspecialchars(json_encode($row), ENT_QUOTES, "UTF-8"); ?>)'>
-                                                                        Edit
-                                                                    </button>
-                                                                    <form method="POST" action="dashboard_staff.php"
-                                                                        onsubmit="return confirm('Are you sure you want to remove this video?');"
-                                                                        style="margin:0;">
-                                                                        <input type="hidden" name="delete_content" value="1">
-                                                                        <input type="hidden" name="content_id"
-                                                                            value="<?php echo $row['id']; ?>">
-                                                                        <button type="submit" class="btn-sm btn-delete">
-                                                                            <i class="fa-solid fa-trash"></i>
-                                                                        </button>
-                                                                    </form>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                <?php endforeach; ?>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
+                        <div class="month-group"
+                            style="margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;">
+                            <div class="month-header" onclick="toggleMonth(this)"
+                                style="background: rgba(255,255,255,0.03); padding: 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold;">
+                                <span><?php echo $month; ?> <span
+                                        style="font-size: 0.8rem; color: var(--text-gray); margin-left: 10px; font-weight: normal;">(<?php echo count($items); ?>
+                                        items)</span></span>
+                                <i class="fa-solid <?php echo $icon_class; ?>"
+                                    style="font-size: 0.9rem; color: var(--text-gray);"></i>
+                            </div>
+                            <div class="month-content" style="display: <?php echo $display_style; ?>;">
+                                <table class="data-table" style="margin-top: 0;">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Title</th>
+                                            <th>Video Link</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($items as $row): ?>
+                                            <tr>
+                                                <td style="color: var(--primary-color); font-weight: bold; width: 15%;">
+                                                    <?php echo date('D d', strtotime($row['date'])); ?>
+                                                </td>
+                                                <td><?php echo htmlspecialchars($row['title']); ?></td>
+                                                <td>
+                                                    <a href="<?php echo htmlspecialchars($row['video_url']); ?>" target="_blank"
+                                                        style="color: var(--text-gray); text-decoration: none; font-size: 0.9rem;">
+                                                        <i class="fa-brands fa-youtube" style="color: #ff0000;"></i> View
+                                                    </a>
+                                                </td>
+                                                <td>
+                                                    <div style="display: flex; gap: 5px; align-items: center;">
+                                                        <button type="button" class="btn-sm btn-edit"
+                                                            onclick='editContent(<?php echo htmlspecialchars(json_encode($row), ENT_QUOTES, "UTF-8"); ?>)'>
+                                                            Edit
+                                                        </button>
+                                                        <form method="POST" action="dashboard_staff.php"
+                                                            onsubmit="return confirm('Are you sure you want to remove this video?');"
+                                                            style="margin:0;">
+                                                            <input type="hidden" name="delete_content" value="1">
+                                                            <input type="hidden" name="content_id"
+                                                                value="<?php echo $row['id']; ?>">
+                                                            <button type="submit" class="btn-sm btn-delete">
+                                                                <i class="fa-solid fa-trash"></i>
+                                                            </button>
+                                                        </form>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
 
-                                <?php
-                                $is_first = false;
+                        <?php
+                        $is_first = false;
                     endforeach;
                 else: ?>
-                        <p style="color: var(--text-gray); font-style: italic;">No content scheduled yet.</p>
+                    <p style="color: var(--text-gray); font-style: italic;">No content scheduled yet.</p>
                 <?php endif; ?>
             </div>
         </div>
@@ -1400,116 +1582,116 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         </thead>
                         <tbody>
                             <?php if (count($grouped_payments) > 0): ?>
-                                    <?php foreach ($grouped_payments as $uid => $data):
-                                        $latest = $data['history'][0]; // First item is latest
-                                        $count = count($data['history']);
-                                        ?>
-                                            <!-- Main User Row -->
-                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                                <td>
-                                                    <div style="display: flex; flex-direction: column;">
-                                                        <span
-                                                            style="font-weight: bold; font-size: 1rem; color: #fff;"><?php echo htmlspecialchars($data['user']['full_name']); ?></span>
-                                                        <small
-                                                            style="color: var(--text-gray); font-size: 0.8rem;"><?php echo htmlspecialchars($data['user']['user_email']); ?></small>
-                                                    </div>
-                                                </td>
-                                                <td><span
-                                                        style="color: var(--primary-color);"><?php echo htmlspecialchars($latest['plan_name']); ?></span>
-                                                </td>
-                                                <td>
-                                                    <?php echo date('M d, Y', strtotime($latest['created_at'])); ?>
-                                                    <span
-                                                        class="badge <?php echo $latest['status'] == 'completed' ? 'badge-success' : ($latest['status'] == 'pending' ? 'badge-warning' : ''); ?>"
-                                                        style="margin-left: 5px; font-size: 0.7rem;">
-                                                        <?php echo ucfirst($latest['status']); ?>
-                                                    </span>
-                                                </td>
-                                                <td style="text-align: right;">
-                                                    <button onclick="toggleHistory(<?php echo $uid; ?>)" class="btn-sm"
-                                                        style="background: rgba(255, 255, 255, 0.1); color: #fff; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border: 1px solid rgba(255,255,255,0.1);">
-                                                        <i class="fa-solid fa-clock-rotate-left"></i> History (<?php echo $count; ?>) <i
-                                                            class="fa-solid fa-chevron-down" id="icon-<?php echo $uid; ?>"></i>
-                                                    </button>
-                                                </td>
-                                            </tr>
-
-                                            <!-- Hidden History Row -->
-                                            <tr id="history-<?php echo $uid; ?>" style="display: none; background: rgba(0,0,0,0.15);">
-                                                <td colspan="4" style="padding: 0;">
-                                                    <div style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                                        <div style="background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden;">
-                                                            <table style="width: 100%; border-collapse: collapse;">
-                                                                <thead>
-                                                                    <tr style="background: rgba(255,255,255,0.03);">
-                                                                        <th
-                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                            Plan</th>
-                                                                        <th
-                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                            Amount</th>
-                                                                        <th
-                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                            Method</th>
-                                                                        <th
-                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                            Date</th>
-                                                                        <th
-                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                            Status</th>
-                                                                        <th
-                                                                            style="font-size: 0.75rem; padding: 10px; text-align: right; color: var(--text-gray); text-transform: uppercase;">
-                                                                            Invoice</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    <?php foreach ($data['history'] as $payment): ?>
-                                                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
-                                                                                <td style="padding: 10px; font-size: 0.9rem;">
-                                                                                    <?php echo htmlspecialchars($payment['plan_name']); ?>
-                                                                                </td>
-                                                                                <td
-                                                                                    style="padding: 10px; font-size: 0.9rem; color: var(--primary-color);">
-                                                                                    ₹<?php echo number_format($payment['amount'], 2); ?></td>
-                                                                                <td
-                                                                                    style="padding: 10px; font-size: 0.9rem; text-transform: capitalize;">
-                                                                                    <?php echo htmlspecialchars($payment['payment_method']); ?>
-                                                                                </td>
-                                                                                <td style="padding: 10px; font-size: 0.9rem; color: #ddd;">
-                                                                                    <?php echo date('M d, Y', strtotime($payment['created_at'])); ?>
-                                                                                </td>
-                                                                                <td style="padding: 10px;">
-                                                                                    <span
-                                                                                        class="badge <?php echo $payment['status'] == 'completed' ? 'badge-success' : ($payment['status'] == 'pending' ? 'badge-warning' : ''); ?>"
-                                                                                        style="font-size: 0.65rem;">
-                                                                                        <?php echo ucfirst($payment['status']); ?>
-                                                                                    </span>
-                                                                                </td>
-                                                                                <td style="padding: 10px; text-align: right;">
-                                                                                    <a href="invoice.php?tid=<?php echo $payment['id']; ?>"
-                                                                                        target="_blank"
-                                                                                        style="color: var(--text-gray); font-size: 1rem;"
-                                                                                        title="Download Invoice">
-                                                                                        <i class="fa-solid fa-file-pdf"></i>
-                                                                                    </a>
-                                                                                </td>
-                                                                            </tr>
-                                                                    <?php endforeach; ?>
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                    <?php endforeach; ?>
-                            <?php else: ?>
-                                    <tr>
-                                        <td colspan="4" style="text-align: center; color: var(--text-gray); padding: 30px;">
-                                            <i class="fa-solid fa-receipt"
-                                                style="font-size: 2rem; display: block; margin-bottom: 10px; opacity: 0.3;"></i>
-                                            No payment records found.
+                                <?php foreach ($grouped_payments as $uid => $data):
+                                    $latest = $data['history'][0]; // First item is latest
+                                    $count = count($data['history']);
+                                    ?>
+                                    <!-- Main User Row -->
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                        <td>
+                                            <div style="display: flex; flex-direction: column;">
+                                                <span
+                                                    style="font-weight: bold; font-size: 1rem; color: #fff;"><?php echo htmlspecialchars($data['user']['full_name']); ?></span>
+                                                <small
+                                                    style="color: var(--text-gray); font-size: 0.8rem;"><?php echo htmlspecialchars($data['user']['user_email']); ?></small>
+                                            </div>
+                                        </td>
+                                        <td><span
+                                                style="color: var(--primary-color);"><?php echo htmlspecialchars($latest['plan_name']); ?></span>
+                                        </td>
+                                        <td>
+                                            <?php echo date('M d, Y', strtotime($latest['created_at'])); ?>
+                                            <span
+                                                class="badge <?php echo $latest['status'] == 'completed' ? 'badge-success' : ($latest['status'] == 'pending' ? 'badge-warning' : ''); ?>"
+                                                style="margin-left: 5px; font-size: 0.7rem;">
+                                                <?php echo ucfirst($latest['status']); ?>
+                                            </span>
+                                        </td>
+                                        <td style="text-align: right;">
+                                            <button onclick="toggleHistory(<?php echo $uid; ?>)" class="btn-sm"
+                                                style="background: rgba(255, 255, 255, 0.1); color: #fff; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border: 1px solid rgba(255,255,255,0.1);">
+                                                <i class="fa-solid fa-clock-rotate-left"></i> History (<?php echo $count; ?>) <i
+                                                    class="fa-solid fa-chevron-down" id="icon-<?php echo $uid; ?>"></i>
+                                            </button>
                                         </td>
                                     </tr>
+
+                                    <!-- Hidden History Row -->
+                                    <tr id="history-<?php echo $uid; ?>" style="display: none; background: rgba(0,0,0,0.15);">
+                                        <td colspan="4" style="padding: 0;">
+                                            <div style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                <div style="background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden;">
+                                                    <table style="width: 100%; border-collapse: collapse;">
+                                                        <thead>
+                                                            <tr style="background: rgba(255,255,255,0.03);">
+                                                                <th
+                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                    Plan</th>
+                                                                <th
+                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                    Amount</th>
+                                                                <th
+                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                    Method</th>
+                                                                <th
+                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                    Date</th>
+                                                                <th
+                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                    Status</th>
+                                                                <th
+                                                                    style="font-size: 0.75rem; padding: 10px; text-align: right; color: var(--text-gray); text-transform: uppercase;">
+                                                                    Invoice</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <?php foreach ($data['history'] as $payment): ?>
+                                                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                                                                    <td style="padding: 10px; font-size: 0.9rem;">
+                                                                        <?php echo htmlspecialchars($payment['plan_name']); ?>
+                                                                    </td>
+                                                                    <td
+                                                                        style="padding: 10px; font-size: 0.9rem; color: var(--primary-color);">
+                                                                        ₹<?php echo number_format($payment['amount'], 2); ?></td>
+                                                                    <td
+                                                                        style="padding: 10px; font-size: 0.9rem; text-transform: capitalize;">
+                                                                        <?php echo htmlspecialchars($payment['payment_method']); ?>
+                                                                    </td>
+                                                                    <td style="padding: 10px; font-size: 0.9rem; color: #ddd;">
+                                                                        <?php echo date('M d, Y', strtotime($payment['created_at'])); ?>
+                                                                    </td>
+                                                                    <td style="padding: 10px;">
+                                                                        <span
+                                                                            class="badge <?php echo $payment['status'] == 'completed' ? 'badge-success' : ($payment['status'] == 'pending' ? 'badge-warning' : ''); ?>"
+                                                                            style="font-size: 0.65rem;">
+                                                                            <?php echo ucfirst($payment['status']); ?>
+                                                                        </span>
+                                                                    </td>
+                                                                    <td style="padding: 10px; text-align: right;">
+                                                                        <a href="invoice.php?tid=<?php echo $payment['id']; ?>"
+                                                                            target="_blank"
+                                                                            style="color: var(--text-gray); font-size: 1rem;"
+                                                                            title="Download Invoice">
+                                                                            <i class="fa-solid fa-file-pdf"></i>
+                                                                        </a>
+                                                                    </td>
+                                                                </tr>
+                                                            <?php endforeach; ?>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <tr>
+                                    <td colspan="4" style="text-align: center; color: var(--text-gray); padding: 30px;">
+                                        <i class="fa-solid fa-receipt"
+                                            style="font-size: 2rem; display: block; margin-bottom: 10px; opacity: 0.3;"></i>
+                                        No payment records found.
+                                    </td>
+                                </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -1530,15 +1712,15 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         <form method="POST" style="display:flex; justify-content:center;">
                             <input type="hidden" name="mark_staff_attendance" value="1">
                             <?php if ($is_staff_present): ?>
-                                    <button type="button" class="btn-action"
-                                        style="width: auto; padding: 15px 40px; background:rgba(255,255,255,0.05); cursor:not-allowed; border: 1px solid var(--primary-color); color: var(--primary-color);">
-                                        <i class="fa-solid fa-check-double"></i> Checked In Today
-                                    </button>
+                                <button type="button" class="btn-action"
+                                    style="width: auto; padding: 15px 40px; background:rgba(255,255,255,0.05); cursor:not-allowed; border: 1px solid var(--primary-color); color: var(--primary-color);">
+                                    <i class="fa-solid fa-check-double"></i> Checked In Today
+                                </button>
                             <?php else: ?>
-                                    <button type="submit" class="btn-action"
-                                        style="width: auto; padding: 15px 50px; font-size: 1.1rem; transform: scale(1.05);">
-                                        <i class="fa-solid fa-hand-point-up"></i> Check In Now
-                                    </button>
+                                <button type="submit" class="btn-action"
+                                    style="width: auto; padding: 15px 50px; font-size: 1.1rem; transform: scale(1.05);">
+                                    <i class="fa-solid fa-hand-point-up"></i> Check In Now
+                                </button>
                             <?php endif; ?>
                         </form>
 
@@ -1571,11 +1753,11 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                                     $s_op = $s_is_fut ? '0.2' : '1';
                                     $s_border = $s_is_pres ? 'none' : '1px solid rgba(255,255,255,0.1)';
                                     ?>
-                                        <div style="height:45px; display:flex; align-items:center; justify-content:center; background:<?php echo $s_bg; ?>; color:<?php echo $s_col; ?>; border-radius:10px; font-weight:bold; font-size:0.9rem; opacity:<?php echo $s_op; ?>; border: <?php echo $s_border; ?>; transition: 0.3s; cursor: pointer;"
-                                            onclick="showAttendanceStatus('<?php echo date('M d, Y', strtotime($s_date)); ?>', '<?php echo $s_is_pres ? 'Present' : 'Absent'; ?>', <?php echo $s_is_fut ? 'true' : 'false'; ?>)"
-                                            title="<?php echo $s_date; ?>">
-                                            <?php echo $d; ?>
-                                        </div>
+                                    <div style="height:45px; display:flex; align-items:center; justify-content:center; background:<?php echo $s_bg; ?>; color:<?php echo $s_col; ?>; border-radius:10px; font-weight:bold; font-size:0.9rem; opacity:<?php echo $s_op; ?>; border: <?php echo $s_border; ?>; transition: 0.3s; cursor: pointer;"
+                                        onclick="showAttendanceStatus('<?php echo date('M d, Y', strtotime($s_date)); ?>', '<?php echo $s_is_pres ? 'Present' : 'Absent'; ?>', <?php echo $s_is_fut ? 'true' : 'false'; ?>)"
+                                        title="<?php echo $s_date; ?>">
+                                        <?php echo $d; ?>
+                                    </div>
                                 <?php endfor; ?>
                             </div>
                             <div
@@ -1606,7 +1788,34 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
 
         <!-- Member Reports Section -->
         <div id="reports" class="dashboard-section">
-            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Member Attendance Reports</h2>
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Member Attendance</h2>
+
+            <?php
+            // Calculate statistics
+            $total_members_res = mysqli_query($link, "SELECT COUNT(*) as total FROM users WHERE role = 'member'");
+            $total_members = mysqli_fetch_assoc($total_members_res)['total'];
+            ?>
+
+            <!-- Statistics Boxes -->
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 25px;">
+                <div
+                    style="background: linear-gradient(135deg, rgba(206, 255, 0, 0.1), rgba(206, 255, 0, 0.05)); border: 1px solid rgba(206, 255, 0, 0.2); border-radius: 12px; padding: 25px; display: flex; align-items: center; gap: 15px;">
+                    <div
+                        style="background: rgba(206, 255, 0, 0.2); width: 50px; height: 50px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                        <i class="fa-solid fa-users" style="color: var(--primary-color); font-size: 1.5rem;"></i>
+                    </div>
+                    <div>
+                        <div
+                            style="font-size: 0.75rem; color: var(--text-gray); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">
+                            Total Members</div>
+                        <div
+                            style="font-size: 1.8rem; font-weight: bold; color: var(--primary-color); font-family: 'Oswald', sans-serif;">
+                            <?php echo $total_members; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
                 <div style="position: relative; width: 300px;">
                     <i class="fa-solid fa-magnifying-glass"
@@ -1616,9 +1825,30 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                 </div>
             </div>
 
-            <div style="background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;">
+            <div
+                style="background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;max-height: 600px; overflow-y: auto;">
+                <style>
+                    /* Custom scrollbar styling */
+                    #reports .dashboard-section>div:last-of-type::-webkit-scrollbar {
+                        width: 8px;
+                    }
+
+                    #reports .dashboard-section>div:last-of-type::-webkit-scrollbar-track {
+                        background: rgba(0, 0, 0, 0.2);
+                        border-radius: 4px;
+                    }
+
+                    #reports .dashboard-section>div:last-of-type::-webkit-scrollbar-thumb {
+                        background: var(--primary-color);
+                        border-radius: 4px;
+                    }
+
+                    #reports .dashboard-section>div:last-of-type::-webkit-scrollbar-thumb:hover {
+                        background: rgba(206, 255, 0, 0.8);
+                    }
+                </style>
                 <table style="width: 100%; border-collapse: collapse;">
-                    <thead>
+                    <thead style="position: sticky; top: 0; z-index: 10; background: rgba(0,0,0,0.9);">
                         <tr style="background: rgba(0,0,0,0.2); text-align: left;">
                             <th
                                 style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
@@ -1633,34 +1863,41 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                     </thead>
                     <tbody>
                         <?php
+                        // Fetch ALL members for attendance management
                         $report_members_res = mysqli_query($link, "SELECT * FROM users WHERE role = 'member' ORDER BY full_name ASC");
 
                         if (mysqli_num_rows($report_members_res) > 0):
                             while ($m = mysqli_fetch_assoc($report_members_res)):
+                                // Check if present today
+                                $today_chk = date('Y-m-d');
+                                $chk_res = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = " . $m['id'] . " AND date = '$today_chk'");
+                                $is_already_present = mysqli_num_rows($chk_res) > 0;
                                 ?>
-                                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                            <td style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
-                                                <?php echo htmlspecialchars($m['full_name']); ?>
-                                            </td>
-                                            <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
-                                                <?php echo htmlspecialchars($m['email']); ?>
-                                            </td>
-                                            <td style="padding: 15px 20px; text-align: right;">
-                                                <a href="staff_view_member_report.php?uid=<?php echo $m['id']; ?>" target="_blank"
-                                                    style="display: inline-block; padding: 6px 12px; font-size: 0.8rem; color: var(--primary-color); border: 1px solid var(--primary-color); border-radius: 4px; text-decoration: none; transition: 0.3s; background: rgba(206, 255, 0, 0.05);">
-                                                    <i class="fa-solid fa-file-invoice"></i> View Report
-                                                </a>
-                                            </td>
-                                        </tr>
-                                        <?php
+                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                    <td style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
+                                        <?php echo htmlspecialchars($m['full_name']); ?>
+                                    </td>
+                                    <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
+                                        <?php echo htmlspecialchars($m['email']); ?>
+                                    </td>
+                                    <td style="padding: 15px 20px; text-align: right;">
+                                        <button
+                                            onclick="openAttendanceModal(<?php echo $m['id']; ?>, '<?php echo htmlspecialchars(addslashes($m['full_name'])); ?>')"
+                                            class="btn-sm"
+                                            style="background: var(--primary-color); color: var(--secondary-color); font-weight: bold; padding: 8px 15px; font-size: 0.85rem; border:none; border-radius:4px; cursor:pointer;">
+                                            <i class="fa-solid fa-calendar-days"></i> Attendance
+                                        </button>
+                                    </td>
+                                </tr>
+                                <?php
                             endwhile;
                         else:
                             ?>
-                                <tr>
-                                    <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
-                                        No members found.
-                                    </td>
-                                </tr>
+                            <tr>
+                                <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
+                                    No members found.
+                                </td>
+                            </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -1722,6 +1959,103 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         Changes
                         will be saved permanently to your account.</p>
                 </form>
+            </div>
+        </div>
+        <!-- Chat Section for Staff -->
+        <div id="chat" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Messages</h2>
+            <div class="dashboard-grid" style="grid-template-columns: 300px 1fr; min-height: 500px; gap: 0;">
+                <!-- Chat Sidebar (Members List) -->
+                <div class="dashboard-card"
+                    style="padding: 0; overflow: hidden; display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,0.05); border-radius: 15px 0 0 15px;">
+                    <div
+                        style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2);">
+                        <h4 style="margin:0; color:var(--primary-color);">Members</h4>
+                    </div>
+                    <div style="padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <input type="text" id="chat-search-staff" onkeyup="searchChatMembers(this.value)"
+                            placeholder="Search Member..."
+                            style="width: 100%; padding: 8px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-size: 0.9rem;">
+                    </div>
+                    <div id="chat-members-list" style="flex:1; overflow-y: auto;">
+                        <?php
+                        // Fetch members who have started a chat or all members
+                        // Filter to show only members who have a message history with the current staff
+                        $chat_members = mysqli_query($link, "
+                            SELECT DISTINCT u.id, u.full_name, u.profile_image 
+                            FROM users u 
+                            JOIN messages m ON (u.id = m.sender_id OR u.id = m.receiver_id) 
+                            WHERE u.role = 'member' 
+                            AND (m.sender_id = $user_id OR m.receiver_id = $user_id)
+                        ");
+                        if (mysqli_num_rows($chat_members) > 0):
+                            while ($cm = mysqli_fetch_assoc($chat_members)):
+                                $p_img = $cm['profile_image'] ? $cm['profile_image'] : 'https://ui-avatars.com/api/?name=' . urlencode($cm['full_name']);
+                                ?>
+                                <div class="chat-user-item"
+                                    onclick="openChatWith(this, <?php echo $cm['id']; ?>, '<?php echo htmlspecialchars($cm['full_name']); ?>', '<?php echo $p_img; ?>')"
+                                    style="padding:15px 20px; cursor:pointer; display:flex; align-items:center; gap:15px; border-bottom:1px solid rgba(255,255,255,0.05); transition:0.2s;">
+                                    <img src="<?php echo $p_img; ?>"
+                                        style="width:40px; height:40px; border-radius:50%; object-fit:cover;">
+                                    <div>
+                                        <h5 style="margin:0; font-size:0.95rem; color:#fff;" class="chat-user-name">
+                                            <?php echo htmlspecialchars($cm['full_name']); ?>
+                                            <?php
+                                            // Check for unread messages from this member
+                                            $m_id = $cm['id'];
+                                            $unread_check = mysqli_query($link, "SELECT COUNT(*) as cnt FROM messages WHERE sender_id = $m_id AND receiver_id = $user_id AND is_read = 0");
+                                            $unread_data = mysqli_fetch_assoc($unread_check);
+                                            if ($unread_data['cnt'] > 0):
+                                                ?>
+                                                <i class="fa-solid fa-circle"
+                                                    style="color: #ceff00; font-size: 8px; margin-left: 8px; vertical-align: middle; box-shadow: 0 0 5px #ceff00;"></i>
+                                            <?php endif; ?>
+                                        </h5>
+                                        <small style="color:#aaa;">Member</small>
+                                    </div>
+                                </div>
+                            <?php endwhile;
+                        else: ?>
+                            <p style="padding:20px; text-align:center; color:#666;">No members found.</p>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <!-- Chat Window -->
+                <div class="dashboard-card"
+                    style="padding: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 0 15px 15px 0;">
+                    <div id="chat-header"
+                        style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2); display:none;">
+                        <div style="display:flex; align-items:center; gap:15px;">
+                            <img id="chat-partner-img" src=""
+                                style="width:40px; height:40px; border-radius:50%; object-fit:cover;">
+                            <div>
+                                <h4 id="chat-partner-name" style="margin:0; font-family:'Oswald';">Member Name</h4>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="chat-messages"
+                        style="flex:1; padding: 20px; overflow-y: auto; display:flex; flex-direction:column; gap:10px; background: rgba(0,0,0,0.2);">
+                        <div style="text-align:center; color:#666; margin-top:50px;">
+                            <i class="fa-regular fa-comments"
+                                style="font-size:3rem; margin-bottom:15px; opacity:0.5;"></i>
+                            <p>Select a member to view messages</p>
+                        </div>
+                    </div>
+
+                    <div id="chat-input-area"
+                        style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2); display:none;">
+                        <form onsubmit="event.preventDefault(); sendChatMessage();" style="display:flex; gap:15px;">
+                            <input type="text" id="chat-input" placeholder="Type a message..."
+                                style="flex:1; padding:12px 20px; border-radius:30px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:#fff; outline:none;">
+                            <button type="submit"
+                                style="width:45px; height:45px; border-radius:50%; border:none; background:var(--primary-color); color:#000; font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:0.3s;">
+                                <i class="fa-solid fa-paper-plane"></i>
+                            </button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1960,11 +2294,13 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
 
                     aBox.style.background = 'var(--primary-color)';
                     aBox.style.boxShadow = '0 0 10px var(--primary-color)';
-                    aBox.style.transform = 'scale(1.2)';
+                    aBox.style.background = 'var(--primary-color)';
                 }
-            }
+        }
         }
     </script>
+
+
 
     <!-- Add Inventory Modal -->
     <div id="add-inventory-modal" class="modal">
@@ -2138,7 +2474,7 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         }
                     }
                 }
-            }
+        }
         }
     </script>
     <!-- Staff Reports Modal -->
@@ -2173,12 +2509,12 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                     foreach ($staff_attendance_by_year as $year => $data):
                         $selected = $is_first ? 'selected' : '';
                         ?>
-                            <option value="<?php echo $year; ?>" <?php echo $selected; ?>
-                                style="background:#1a1a2e; color:#fff;">
-                                <?php echo $year; ?>
-                            </option>
-                            <?php
-                            $is_first = false;
+                        <option value="<?php echo $year; ?>" <?php echo $selected; ?>
+                            style="background:#1a1a2e; color:#fff;">
+                            <?php echo $year; ?>
+                        </option>
+                        <?php
+                        $is_first = false;
                     endforeach;
                     ?>
                 </select>
@@ -2188,58 +2524,58 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             <div style="padding:25px; overflow-y:auto; flex-grow:1; background:rgba(255,255,255,0.02);">
                 <?php $is_first = true;
                 foreach ($staff_attendance_by_year as $year => $months): ?>
-                        <div id="staff-year-content-<?php echo $year; ?>" class="staff-year-content-group"
-                            style="display:<?php echo $is_first ? 'grid' : 'none'; ?>; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:15px;">
-                            <?php foreach ($months as $m_num => $m_data):
-                                $has_data = $m_data['count'] > 0;
-                                // Check if future month
-                                $is_future_month = ($year == date('Y') && $m_num > date('n')) || ($year > date('Y'));
-                                ?>
-                                    <?php if ($is_future_month): ?>
-                                            <div style="text-decoration:none; display:block; cursor:not-allowed;">
-                                                <div
-                                                    style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:15px; text-align:center; position:relative; overflow:hidden; opacity:0.3;">
-                                                    <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
-                                                        <?php echo $m_data['short']; ?>
-                                                    </h4>
-                                                    <div style="font-size:1.8rem; font-weight:bold; color:#444; margin:5px 0;">
-                                                        -
-                                                    </div>
-                                                    <div
-                                                        style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
-                                                        Future</div>
-                                                </div>
+                    <div id="staff-year-content-<?php echo $year; ?>" class="staff-year-content-group"
+                        style="display:<?php echo $is_first ? 'grid' : 'none'; ?>; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:15px;">
+                        <?php foreach ($months as $m_num => $m_data):
+                            $has_data = $m_data['count'] > 0;
+                            // Check if future month
+                            $is_future_month = ($year == date('Y') && $m_num > date('n')) || ($year > date('Y'));
+                            ?>
+                            <?php if ($is_future_month): ?>
+                                <div style="text-decoration:none; display:block; cursor:not-allowed;">
+                                    <div
+                                        style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:15px; text-align:center; position:relative; overflow:hidden; opacity:0.3;">
+                                        <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
+                                            <?php echo $m_data['short']; ?>
+                                        </h4>
+                                        <div style="font-size:1.8rem; font-weight:bold; color:#444; margin:5px 0;">
+                                            -
+                                        </div>
+                                        <div
+                                            style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
+                                            Future</div>
+                                    </div>
+                                </div>
+                            <?php else: ?>
+                                <a href="staff_attendance_report.php?m=<?php echo $m_num; ?>&y=<?php echo $year; ?>" target="_blank"
+                                    style="text-decoration:none; display:block; cursor:pointer;">
+                                    <div style="background:<?php echo $has_data ? 'rgba(206, 255, 0, 0.05)' : 'rgba(255,255,255,0.02)'; ?>; border:1px solid <?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>; border-radius:12px; padding:15px; text-align:center; transition:0.3s; position:relative; overflow:hidden;"
+                                        onmouseover="this.style.transform='translateY(-3px)'; this.style.borderColor='var(--primary-color)'; this.style.boxShadow='0 5px 15px rgba(206,255,0,0.2)'"
+                                        onmouseout="this.style.transform='translateY(0)'; this.style.borderColor='<?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>'; this.style.boxShadow='none'">
+
+                                        <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
+                                            <?php echo $m_data['short']; ?>
+                                        </h4>
+
+                                        <div
+                                            style="font-size:1.8rem; font-weight:bold; color:<?php echo $has_data ? 'var(--primary-color)' : '#444'; ?>; margin:5px 0;">
+                                            <?php echo $m_data['count']; ?>
+                                        </div>
+                                        <div
+                                            style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
+                                            Days</div>
+
+                                        <?php if ($has_data): ?>
+                                            <div
+                                                style="position:absolute; top:10px; right:10px; width:8px; height:8px; background:var(--primary-color); border-radius:50%; box-shadow:0 0 5px var(--primary-color);">
                                             </div>
-                                    <?php else: ?>
-                                            <a href="staff_attendance_report.php?m=<?php echo $m_num; ?>&y=<?php echo $year; ?>" target="_blank"
-                                                style="text-decoration:none; display:block; cursor:pointer;">
-                                                <div style="background:<?php echo $has_data ? 'rgba(206, 255, 0, 0.05)' : 'rgba(255,255,255,0.02)'; ?>; border:1px solid <?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>; border-radius:12px; padding:15px; text-align:center; transition:0.3s; position:relative; overflow:hidden;"
-                                                    onmouseover="this.style.transform='translateY(-3px)'; this.style.borderColor='var(--primary-color)'; this.style.boxShadow='0 5px 15px rgba(206,255,0,0.2)'"
-                                                    onmouseout="this.style.transform='translateY(0)'; this.style.borderColor='<?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>'; this.style.boxShadow='none'">
-
-                                                    <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
-                                                        <?php echo $m_data['short']; ?>
-                                                    </h4>
-
-                                                    <div
-                                                        style="font-size:1.8rem; font-weight:bold; color:<?php echo $has_data ? 'var(--primary-color)' : '#444'; ?>; margin:5px 0;">
-                                                        <?php echo $m_data['count']; ?>
-                                                    </div>
-                                                    <div
-                                                        style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
-                                                        Days</div>
-
-                                                    <?php if ($has_data): ?>
-                                                            <div
-                                                                style="position:absolute; top:10px; right:10px; width:8px; height:8px; background:var(--primary-color); border-radius:50%; box-shadow:0 0 5px var(--primary-color);">
-                                                            </div>
-                                                    <?php endif; ?>
-                                                </div>
-                                            </a>
-                                    <?php endif; ?>
-                            <?php endforeach; ?>
-                        </div>
-                        <?php $is_first = false; endforeach; ?>
+                                        <?php endif; ?>
+                                    </div>
+                                </a>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php $is_first = false; endforeach; ?>
             </div>
         </div>
     </div>
@@ -2257,8 +2593,419 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             const modal = document.getElementById('staff-reports-modal');
             if (e.target === modal) {
                 modal.style.display = 'none';
+       }
+        });
+    </script>
+    <script>
+        let chatPollInterval;
+        let currentChatPartnerId = null;
+
+        function openChatWith(el, userId, userName, userImg) {
+            currentChatPartnerId = userId;
+
+            // Highlight selected
+            document.querySelectorAll('.chat-user-item').forEach(item => item.style.background = 'transparent');
+
+            if (el) {
+                el.style.background = 'rgba(255,255,255,0.05)';
+                // Remove yellow dot if exists
+                const dot = el.querySelector('.fa-circle');
+                if (dot) dot.remove();
+            }
+
+            // Update Header
+            document.getElementById('chat-header').style.display = 'block';
+            document.getElementById('chat-partner-img').src = userImg;
+            document.getElementById('chat-partner-name').innerText = userName;
+
+            // Show Input
+            document.getElementById('chat-input-area').style.display = 'block';
+
+            // Fetch Messages
+            fetchMessages();
+            if (chatPollInterval) clearInterval(chatPollInterval);
+            chatPollInterval = setInterval(fetchMessages, 3000);
+        }
+
+        function fetchMessages() {
+            if (!currentChatPartnerId) return;
+
+            const formData = new FormData();
+            formData.append('ajax_action', 'fetch_messages');
+            formData.append('partner_id', currentChatPartnerId);
+
+            fetch('dashboard_staff.php', {
+                method: 'POST',
+                body: formData
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        const chatBox = document.getElementById('chat-messages');
+
+                        if (data.messages.length === 0) {
+                            chatBox.innerHTML = '<div style="text-align:center; color:#666; margin-top:50px;"><i class="fa-regular fa-comments" style="font-size:3rem; margin-bottom:15px; opacity:0.5;"></i><p>No messages yet. Say hi!</p></div>';
+                        } else {
+                            const wasAtBottom = chatBox.scrollHeight - chatBox.scrollTop === chatBox.clientHeight;
+
+                            chatBox.innerHTML = '';
+                            data.messages.forEach(msg => {
+                                const isMe = msg.is_me; // staff is sender
+                                const div = document.createElement('div');
+                                div.style.alignSelf = isMe ? 'flex-end' : 'flex-start';
+                                div.style.maxWidth = '70%';
+                                div.style.padding = '10px 15px';
+                                div.style.borderRadius = isMe ? '15px 15px 0 15px' : '15px 15px 15px 0';
+                                div.style.fontSize = '0.9rem';
+                                div.style.background = isMe ? 'var(--primary-color)' : 'rgba(255,255,255,0.1)';
+                                div.style.color = isMe ? '#000' : '#fff';
+                                div.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+                                div.innerHTML = `
+                                ${msg.message}
+                                <div style="font-size:0.7rem; opacity:0.7; text-align:right; margin-top:5px; display:flex; justify-content:flex-end; align-items:center;">
+                                    ${msg.time} ${isMe ? `<i class="fa-solid fa-trash" style="font-size:0.75rem; cursor:pointer; margin-left:8px; opacity:0.6; transition:0.3s;" onmouseover="this.style.opacity=1;this.style.color='#ff4d4d'" onmouseout="this.style.opacity=0.6;this.style.color='inherit'" onclick="deleteMessage(${msg.id})"></i>` : ''}
+                                </div>
+                            `;
+                                chatBox.appendChild(div);
+                            });
+
+                            if (wasAtBottom || true) {
+                                chatBox.scrollTop = chatBox.scrollHeight;
+                            }
+                        }
+                    }
+                });
+        }
+
+
+        function deleteMessage(id) {
+            if (!confirm('Are you sure you want to delete this message?')) return;
+
+            const formData = new FormData();
+            formData.append('ajax_action', 'delete_message');
+            formData.append('message_id', id);
+
+            fetch('dashboard_staff.php', { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) fetchMessages();
+                });
+        }
+
+        function sendChatMessage() {
+            const input = document.getElementById('chat-input');
+            const msg = input.value.trim();
+            if (!msg || !currentChatPartnerId) return;
+
+            const formData = new FormData();
+            formData.append('ajax_action', 'send_message');
+            formData.append('receiver_id', currentChatPartnerId);
+            formData.append('message', msg);
+
+            input.value = '';
+
+            fetch('dashboard_staff.php', { method: 'POST', body: formData })
+                .then(() => fetchMessages());
+        }
+
+        let searchTimeout;
+        function searchChatMembers(query) {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                const formData = new FormData();
+                formData.append('ajax_action', 'search_chat_users');
+                formData.append('search', query);
+
+                fetch('dashboard_staff.php', { method: 'POST', body: formData })
+                    .then(res => res.text())
+                    .then(html => {
+                        document.getElementById('chat-members-list').innerHTML = html;
+                    });
+            }, 300); // 300ms debounce
+        }
+
+        function checkNotifications() {
+            const formData = new FormData();
+            formData.append('ajax_action', 'check_notifications');
+
+            fetch('dashboard_staff.php', { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    const badge = document.getElementById('msg-badge');
+                    if (data.success && data.count > 0) {
+                        badge.innerText = data.count;
+                        badge.style.display = 'inline-block';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                })
+                .catch(err => console.error(err));
+        }
+
+        // Poll for notifications every 3 seconds
+        setInterval(checkNotifications, 3000);
+
+        // Initial check
+        checkNotifications();
+    </script>
+    <!-- Member Attendance Interactive Modal -->
+    <div id="member-attendance-modal" class="modal">
+        <div class="modal-content" style="max-width: 800px; background: #1a1a2e; color: #fff;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="font-family:'Oswald'; margin:0; color:var(--primary-color);" id="mem-att-title">Attendance
+                </h3>
+                <span onclick="closeModal('member-attendance-modal')"
+                    style="cursor:pointer; font-size:1.5rem;">&times;</span>
+            </div>
+
+            <div
+                style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; background:rgba(255,255,255,0.05); padding:15px; border-radius:10px;">
+                <div style="display:flex; gap:10px;">
+                    <select id="att-month" onchange="loadMemberAttendance()"
+                        style="padding:8px; border-radius:5px; background:#000; color:#fff; border:1px solid #333;">
+                        <option value="1">January</option>
+                        <option value="2">February</option>
+                        <option value="3">March</option>
+                        <option value="4">April</option>
+                        <option value="5">May</option>
+                        <option value="6">June</option>
+                        <option value="7">July</option>
+                        <option value="8">August</option>
+                        <option value="9">September</option>
+                        <option value="10">October</option>
+                        <option value="11">November</option>
+                        <option value="12">December</option>
+                    </select>
+                    <select id="att-year" onchange="loadMemberAttendance()"
+                        style="padding:8px; border-radius:5px; background:#000; color:#fff; border:1px solid #333;">
+                        <?php
+                        $cur_y = date('Y');
+                        for ($y = $cur_y; $y >= $cur_y - 2; $y--) {
+                            echo "<option value='$y'>$y</option>";
+                        }
+                        ?>
+                    </select>
+                </div>
+                <a href="#" id="view-pdf-btn" target="_blank"
+                    style="color:var(--primary-color); text-decoration:none; font-size:0.9rem; border:1px solid var(--primary-color); padding:5px 15px; border-radius:5px; transition:0.3s;"
+                    onmouseover="this.style.background='var(--primary-color)'; this.style.color='#000'"
+                    onmouseout="this.style.background='transparent'; this.style.color='var(--primary-color)'">
+                    <i class="fa-solid fa-file-pdf"></i> View PDF Report
+                </a>
+            </div>
+
+            <div id="att-days-container"
+                style="display: grid; grid-template-columns: repeat(auto-fill, minmax(45px, 1fr)); gap: 10px; margin-bottom: 20px;">
+                <!-- Days injected here -->
+            </div>
+
+            <div style="display:flex; gap:20px; font-size:0.85rem; color:var(--text-gray);">
+                <span style="display:flex; align-items:center; gap:8px;">
+                    <div style="width:12px; height:12px; background:var(--primary-color); border-radius:4px;"></div>
+                    Present
+                </span>
+                <span style="display:flex; align-items:center; gap:8px;">
+                    <div
+                        style="width:12px; height:12px; background:rgba(220, 53, 69, 0.25); border:2px solid rgba(220, 53, 69, 0.6); border-radius:4px;">
+                    </div> Absent
+                </span>
+                <span style="display:flex; align-items:center; gap:8px;">
+                    <div style="width:12px; height:12px; background:rgba(100, 100, 120, 0.3); border-radius:4px;"></div>
+                    Not Marked
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Attendance Action Popover -->
+    <div id="attendance-popover"
+        style="display:none; position:fixed; background:#1a1a2e; border:1px solid rgba(255,255,255,0.1); padding:10px; border-radius:8px; z-index:10000; box-shadow:0 5px 20px rgba(0,0,0,0.5); min-width:150px;">
+        <div style="font-size:0.8rem; color:#aaa; margin-bottom:8px; text-align:center;" id="popover-date-label"></div>
+        <button onclick="confirmAttendanceStatus('present')"
+            style="display:flex; align-items:center; width:100%; padding:8px 12px; margin-bottom:5px; border:none; background:rgba(206, 255, 0, 0.1); color:var(--primary-color); font-weight:bold; border-radius:4px; cursor:pointer; font-size:0.9rem; gap:8px; transition:0.2s;"
+            onmouseover="this.style.background='var(--primary-color)'; this.style.color='#000'"
+            onmouseout="this.style.background='rgba(206, 255, 0, 0.1)'; this.style.color='var(--primary-color)'">
+            <i class="fa-solid fa-check"></i> Present
+        </button>
+        <button onclick="confirmAttendanceStatus('absent')"
+            style="display:flex; align-items:center; width:100%; padding:8px 12px; border:none; background:rgba(255, 77, 77, 0.1); color:#ff4d4d; font-weight:bold; border-radius:4px; cursor:pointer; font-size:0.9rem; gap:8px; transition:0.2s;"
+            onmouseover="this.style.background='#ff4d4d'; this.style.color='#fff'"
+            onmouseout="this.style.background='rgba(255, 77, 77, 0.1)'; this.style.color='#ff4d4d'">
+            <i class="fa-solid fa-xmark"></i> Absent
+        </button>
+    </div>
+
+    <script>
+        let currentMemId = null;
+        let selectedDateForAction = null;
+        let selectedElementForAction = null;
+
+        function openAttendanceModal(uid, name) {
+            currentMemId = uid;
+            document.getElementById('mem-att-title').innerText = "Attendance: " + name;
+            document.getElementById('member-attendance-modal').style.display = 'flex';
+
+            // Set current month/year
+            const d = new Date();
+            document.getElementById('att-month').value = d.getMonth() + 1;
+            document.getElementById('att-year').value = d.getFullYear();
+
+            loadMemberAttendance();
+        }
+
+        // Close Popover on outside click
+        window.addEventListener('click', function (e) {
+            const pop = document.getElementById('attendance-popover');
+            if (pop.style.display === 'block' && !e.target.closest('.att-day-cell') && !pop.contains(e.target)) {
+                pop.style.display = 'none';
             }
         });
+
+        function loadMemberAttendance() {
+            const m = document.getElementById('att-month').value;
+            const y = document.getElementById('att-year').value;
+            const uid = currentMemId;
+
+            // Update PDF link
+            document.getElementById('view-pdf-btn').href = `staff_view_member_report.php?uid=${uid}&m=${m}&y=${y}`;
+
+            const formData = new FormData();
+            formData.append('ajax_action', 'fetch_member_attendance');
+            formData.append('member_id', uid);
+            formData.append('month', m);
+            formData.append('year', y);
+
+            fetch('dashboard_staff.php', {
+                method: 'POST',
+                body: formData
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        renderAttendanceGrid(m, y, data.attendance_map);
+                    }
+                });
+        }
+
+        function renderAttendanceGrid(month, year, attendanceMap) {
+            const daysInMonth = new Date(year, month, 0).getDate();
+            const container = document.getElementById('att-days-container');
+            container.innerHTML = '';
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+                // Determine Status
+                // attendanceMap is now { "2026-02-04": "present", "2026-02-05": "absent" }
+                const status = attendanceMap[dateStr] || null;
+
+                // Determine if future
+                const cellDate = new Date(year, month - 1, d);
+                const isFuture = cellDate > today;
+
+                const el = document.createElement('div');
+                el.className = 'att-day-cell'; // Helper class for click detection
+                el.innerText = d;
+
+                let bg = 'rgba(100, 100, 120, 0.3)'; // Darker grey for not marked
+                let color = '#aaa';
+                let cursor = 'pointer';
+                let opacity = '1';
+                let border = 'none';
+
+                if (isFuture) {
+                    bg = 'rgba(0,0,0,0.5)';
+                    color = '#555';
+                    cursor = 'not-allowed';
+                    opacity = '0.5';
+                } else if (status === 'present') {
+                    bg = 'var(--primary-color)';
+                    color = '#000';
+                } else if (status === 'absent') {
+                    bg = 'rgba(220, 53, 69, 0.25)'; // Brighter red background
+                    color = '#dc3545'; // Bright red text
+                    border = '2px solid rgba(220, 53, 69, 0.6)'; // Stronger red border
+                }
+
+                el.style.cssText = `
+                height: 45px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 8px;
+                cursor: ${cursor};
+                font-weight: bold;
+                transition: 0.2s;
+                background: ${bg};
+                color: ${color};
+                position: relative;
+                opacity: ${opacity};
+                border: ${border};
+            `;
+
+                if (!isFuture) {
+                    el.onclick = (e) => showAttendancePopover(e, dateStr, el);
+                }
+
+                container.appendChild(el);
+            }
+        }
+
+        function showAttendancePopover(e, date, el) {
+            e.stopPropagation(); // Prevent immediate closing
+            selectedDateForAction = date;
+            selectedElementForAction = el;
+
+            const pop = document.getElementById('attendance-popover');
+            const rect = el.getBoundingClientRect();
+
+            // Position popover
+            pop.style.display = 'block';
+            pop.style.top = (rect.bottom + 5) + 'px';
+            pop.style.left = (rect.left - 50) + 'px'; // Center roughly
+
+            // Fix edge overflow
+            if (parseInt(pop.style.left) < 10) pop.style.left = '10px';
+
+            document.getElementById('popover-date-label').innerText = "Actions for " + date;
+        }
+
+        function confirmAttendanceStatus(status) {
+            const pop = document.getElementById('attendance-popover');
+            pop.style.display = 'none';
+
+            if (!currentMemId || !selectedDateForAction) return;
+
+            const formData = new FormData();
+            formData.append('ajax_action', 'set_member_attendance');
+            formData.append('member_id', currentMemId);
+            formData.append('date', selectedDateForAction);
+            formData.append('status', status);
+
+            fetch('dashboard_staff.php', {
+                method: 'POST',
+                body: formData
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        const el = selectedElementForAction;
+
+                        if (status === 'present') {
+                            el.style.background = 'var(--primary-color)';
+                            el.style.color = '#000';
+                            el.style.border = 'none';
+                        } else if (status === 'absent') {
+                            el.style.background = 'rgba(220, 53, 69, 0.25)';
+                            el.style.color = '#dc3545';
+                            el.style.border = '2px solid rgba(220, 53, 69, 0.6)';
+                        }
+                    }
+                });
+        }
     </script>
 </body>
 
