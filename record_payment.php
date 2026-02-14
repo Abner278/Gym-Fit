@@ -25,30 +25,28 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
             if (mysqli_stmt_execute($stmt)) {
 
-                // ALSO UPDATE USER MEMBERSHIP STATUS
-                // Since they paid, we should update their membership plan and expiry
-                // Calculate new expiry (assuming 1 month for Monthly, 12 for Yearly etc, or standard logic)
-                // For simplicity, just add 30 days if it's Monthly, 365 if Yearly, else 30 days default
+                // ALSO UPDATE USER MEMBERSHIP STATUS - ONLY IF NOT A STORE PURCHASE
+                if (stripos($plan_name, 'Store:') === false) {
+                    // Since they paid, we should update their membership plan and expiry
+                    // Calculate new expiry (assuming 1 month for Monthly, 12 for Yearly etc, or standard logic)
+                    // For simplicity, just add 30 days if it's Monthly, 365 if Yearly, else 30 days default
 
-                $duration_days = 30;
-                if (stripos($plan_name, 'Yearly') !== false) {
-                    $duration_days = 365;
-                } elseif (stripos($plan_name, 'Quarterly') !== false) {
-                    $duration_days = 90;
-                } else if (stripos($plan_name, 'Weekly') !== false) {
-                    $duration_days = 7;
-                }
+                    $duration_days = 30;
+                    if (stripos($plan_name, 'Yearly') !== false) {
+                        $duration_days = 365;
+                    } elseif (stripos($plan_name, 'Quarterly') !== false) {
+                        $duration_days = 90;
+                    } else if (stripos($plan_name, 'Weekly') !== false) {
+                        $duration_days = 7;
+                    }
 
-                $expiry_date = date('Y-m-d', strtotime("+$duration_days days"));
+                    $expiry_date = date('Y-m-d', strtotime("+$duration_days days"));
 
-                // Fetch current expiry to extend if active? 
-                // For now, simplify: just set new expiry from today or extend current logic 
-                // (Assuming simple overwrite or extend for demo)
-
-                $upd_sql = "UPDATE users SET membership_status = 'Active', membership_plan = ?, membership_expiry = ? WHERE id = ?";
-                if ($upd = mysqli_prepare($link, $upd_sql)) {
-                    mysqli_stmt_bind_param($upd, "ssi", $plan_name, $expiry_date, $user_id);
-                    mysqli_stmt_execute($upd);
+                    $upd_sql = "UPDATE users SET membership_status = 'Active', membership_plan = ?, membership_expiry = ? WHERE id = ?";
+                    if ($upd = mysqli_prepare($link, $upd_sql)) {
+                        mysqli_stmt_bind_param($upd, "ssi", $plan_name, $expiry_date, $user_id);
+                        mysqli_stmt_execute($upd);
+                    }
                 }
 
                 echo json_encode(['status' => 'success', 'message' => 'Transaction recorded']);

@@ -1583,7 +1583,28 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         <tbody>
                             <?php if (count($grouped_payments) > 0): ?>
                                 <?php foreach ($grouped_payments as $uid => $data):
-                                    $latest = $data['history'][0]; // First item is latest
+                                    // Find latest ACTUAL membership plan
+                                    $latest_membership = null;
+                                    foreach ($data['history'] as $payment) {
+                                        // Check if plan is NOT a trainer appointment
+                                        if (stripos($payment['plan_name'], 'Trainer Appointment') === false) {
+                                            $latest_membership = $payment;
+                                            break;
+                                        }
+                                    }
+
+                                    // If found, use it. If not (only appointments), use the absolute latest but display specific text
+                                    if ($latest_membership) {
+                                        $display_plan = $latest_membership['plan_name'];
+                                        $display_date = $latest_membership['created_at'];
+                                        $display_status = $latest_membership['status'];
+                                    } else {
+                                        // No membership found, only appointments
+                                        $display_plan = '<span style="color: var(--text-gray); font-style: italic;">No Active Plan</span>';
+                                        $display_date = $data['history'][0]['created_at']; // Show date of latest interaction
+                                        $display_status = $data['history'][0]['status'];
+                                    }
+
                                     $count = count($data['history']);
                                     ?>
                                     <!-- Main User Row -->
@@ -1597,14 +1618,14 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                                             </div>
                                         </td>
                                         <td><span
-                                                style="color: var(--primary-color);"><?php echo htmlspecialchars($latest['plan_name']); ?></span>
+                                                style="color: var(--primary-color);"><?php echo $latest_membership ? htmlspecialchars($display_plan) : $display_plan; ?></span>
                                         </td>
                                         <td>
-                                            <?php echo date('M d, Y', strtotime($latest['created_at'])); ?>
+                                            <?php echo date('M d, Y', strtotime($display_date)); ?>
                                             <span
-                                                class="badge <?php echo $latest['status'] == 'completed' ? 'badge-success' : ($latest['status'] == 'pending' ? 'badge-warning' : ''); ?>"
+                                                class="badge <?php echo $display_status == 'completed' ? 'badge-success' : ($display_status == 'pending' ? 'badge-warning' : ''); ?>"
                                                 style="margin-left: 5px; font-size: 0.7rem;">
-                                                <?php echo ucfirst($latest['status']); ?>
+                                                <?php echo ucfirst($display_status); ?>
                                             </span>
                                         </td>
                                         <td style="text-align: right;">
@@ -2296,7 +2317,7 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                     aBox.style.boxShadow = '0 0 10px var(--primary-color)';
                     aBox.style.background = 'var(--primary-color)';
                 }
-        }
+            }
         }
     </script>
 
@@ -2474,7 +2495,7 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         }
                     }
                 }
-        }
+            }
         }
     </script>
     <!-- Staff Reports Modal -->
@@ -2593,7 +2614,7 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             const modal = document.getElementById('staff-reports-modal');
             if (e.target === modal) {
                 modal.style.display = 'none';
-       }
+            }
         });
     </script>
     <script>

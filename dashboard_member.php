@@ -53,6 +53,12 @@ $measure_sql = "CREATE TABLE IF NOT EXISTS body_measurements (
 )";
 mysqli_query($link, $measure_sql);
 
+// Ensure transactions table has is_deleted_by_user column
+$check_col = mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'is_deleted_by_user'");
+if (mysqli_num_rows($check_col) == 0) {
+    mysqli_query($link, "ALTER TABLE transactions ADD COLUMN is_deleted_by_user TINYINT(1) DEFAULT 0");
+}
+
 // --- AJAX TASK HANDLING ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_action'])) {
     header('Content-Type: application/json');
@@ -70,7 +76,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['ajax_action'])) {
         }
     } elseif ($_POST['ajax_action'] == 'delete_transaction') {
         $trans_id = (int) $_POST['trans_id'];
-        if (mysqli_query($link, "DELETE FROM transactions WHERE id = $trans_id AND user_id = $user_id")) {
+        // Soft delete: Mark as deleted by user, but keep in DB for staff
+        if (mysqli_query($link, "UPDATE transactions SET is_deleted_by_user = 1 WHERE id = $trans_id AND user_id = $user_id")) {
             $res = ["success" => true];
         }
     } elseif ($_POST['ajax_action'] == 'delete_task') {
@@ -182,8 +189,89 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['log_measurements'])) {
     exit;
 }
 
+// --- HANDLE GYM STORE ORDER ---
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['confirm_store_order'])) {
+    $product_name = mysqli_real_escape_string($link, $_POST['product_name']);
+    $product_price = (float) $_POST['product_price'];
+    $payment_method = mysqli_real_escape_string($link, $_POST['payment_method']);
+
+    $status = 'pending'; // Cash orders are pending until paid
+    $plan_name_db = "Store: " . $product_name;
+
+    $sql = "INSERT INTO transactions (user_id, plan_name, amount, payment_method, status) VALUES (?, ?, ?, ?, ?)";
+    if ($stmt = mysqli_prepare($link, $sql)) {
+        mysqli_stmt_bind_param($stmt, "isdss", $user_id, $plan_name_db, $product_price, $payment_method, $status);
+        if (mysqli_stmt_execute($stmt)) {
+            $_SESSION['flash_message'] = "Order for $product_name placed successfully! Pay ₹$product_price upon collection.";
+        } else {
+            $_SESSION['flash_message'] = "Error placing order.";
+        }
+        mysqli_stmt_close($stmt);
+    }
+    header("location: dashboard_member.php?section=gym-store");
+    exit;
+}
+
+// --- HANDLE PROGRESS PHOTO UPLOAD ---
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['upload_progress_photo'])) {
+    $date_taken = mysqli_real_escape_string($link, $_POST['date_taken']);
+    $photo_type = mysqli_real_escape_string($link, $_POST['photo_type']);
+    $notes = mysqli_real_escape_string($link, $_POST['notes']);
+
+    if (isset($_FILES['photo_file']) && $_FILES['photo_file']['error'] == 0) {
+        $target_dir = "assets/images/progress/";
+        if (!file_exists($target_dir)) {
+            mkdir($target_dir, 0777, true);
+        }
+
+        $file_ext = pathinfo($_FILES["photo_file"]["name"], PATHINFO_EXTENSION);
+        $new_filename = "progress_" . $user_id . "_" . time() . "." . $file_ext;
+        $target_file = $target_dir . $new_filename;
+
+        // Check file type
+        $allowed = array('jpg', 'jpeg', 'png', 'gif', 'webp');
+        if (in_array(strtolower($file_ext), $allowed)) {
+            if (move_uploaded_file($_FILES["photo_file"]["tmp_name"], $target_file)) {
+                $sql = "INSERT INTO user_progress_photos (user_id, photo_path, photo_type, date_taken, notes) VALUES ($user_id, '$target_file', '$photo_type', '$date_taken', '$notes')";
+                if (mysqli_query($link, $sql)) {
+                    $_SESSION['flash_message'] = "Progress photo uploaded successfully!";
+                } else {
+                    $_SESSION['flash_message'] = "Database error: " . mysqli_error($link);
+                }
+            } else {
+                $_SESSION['flash_message'] = "Error uploading file.";
+            }
+        } else {
+            $_SESSION['flash_message'] = "Invalid file type. Only JPG, JPEG, PNG, GIF, WEBP allowed.";
+        }
+    } else {
+        $_SESSION['flash_message'] = "Please select a file to upload.";
+    }
+    header("location: dashboard_member.php?section=progress-photos");
+    exit;
+}
+
+// --- HANDLE PROGRESS PHOTO DELETION ---
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_progress_photo'])) {
+    $photo_id = (int) $_POST['photo_id'];
+
+    // Get path to delete file
+    $path_query = mysqli_query($link, "SELECT photo_path FROM user_progress_photos WHERE id = $photo_id AND user_id = $user_id");
+    if ($row = mysqli_fetch_assoc($path_query)) {
+        $file_path = $row['photo_path'];
+        if (file_exists($file_path)) {
+            unlink($file_path);
+        }
+        mysqli_query($link, "DELETE FROM user_progress_photos WHERE id = $photo_id AND user_id = $user_id");
+        $_SESSION['flash_message'] = "Progress photo deleted.";
+    }
+    header("location: dashboard_member.php?section=progress-photos");
+    exit;
+}
+
 // Refined Auto-Fix: Restore correct plan from transaction history
 if (isset($user_id)) {
+
     // Find key last valid membership payment to sync status
     $restore_q = mysqli_query($link, "SELECT plan_name FROM transactions WHERE user_id = $user_id AND plan_name != 'Trainer Appointment' ORDER BY created_at DESC LIMIT 1");
     if ($restore_row = mysqli_fetch_assoc($restore_q)) {
@@ -219,6 +307,13 @@ $plans_res = mysqli_query($link, "SELECT * FROM membership_plans ORDER BY id ASC
 
 // FETCH MEASUREMENTS
 $measure_res = mysqli_query($link, "SELECT * FROM body_measurements WHERE user_id = $user_id ORDER BY recorded_at DESC");
+
+// FETCH PROGRESS PHOTOS
+$progress_photos_res = mysqli_query($link, "SELECT * FROM user_progress_photos WHERE user_id = $user_id ORDER BY date_taken DESC");
+$progress_photos = [];
+while ($row = mysqli_fetch_assoc($progress_photos_res)) {
+    $progress_photos[] = $row;
+}
 
 
 
@@ -307,12 +402,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_appointment']))
 }
 
 // FETCH ATTENDANCE HISTORY
-$attendance_res = mysqli_query($link, "SELECT date FROM attendance WHERE user_id = $user_id ORDER BY date DESC");
+$attendance_res = mysqli_query($link, "SELECT date, status FROM attendance WHERE user_id = $user_id ORDER BY date DESC");
 $attendance_dates = [];
+$attendance_map = [];
 while ($row = mysqli_fetch_assoc($attendance_res)) {
-    $attendance_dates[] = $row['date'];
+    $attendance_map[$row['date']] = $row['status'];
+    // Keep attendance_dates for backward compatibility (only 'present' dates)
+    if ($row['status'] === 'present') {
+        $attendance_dates[] = $row['date'];
+    }
 }
-$is_present_today = in_array(date('Y-m-d'), $attendance_dates);
+$is_present_today = isset($attendance_map[date('Y-m-d')]) && $attendance_map[date('Y-m-d')] === 'present';
 
 // Calculate Monthly Stats for Reports Modal (Grouped by Year)
 $attendance_by_year = [];
@@ -490,7 +590,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['complete_payment'])) {
 // FETCH DATA FOR DISPLAY
 $tasks = mysqli_query($link, "SELECT * FROM tasks WHERE user_id = $user_id ORDER BY created_at DESC");
 // Split transactions
-$membership_transactions = mysqli_query($link, "SELECT * FROM transactions WHERE user_id = $user_id AND plan_name NOT LIKE 'Trainer Appointment%' ORDER BY created_at DESC");
+$membership_transactions = mysqli_query($link, "SELECT * FROM transactions WHERE user_id = $user_id AND plan_name NOT LIKE 'Trainer Appointment%' AND plan_name NOT LIKE 'Store:%' ORDER BY created_at DESC");
 $trainer_transactions = mysqli_query($link, "SELECT * FROM transactions WHERE user_id = $user_id AND (plan_name = 'Trainer Appointment' OR plan_name LIKE 'Trainer Appointment • %') ORDER BY created_at DESC");
 
 // --- MONTHLY NAVIGATION LOGIC ---
@@ -665,6 +765,13 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             color: #fff;
             display: flex;
             min-height: 100vh;
+        }
+
+        /* Enforce dark mode for native controls */
+        input,
+        select,
+        textarea {
+            color-scheme: dark;
         }
 
         /* Sidebar */
@@ -1550,22 +1657,31 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     Website</a></li>
             <li><a href="#" onclick="showSection('overview')" id="nav-overview"><i class="fa-solid fa-chart-pie"></i>
                     Overview</a></li>
+            <li><a href="#" onclick="showSection('bmi-calculator')"><i class="fa-solid fa-weight-scale"></i> BMI
+                    Calculator</a></li>
+            <li><a href="#" onclick="showSection('measurements')" id="nav-measurements"><i
+                        class="fa-solid fa-ruler-combined"></i> Measurements</a></li>
             <li><a href="#" onclick="showSection('attendance')"><i class="fa-solid fa-calendar-check"></i>
                     Attendance</a></li>
             <li><a href="#" onclick="showSection('workouts')" id="nav-workouts"><i class="fa-solid fa-dumbbell"></i>
                     Workout Journey</a></li>
-            <li><a href="#" onclick="showSection('my-appointments')" id="nav-my-appointments"><i
-                        class="fa-solid fa-calendar-check"></i> My Appointments</a></li>
-            <li><a href="#" onclick="showSection('todo')"><i class="fa-solid fa-list-check"></i> Daily To-Do</a></li>
-            <li><a href="#" onclick="showSection('membership')"><i class="fa-solid fa-id-card"></i> Membership</a></li>
             <li><a href="#" onclick="showSection('trainers')" id="nav-trainers"><i class="fa-solid fa-user-group"></i>
                     Trainers</a></li>
+            <li><a href="#" onclick="showSection('my-appointments')" id="nav-my-appointments"><i
+                        class="fa-solid fa-calendar-check"></i> My Appointments</a></li>
             <li><a href="#" onclick="showSection('chat')" id="nav-chat"><i class="fa-solid fa-comments"></i> Chat with
                     Trainer</a></li>
-            <li><a href="#" onclick="showSection('measurements')" id="nav-measurements"><i
-                        class="fa-solid fa-ruler-combined"></i> Measurements</a></li>
-            <li><a href="#" onclick="showSection('bmi-calculator')"><i class="fa-solid fa-weight-scale"></i> BMI
-                    Calculator</a></li>
+            <li><a href="#" onclick="showSection('todo')"><i class="fa-solid fa-list-check"></i> Daily To-Do</a></li>
+            <li><a href="#" onclick="showSection('membership')"><i class="fa-solid fa-id-card"></i> Membership</a></li>
+
+
+
+            <li><a href="#" onclick="showSection('progress-photos')" id="nav-progress-photos"><i
+                        class="fa-solid fa-camera"></i> Progress Photos</a></li>
+
+            <li><a href="#" onclick="showSection('gym-store')" id="nav-gym-store"><i class="fa-solid fa-store"></i> Gym
+                    Store</a></li>
+
             <li><a href="#" onclick="showSection('profile')" id="nav-profile"><i class="fa-solid fa-id-card"></i>
                     Profile</a></li>
         </ul>
@@ -1647,6 +1763,114 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     </div>
                 <?php endif; ?>
             </div>
+        </div>
+
+        <!-- Attendance Section -->
+        <div id="attendance" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Attendance History
+                (<?php echo date('F Y'); ?>)</h2>
+
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
+                <button onclick="window.open('attendance_report.php', '_blank')"
+                    style="background: var(--primary-color); color: #000; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.3s;">
+                    <i class="fa-solid fa-file-pdf"></i> View Attendance
+                </button>
+            </div>
+
+            <div
+                style="display: grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap: 10px; margin-bottom: 20px;">
+                <?php
+                $current_month = date('m');
+                $current_year = date('Y');
+                $days_in_month = date('t');
+
+                for ($day = 1; $day <= $days_in_month; $day++):
+                    $date_str = sprintf('%04d-%02d-%02d', $current_year, $current_month, $day);
+                    $is_future = strtotime($date_str) > time();
+                    $is_before_join = $date_str < $join_date;
+
+                    // Get status from attendance_map
+                    $status = isset($attendance_map[$date_str]) ? $attendance_map[$date_str] : null;
+
+                    $bg_color = 'rgba(255,255,255,0.05)'; // Default: Not marked
+                    $text_color = '#666';
+                    $border = 'none';
+                    $status_key = 'notmarked'; // For JS
+                
+                    if ($is_before_join) {
+                        $bg_color = 'rgba(100,100,100,0.2)';
+                        $text_color = '#555';
+                        $status_key = 'disabled';
+                    } elseif ($status === 'present') {
+                        $bg_color = 'var(--primary-color)'; // Green
+                        $text_color = '#000';
+                        $status_key = 'present';
+                    } elseif ($status === 'absent') {
+                        $bg_color = '#dc3545'; // Solid Red background
+                        $text_color = '#fff'; // White text
+                        $border = 'none';
+                        $status_key = 'absent';
+                    } elseif ($is_future) {
+                        $bg_color = 'rgba(255,255,255,0.02)';
+                        $text_color = '#444';
+                        $status_key = 'disabled';
+                    }
+                    ?>
+                    <div onclick="highlightStatus('<?php echo $status_key; ?>', this)"
+                        style="background: <?php echo $bg_color; ?>; color: <?php echo $text_color; ?>; padding: 15px 10px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 1.1rem; border: <?php echo $border; ?>; cursor: pointer; transition: 0.2s;">
+                        <?php echo $day; ?>
+                    </div>
+                <?php endfor; ?>
+            </div>
+
+            <div style="display: flex; gap: 20px; justify-content: center; font-size: 0.9rem;">
+                <div id="legend-present" class="status-legend"
+                    style="display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 6px; transition: 0.3s;">
+                    <div style="width: 20px; height: 20px; background: var(--primary-color); border-radius: 4px;"></div>
+                    <span>Present</span>
+                </div>
+                <div id="legend-absent" class="status-legend"
+                    style="display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 6px; transition: 0.3s;">
+                    <div style="width: 20px; height: 20px; background: #dc3545; border-radius: 4px;">
+                    </div>
+                    <span>Absent</span>
+                </div>
+                <div id="legend-notmarked" class="status-legend"
+                    style="display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 6px; transition: 0.3s;">
+                    <div style="width: 20px; height: 20px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                    </div>
+                    <span>Not Marked</span>
+                </div>
+            </div>
+
+            <script>
+                function highlightStatus(status, element) {
+                    if (status === 'disabled') return;
+
+                    // Reset all legends
+                    const legends = document.querySelectorAll('.status-legend');
+                    legends.forEach(el => {
+                        el.style.background = 'transparent';
+                        el.style.boxShadow = 'none';
+                        el.style.border = 'none';
+                    });
+
+                    // Highlight target legend
+                    const targetId = 'legend-' + status;
+                    const target = document.getElementById(targetId);
+                    if (target) {
+                        target.style.background = 'rgba(255, 255, 255, 0.1)';
+                        target.style.boxShadow = '0 0 10px var(--primary-color)';
+                        target.style.border = '1px solid var(--primary-color)';
+                    }
+
+                    // Optional: visual feedback on clicked day
+                    element.style.transform = 'scale(0.95)';
+                    setTimeout(() => {
+                        element.style.transform = 'scale(1)';
+                    }, 100);
+                }
+            </script>
         </div>
 
         <!-- WorkoutJourney Section with Calendar -->
@@ -2964,7 +3188,201 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             </div>
         </div>
 
+        <!-- Progress Photos Section -->
+        <div id="progress-photos" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">My Progress Photos</h2>
 
+            <div class="dashboard-grid">
+                <!-- Upload Card -->
+                <div class="dashboard-card">
+                    <h3>Upload New Photo</h3>
+                    <form method="POST" enctype="multipart/form-data">
+                        <input type="hidden" name="upload_progress_photo" value="1">
+
+                        <div style="margin-bottom: 15px;">
+                            <label style="display:block; margin-bottom:5px; color:#ddd;">Date Taken</label>
+                            <input type="date" name="date_taken" required value="<?php echo date('Y-m-d'); ?>"
+                                max="<?php echo date('Y-m-d'); ?>"
+                                style="width:100%; padding:12px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff;">
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label style="display:block; margin-bottom:5px; color:#ddd;">Photo Type</label>
+                            <select name="photo_type"
+                                style="width:100%; padding:12px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff;">
+                                <option value="progress" style="background: #2b2b2b; color: #fff;">Progress Update
+                                </option>
+                                <option value="before" style="background: #2b2b2b; color: #fff;">Before Transformation
+                                </option>
+                                <option value="after" style="background: #2b2b2b; color: #fff;">After Transformation
+                                </option>
+                            </select>
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label style="display:block; margin-bottom:5px; color:#ddd;">Notes (Optional)</label>
+                            <textarea name="notes" placeholder="Weight, feelings, etc." rows="3"
+                                style="width:100%; padding:12px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff;"></textarea>
+                        </div>
+
+                        <div class="profile-img-container"
+                            style="margin-bottom: 20px; height: 200px; background: rgba(0,0,0,0.2); border: 2px dashed rgba(255,255,255,0.1); position: relative; overflow: hidden;">
+                            <label for="progress_photo_file" class="upload-overlay" id="upload-label"
+                                style="opacity: 1; background: none; flex-direction: column; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; position: absolute; top:0; left:0; cursor: pointer; z-index: 2;color: #fff;">
+                                <i class="fa-solid fa-cloud-arrow-up" style="font-size: 2rem; margin-bottom: 10px;"></i>
+                                <span>Click to Select Photo</span>
+                            </label>
+                            <img id="progress-preview" src=""
+                                style="display:none; width: 100%; height: 100%; object-fit: contain; position: absolute; top:0; left:0; z-index: 1;">
+                            <input type="file" id="progress_photo_file" name="photo_file" accept="image/*"
+                                style="display:none;" onchange="previewProgressImage(this)">
+                        </div>
+
+                        <button type="submit" class="btn-action">
+                            <i class="fa-solid fa-upload"></i> Upload Photo
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Timeline / Gallery -->
+                <div class="dashboard-card">
+                    <h3>Photo Timeline</h3>
+                    <?php if (empty($progress_photos)): ?>
+                        <div style="text-align: center; padding: 40px; color: var(--text-gray);">
+                            <i class="fa-regular fa-images" style="font-size: 3rem; margin-bottom: 15px; opacity: 0.5;"></i>
+                            <p>No photos uploaded yet. Start tracking your visual progress!</p>
+                        </div>
+                    <?php else: ?>
+                        <div class="timeline-container"
+                            style="display: flex; flex-direction: column; gap: 20px; max-height: 600px; overflow-y: auto; padding-right: 10px;">
+                            <?php foreach ($progress_photos as $photo): ?>
+                                <div class="photo-item"
+                                    style="display: flex; gap: 15px; background: rgba(255,255,255,0.03); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                                    <div style="width: 120px; height: 120px; flex-shrink: 0; background: #000; border-radius: 8px; overflow: hidden; cursor: pointer;"
+                                        onclick="viewFullImage('<?php echo htmlspecialchars($photo['photo_path']); ?>')">
+                                        <img src="<?php echo htmlspecialchars($photo['photo_path']); ?>"
+                                            style="width: 100%; height: 100%; object-fit: cover;">
+                                    </div>
+                                    <div style="flex-grow: 1;">
+                                        <div
+                                            style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                            <div>
+                                                <span style="
+                                                    text-transform: uppercase; 
+                                                    font-size: 0.7rem; 
+                                                    font-weight: bold; 
+                                                    padding: 2px 8px; 
+                                                    border-radius: 4px;
+                                                    background: <?php
+                                                    if ($photo['photo_type'] == 'before')
+                                                        echo 'rgba(255, 77, 77, 0.2)';
+                                                    elseif ($photo['photo_type'] == 'after')
+                                                        echo 'rgba(0, 255, 0, 0.2)';
+                                                    else
+                                                        echo 'rgba(206, 255, 0, 0.2)';
+                                                    ?>;
+                                                    color: <?php
+                                                    if ($photo['photo_type'] == 'before')
+                                                        echo '#ff4d4d';
+                                                    elseif ($photo['photo_type'] == 'after')
+                                                        echo '#00ff00';
+                                                    else
+                                                        echo 'var(--primary-color)';
+                                                    ?>;
+                                                ">
+                                                    <?php echo strtoupper($photo['photo_type']); ?>
+                                                </span>
+                                                <span
+                                                    style="color: #fff; font-weight: bold; font-size: 0.95rem; margin-left: 10px;">
+                                                    <?php echo date('M d, Y', strtotime($photo['date_taken'])); ?>
+                                                </span>
+                                            </div>
+                                            <form method="POST" onsubmit="return confirm('Delete this photo permanently?');">
+                                                <input type="hidden" name="delete_progress_photo" value="1">
+                                                <input type="hidden" name="photo_id" value="<?php echo $photo['id']; ?>">
+                                                <button type="submit"
+                                                    style="background: none; border: none; color: #ff4d4d; cursor: pointer; padding: 5px;">
+                                                    <i class="fa-solid fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                        <?php if (!empty($photo['notes'])): ?>
+                                            <p
+                                                style="color: var(--text-gray); font-size: 0.9rem; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; margin: 0;">
+                                                <i class="fa-solid fa-quote-left"
+                                                    style="font-size: 0.7rem; opacity: 0.5; vertical-align: top; margin-right: 5px;"></i>
+                                                <?php echo nl2br(htmlspecialchars($photo['notes'])); ?>
+                                            </p>
+                                        <?php else: ?>
+                                            <p style="color: #555; font-size: 0.85rem; font-style: italic;">No notes added.</p>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <script>
+                function previewProgressImage(input) {
+                    if (input.files && input.files[0]) {
+                        var reader = new FileReader();
+                        reader.onload = function (e) {
+                            const preview = document.getElementById('progress-preview');
+                            const label = document.getElementById('upload-label');
+
+                            preview.src = e.target.result;
+                            preview.style.display = 'block';
+
+                            // Adjust label to overlap nicely or hide
+                            label.style.opacity = '0';
+                            label.onmouseover = function () { this.style.opacity = '1'; this.style.background = 'rgba(0,0,0,0.5)'; };
+                            label.onmouseout = function () { this.style.opacity = '0'; this.style.background = 'none'; };
+                        }
+                        reader.readAsDataURL(input.files[0]);
+                    }
+                }
+
+                function viewFullImage(src) {
+                    // Create simple modal for full view
+                    const modal = document.createElement('div');
+                    modal.style.position = 'fixed';
+                    modal.style.top = '0';
+                    modal.style.left = '0';
+                    modal.style.width = '100%';
+                    modal.style.height = '100%';
+                    modal.style.background = 'rgba(0,0,0,0.9)';
+                    modal.style.zIndex = '2000';
+                    modal.style.display = 'flex';
+                    modal.style.alignItems = 'center';
+                    modal.style.justifyContent = 'center';
+                    modal.style.cursor = 'zoom-out';
+
+                    modal.onclick = function () { document.body.removeChild(modal); };
+
+                    const img = document.createElement('img');
+                    img.src = src;
+                    img.style.maxHeight = '90%';
+                    img.style.maxWidth = '90%';
+                    img.style.objectFit = 'contain';
+                    img.style.borderRadius = '10px';
+                    img.style.boxShadow = '0 0 50px rgba(0,0,0,0.5)';
+                    img.style.animation = 'scaleIn 0.3s ease';
+
+                    const style = document.createElement('style');
+                    style.innerHTML = '@keyframes scaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }';
+                    document.head.appendChild(style);
+
+                    modal.appendChild(img);
+                    document.body.appendChild(modal);
+                }
+            </script>
+
+
+
+
+        </div>
 
         <!-- BMI Calculator Section -->
         <div id="bmi-calculator" class="dashboard-section">
@@ -3140,6 +3558,587 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 }
             </script>
         </div>
+
+        <!-- Gym Store Section -->
+        <div id="gym-store" class="dashboard-section">
+            <?php
+            // Fetch Store History
+            $store_history = [];
+            // Assuming 'created_at' exists. If not, we might need to check DB schema. 
+            // Using 'id' for ordering as fallback if created_at is not standard, but usually it is.
+            // Let's rely on checking if created_at exists or just select *
+            $hist_sql = "SELECT plan_name, amount, payment_method, status, created_at FROM transactions WHERE user_id = ? AND plan_name LIKE 'Store:%' ORDER BY created_at DESC";
+
+            // Fallback if created_at doesn't exist? No, let's try.
+            if ($stmt = mysqli_prepare($link, $hist_sql)) {
+                mysqli_stmt_bind_param($stmt, "i", $user_id);
+                mysqli_stmt_execute($stmt);
+                $res = mysqli_stmt_get_result($stmt);
+                while ($row = mysqli_fetch_assoc($res)) {
+                    $store_history[] = $row;
+                }
+                mysqli_stmt_close($stmt);
+            }
+            ?>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="font-family: 'Oswald', sans-serif; margin: 0;">Gym Store</h2>
+                <button onclick="document.getElementById('history-modal').style.display='flex'" class="btn-action"
+                    style="width: auto; display: inline-flex; align-items: center; justify-content: center; padding: 10px 20px; font-size: 0.9rem; border-radius: 5px;">
+                    <i class="fa-solid fa-clock-rotate-left" style="margin-right: 8px;"></i> Payment History
+                </button>
+            </div>
+
+            <!-- History Modal -->
+            <div id="history-modal"
+                style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 2200; align-items: center; justify-content: center;">
+                <div
+                    style="background: #1a1a2e; border-radius: 15px; width: 95%; max-width: 700px; max-height: 80vh; display: flex; flex-direction: column; position: relative; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 0 30px rgba(0,0,0,0.5);">
+
+                    <!-- Fixed Header Section -->
+                    <div
+                        style="padding: 30px 30px 15px 30px; flex-shrink: 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <button onclick="document.getElementById('history-modal').style.display='none'"
+                            style="position: absolute; top: 15px; right: 15px; background: none; border: none; color: #fff; cursor: pointer; font-size: 1.2rem;"><i
+                                class="fa-solid fa-xmark"></i></button>
+
+                        <h3 style="font-family: 'Oswald'; margin-bottom: 15px; color: var(--primary-color);">Purchase
+                            History</h3>
+
+                        <!-- Search Bar -->
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="store-history-search" placeholder="Search items..."
+                                onkeyup="filterStoreHistory()"
+                                style="flex-grow: 1; padding: 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff;">
+                        </div>
+                    </div>
+
+                    <?php
+                    // Update query to include ID and filter out deleted items
+                    $store_history = [];
+                    $hist_sql = "SELECT id, plan_name, amount, payment_method, status, created_at FROM transactions WHERE user_id = ? AND plan_name LIKE 'Store:%' AND is_deleted_by_user = 0 ORDER BY created_at DESC";
+
+                    if ($stmt = mysqli_prepare($link, $hist_sql)) {
+                        mysqli_stmt_bind_param($stmt, "i", $user_id);
+                        mysqli_stmt_execute($stmt);
+                        $res = mysqli_stmt_get_result($stmt);
+                        while ($row = mysqli_fetch_assoc($res)) {
+                            $store_history[] = $row;
+                        }
+                        mysqli_stmt_close($stmt);
+                    }
+                    ?>
+
+                    <!-- Scrollable List Area -->
+                    <div class="custom-scrollbar"
+                        style="max-height: 320px; overflow-y: auto; padding: 0 30px 30px 30px;">
+                        <?php if (empty($store_history)): ?>
+                                <p style="color: var(--text-gray); text-align: center; margin-top: 30px;">No store purchases
+                                    found.</p>
+                        <?php else: ?>
+                                <div style="overflow-x: auto; margin-top: 15px;">
+                                    <table id="store-history-table"
+                                        style="width: 100%; border-collapse: collapse; min-width: 600px;">
+                                        <thead style="position: sticky; top: 0; background: #1a1a2e; z-index: 10;">
+                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left;">
+                                                <th style="padding: 10px; color: var(--text-gray);">Item</th>
+                                                <th style="padding: 10px; color: var(--text-gray);">Date</th>
+                                                <th style="padding: 10px; color: var(--text-gray);">Amount</th>
+                                                <th style="padding: 10px; color: var(--text-gray);">Status</th>
+                                                <th style="padding: 10px; color: var(--text-gray); text-align: right;">Actions
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($store_history as $hist):
+                                                $item_name = str_replace('Store: ', '', $hist['plan_name']);
+                                                $date = date('d M Y', strtotime($hist['created_at']));
+                                                $status_color = $hist['status'] == 'completed' ? '#00ff88' : '#ffb74d';
+                                                ?>
+                                                    <tr class="history-row" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                        <td style="padding: 10px; font-weight: 500;" class="item-name">
+                                                            <?php echo htmlspecialchars($item_name); ?>
+                                                        </td>
+                                                        <td style="padding: 10px; color: var(--text-gray); font-size: 0.9rem;">
+                                                            <?php echo $date; ?>
+                                                        </td>
+                                                        <td style="padding: 10px;">₹<?php echo number_format($hist['amount']); ?></td>
+                                                        <td
+                                                            style="padding: 10px; color: <?php echo $status_color; ?>; text-transform: capitalize;">
+                                                            <?php echo $hist['status']; ?>
+                                                        </td>
+                                                        <td style="padding: 10px; text-align: right;">
+                                                            <a href="invoice.php?tid=<?php echo $hist['id']; ?>" target="_blank"
+                                                                title="Download Invoice"
+                                                                style="color: var(--primary-color); margin-right: 10px; font-size: 1.1rem;">
+                                                                <i class="fa-solid fa-file-pdf"></i>
+                                                            </a>
+                                                            <button
+                                                                onclick="deleteTransaction(<?php echo $hist['id']; ?>, this.closest('tr'))"
+                                                                title="Delete Record"
+                                                                style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 1rem;">
+                                                                <i class="fa-solid fa-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <style>
+                    /* Custom Scrollbar for Modal List */
+                    .custom-scrollbar::-webkit-scrollbar {
+                        width: 8px;
+                    }
+
+                    .custom-scrollbar::-webkit-scrollbar-track {
+                        background: rgba(255, 255, 255, 0.02);
+                        border-radius: 4px;
+                    }
+
+                    .custom-scrollbar::-webkit-scrollbar-thumb {
+                        background: rgba(206, 255, 0, 0.3);
+                        border-radius: 4px;
+                    }
+
+                    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                        background: rgba(206, 255, 0, 0.6);
+                    }
+                </style>
+            </div>
+
+            <script>
+                function filterStoreHistory() {
+                    const input = document.getElementById('store-history-search');
+                    const filter = input.value.toLowerCase();
+                    const rows = document.querySelectorAll('.history-row');
+
+                    rows.forEach(row => {
+                        // Get text from item name, date, and amount columns
+                        const text = row.innerText.toLowerCase();
+                        if (text.includes(filter)) {
+                            row.style.display = '';
+                        } else {
+                            row.style.display = 'none';
+                        }
+                    });
+                }
+            </script>
+            <div class="dashboard-grid"
+                style="grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px;">
+
+                <!-- Category 1: Protein -->
+                <div class="dashboard-card" style="text-align: center; padding: 20px;">
+                    <div
+                        style="height: 150px; background: rgba(255,255,255,0.05); margin-bottom: 15px; display: flex; align-items: center; justify-content: center; border-radius: 10px; overflow: hidden;">
+                        <img src="assets/images/protein display.png" alt="Protein"
+                            style="width: 65%; height: 100%; object-fit: cover;object-position: center 15%;">
+                    </div>
+                    <h3 style="font-family: 'Oswald'; margin-bottom: 5px;">Proteins</h3>
+                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Whey, Isolate, Vegan &
+                        more.</p>
+                    <button onclick="openCategoryModal('protein')" class="btn-action" style="width: 100%;">View
+                        Products</button>
+                </div>
+
+                <!-- Category 2: Gloves -->
+                <div class="dashboard-card" style="text-align: center; padding: 20px;">
+                    <div
+                        style="height: 150px; background: rgba(255,255,255,0.05); margin-bottom: 15px; display: flex; align-items: center; justify-content: center; border-radius: 10px;overflow: hidden;">
+                        <img src="assets/images/Gym Glove.png" alt="Gym Gloves"
+                            style="width: 70%; height: 100%; object-fit: cover;">
+                    </div>
+                    <h3 style="font-family: 'Oswald'; margin-bottom: 5px;">Gym Gloves</h3>
+                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Grip support &
+                        protection.</p>
+                    <button onclick="openCategoryModal('gloves')" class="btn-action" style="width: 100%;">View
+                        Products</button>
+                </div>
+
+                <!-- Category 3: Shakers -->
+                <div class="dashboard-card" style="text-align: center; padding: 20px;">
+                    <div
+                        style="height: 150px; background: rgba(255,255,255,0.05); margin-bottom: 15px; display: flex; align-items: center; justify-content: center; border-radius: 10px; overflow: hidden;">
+                        <img src="assets/images/Protein Shaker.png" alt="Shakers"
+                            style="width: 65%; height: 100%; object-fit: cover;">
+                    </div>
+                    <h3 style="font-family: 'Oswald'; margin-bottom: 5px;">Shakers</h3>
+                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Leak-proof & durable
+                        bottles.</p>
+                    <button onclick="openCategoryModal('shakers')" class="btn-action" style="width: 100%;">View
+                        Products</button>
+                </div>
+
+                <!-- Category 4: Belts -->
+                <div class="dashboard-card" style="text-align: center; padding: 20px;">
+                    <div
+                        style="height: 150px; background: rgba(255,255,255,0.05); margin-bottom: 15px; display: flex; align-items: center; justify-content: center; border-radius: 10px; overflow: hidden;">
+                        <img src="assets/images/Lifting Belts.png" alt="Lifting Belts"
+                            style="width: 100%; height: 100%; object-fit: cover;">
+                    </div>
+                    <h3 style="font-family: 'Oswald'; margin-bottom: 5px;">Lifting Belts</h3>
+                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Support for heavy lifts.
+                    </p>
+                    <button onclick="openCategoryModal('belts')" class="btn-action" style="width: 100%;">View
+                        Products</button>
+                </div>
+
+                <!-- Category 5: Healthy Snacks -->
+                <div class="dashboard-card" style="text-align: center; padding: 20px;">
+                    <div
+                        style="height: 150px; background: rgba(255,255,255,0.05); margin-bottom: 15px; display: flex; align-items: center; justify-content: center; border-radius: 10px;">
+                        <img src="assets/images/snacks display.jpg" alt="Healthy Snacks"
+                            style="width: 100%; height: 100%; object-fit: cover;">
+                    </div>
+                    <h3 style="font-family: 'Oswald'; margin-bottom: 5px;">Healthy Snacks</h3>
+                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Clean fuel for your
+                        body.
+                    </p>
+                    <button onclick="openCategoryModal('snacks')" class="btn-action" style="width: 100%;">View
+                        Products</button>
+                </div>
+
+                <!-- Category 6: Fitness Accessories -->
+                <div class="dashboard-card" style="text-align: center; padding: 20px;">
+                    <div
+                        style="height: 150px; background: rgba(255,255,255,0.05); margin-bottom: 15px; display: flex; align-items: center; justify-content: center; border-radius: 10px;">
+                        <img src="assets/images/fitness accesories display.jpg" alt="Fitness Accessories"
+                            style="width: 70%; height: 100%; object-fit: cover;">
+                    </div>
+                    <h3 style="font-family: 'Oswald'; margin-bottom: 5px;">Fitness Accessories</h3>
+                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Small tools, big
+                        results.
+                    </p>
+                    <button onclick="openCategoryModal('accessories')" class="btn-action" style="width: 100%;">View
+                        Products</button>
+                </div>
+
+                <!-- Category 7: Hygiene Essentials -->
+                <div class="dashboard-card" style="text-align: center; padding: 20px;">
+                    <div
+                        style="height: 150px; background: rgba(255,255,255,0.05); margin-bottom: 15px; display: flex; align-items: center; justify-content: center; border-radius: 10px;">
+                        <img src="assets/images/Hygiene Essentials.png" alt="Hygiene Essentials"
+                            style="width: 120%; height: 100%; object-fit: cover;">
+                    </div>
+                    <h3 style="font-family: 'Oswald'; margin-bottom: 5px;">Hygiene Essentials</h3>
+                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Stay fresh after every
+                        session.</p>
+                    <button onclick="openCategoryModal('hygiene')" class="btn-action" style="width: 100%;">View
+                        Products</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Category Modal -->
+        <div id="category-modal"
+            style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 2000; align-items: center; justify-content: center;">
+            <div
+                style="background: var(--card-bg); padding: 30px; border-radius: 15px; width: 90%; max-width: 800px; max-height: 90vh; overflow-y: auto; position: relative; border: 1px solid rgba(255,255,255,0.1);">
+                <button onclick="document.getElementById('category-modal').style.display='none'"
+                    style="position: absolute; top: 15px; right: 15px; background: none; border: none; color: #fff; cursor: pointer; font-size: 1.2rem;"><i
+                        class="fa-solid fa-xmark"></i></button>
+
+                <h3 id="cat-modal-title"
+                    style="font-family: 'Oswald'; margin-bottom: 20px; color: var(--primary-color); font-size: 1.8rem;">
+                    Category</h3>
+
+                <div id="cat-modal-grid"
+                    style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px;">
+                    <!-- Products injected via JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Purchase Modal -->
+        <div id="store-modal"
+            style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 2100; align-items: center; justify-content: center;">
+            <div
+                style="background: #1a1a2e; padding: 30px; border-radius: 15px; width: 90%; max-width: 400px; position: relative; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 0 30px rgba(0,0,0,0.5);">
+                <button onclick="document.getElementById('store-modal').style.display='none'"
+                    style="position: absolute; top: 15px; right: 15px; background: none; border: none; color: #fff; cursor: pointer; font-size: 1.2rem;"><i
+                        class="fa-solid fa-xmark"></i></button>
+
+                <h3 style="font-family: 'Oswald'; margin-bottom: 20px;">Confirm Purchase</h3>
+
+                <form method="POST" id="store-form">
+                    <input type="hidden" name="confirm_store_order" value="1">
+                    <input type="hidden" id="store_product_name" name="product_name">
+                    <input type="hidden" id="store_product_price" name="product_price">
+
+                    <div style="margin-bottom: 20px; text-align: center;">
+                        <h4 id="disp_prod_name" style="color: var(--primary-color);">--</h4>
+                        <p style="font-size: 1.5rem; font-weight: bold;">₹<span id="disp_prod_price">0</span></p>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 10px; color: var(--text-gray);">Payment
+                            Method</label>
+                        <div style="display: flex; gap: 15px;">
+                            <label style="flex: 1; cursor: pointer;">
+                                <input type="radio" name="payment_method" value="GPay" checked
+                                    onclick="toggleStoreBtn('GPay')">
+                                GPay
+                            </label>
+                        </div>
+                    </div>
+
+                    <button type="button" id="store-submit-btn" onclick="processStoreOrder()" class="btn-action"
+                        style="width: 100%;">Pay with GPay</button>
+                </form>
+            </div>
+        </div>
+
+        <?php
+        // Get Server IP for QR Code (so phone can scan)
+        $server_ip = getHostByName(getHostName());
+        // Fallback if it returns localhost
+        if ($server_ip == '127.0.0.1' || $server_ip == '::1') {
+            // Try simpler method or just default to localhost (user might need to fix)
+            $server_ip = $_SERVER['SERVER_NAME'];
+        }
+        $base_url = "http://" . $server_ip . "/Gym-Fit-master";
+        ?>
+
+        <!-- NEW GPay QR Modal -->
+        <div id="gpay-qr-modal"
+            style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 2200; align-items: center; justify-content: center; flex-direction: column;">
+            <div
+                style="background: #fff; padding: 30px; border-radius: 20px; width: 90%; max-width: 350px; text-align: center; position: relative;">
+                <button onclick="closeGPayModal()"
+                    style="position: absolute; top: 10px; right: 15px; background: none; border: none; font-size: 1.5rem; color: #333; cursor: pointer;">&times;</button>
+
+                <h3 style="color: #333; margin-bottom: 10px; font-family: 'Roboto', sans-serif;">Scan to Pay</h3>
+                <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">Open GPay and scan this QR code</p>
+
+                <div style="margin-bottom: 20px; position: relative; width: 200px; height: 200px; margin: 0 auto 20px;">
+                    <!-- QR Code Image -->
+                    <img id="gpay-qr-code" src="" alt="GPay QR" style="width: 100%; height: 100%;">
+
+                    <!-- Scanning Overlay Animation -->
+                    <div id="scan-overlay"
+                        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); display: none; align-items: center; justify-content: center; flex-direction: column;">
+                        <div class="spinner"
+                            style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 10px;">
+                        </div>
+                        <p style="color: #333; font-weight: bold;">Processing Payment...</p>
+                    </div>
+                    <div id="success-overlay"
+                        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); display: none; align-items: center; justify-content: center; flex-direction: column;">
+                        <i class="fa-solid fa-circle-check"
+                            style="font-size: 4rem; color: #00ff88; margin-bottom: 15px;"></i>
+                        <h4 style="color: #333; margin: 0;">Payment Successful!</h4>
+                    </div>
+                </div>
+
+                <div
+                    style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 10px;">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/Google_Pay_Logo.svg/2560px-Google_Pay_Logo.svg.png"
+                        alt="GPay" style="height: 25px;">
+                </div>
+
+                <p id="qr-amount-display" style="font-size: 1.2rem; font-weight: bold; color: #333;">₹0</p>
+                <div style="font-size: 0.9rem; color: #666; width: 100%; text-align: center; margin-top: 15px;">
+                    <i class="fa-solid fa-spinner fa-spin"></i> Waiting for payment...
+                </div>
+            </div>
+            <style>
+                @keyframes spin {
+                    0% {
+                        transform: rotate(0deg);
+                    }
+
+                    100% {
+                        transform: rotate(360deg);
+                    }
+                }
+            </style>
+        </div>
+
+        <script>
+            // Store variables
+            const serverBaseUrl = "<?php echo $base_url; ?>";
+            const currentUserId = <?php echo $user_id; ?>;
+            let paymentPollInterval;
+
+            // Product Data
+            const storeProducts = {
+                'protein': [
+                    { name: 'Gold Standard Whey', price: 4500, image: 'assets/images/gold-standard.png' },
+                    { name: 'MuscleBlaze Biozyme', price: 3200, image: 'assets/images/MuscleBlaze Biozyme.png' },
+                    { name: 'Isopure Zero Carb', price: 6500, image: 'assets/images/isopure.png' },
+                    { name: 'Vegan Plant Protein', price: 2800, image: 'assets/images/plant protein.png' }
+                ],
+                'gloves': [
+                    { name: 'Nivia Basic Gloves', price: 400, image: 'assets/images/nivia basic glove.png' },
+                    { name: 'Nike Training Gloves', price: 1200, image: 'assets/images/nike gym glove.png' },
+                    { name: 'Under Armour Grip', price: 1500, image: 'assets/images/under armour.png' },
+                    { name: 'Wrist Support Gloves', price: 800, image: 'assets/images/wrist support.png' }
+                ],
+                'shakers': [
+                    { name: 'Classic Shaker 500ml', price: 200, image: 'assets/images/classic shaker.png' },
+                    { name: 'Spider Shaker', price: 500, image: 'assets/images/spider shaker.png' },
+                    { name: 'Steel Shaker 700ml', price: 800, image: 'assets/images/steel shaker.png' }
+                ],
+                'belts': [
+                    { name: 'Nylon Weight Belt', price: 800, image: 'assets/images/nylon weight.png' },
+                    { name: 'Leather Power Belt', price: 2500, image: 'assets/images/leather.png' },
+                    { name: 'Lever Buckle Belt', price: 5000, image: 'assets/images/Lever Buckle Belt.png' },
+                    { name: 'Dip Belt with Chain', price: 1500, image: 'assets/images/Dip Belt with Chain.png' }
+                ],
+                'snacks': [
+                    { name: 'Protein Bar (Pack of 6)', price: 720, image: 'assets/images/Protein Bar.png' },
+                    { name: 'Peanut Butter 1kg', price: 450, image: 'assets/images/Peanut Butter.png' },
+                    { name: 'Instant Oats 1kg', price: 200, image: 'assets/images/instant oats.png' },
+                    { name: 'Energy Bites (Pack of 10)', price: 350, image: 'assets/images/Energy Bites.png' }
+                ],
+                'accessories': [
+                    { name: 'Wrist Wraps', price: 400, image: 'assets/images/Wrist Wraps.png' },
+                    { name: 'Knee Sleeves (Pair)', price: 1500, image: 'assets/images/Knee Sleeves.png' },
+                    { name: 'Resistance Bands Set', price: 800, image: 'assets/images/Resistance Bands Set.png' },
+                    { name: 'Speed Jump Rope', price: 300, image: 'assets/images/Speed Jump Rope.png' }
+                ],
+                'hygiene': [
+                    { name: 'Microfiber Gym Towel', price: 300, image: 'assets/images/Microfiber Gym Towel.png' },
+                    { name: 'Hand Sanitizer 500ml', price: 150, image: 'assets/images/Hand Sanitizer.png' }
+                ]
+            };
+
+            function openCategoryModal(catKey) {
+                const modal = document.getElementById('category-modal');
+                const title = document.getElementById('cat-modal-title');
+                const grid = document.getElementById('cat-modal-grid');
+
+                // Set Title
+                const titles = {
+                    'protein': 'Proteins',
+                    'gloves': 'Gym Gloves',
+                    'shakers': 'Shakers',
+                    'belts': 'Lifting Belts',
+                    'snacks': 'Healthy Snacks',
+                    'accessories': 'Fitness Accessories',
+                    'hygiene': 'Hygiene Essentials'
+                };
+                title.innerText = titles[catKey];
+
+                // Clear grid
+                grid.innerHTML = '';
+
+                // Populate Products
+                if (storeProducts[catKey]) {
+                    storeProducts[catKey].forEach(prod => {
+                        const card = document.createElement('div');
+                        card.style.background = 'rgba(255,255,255,0.05)';
+                        card.style.padding = '15px';
+                        card.style.borderRadius = '10px';
+                        card.style.textAlign = 'center';
+                        card.style.border = '1px solid rgba(255,255,255,0.05)';
+
+                        // Check for image or fallback icon
+                        let imgHtml = '';
+                        if (prod.image) {
+                            imgHtml = `<img src="${prod.image}" alt="${prod.name}" style="height: 120px; width: auto; max-width: 100%; object-fit: contain; margin-bottom: 15px;">`;
+                        } else {
+                            // Default icon based on category? Simplified fallback
+                            imgHtml = `<div style="height: 120px; display: flex; align-items: center; justify-content: center; margin-bottom: 15px;"><i class="fa-solid fa-box-open" style="font-size: 3rem; color: var(--primary-color);"></i></div>`;
+                        }
+
+                        card.innerHTML = `
+                            ${imgHtml}
+                            <h4 style="margin-bottom: 5px; color: #fff;">${prod.name}</h4>
+                            <p style="color: var(--text-gray); font-size: 0.85rem; margin-bottom: 10px;">${prod.desc || ''}</p>
+                            <h3 style="color: var(--primary-color); margin-bottom: 15px;">₹${prod.price}</h3>
+                            <button onclick="openPurchaseModal('${prod.name}', ${prod.price})" class="btn-action" style="width: 100%; font-size: 0.9rem; padding: 10px;">Buy Now</button>
+                        `;
+                        grid.appendChild(card);
+                    });
+                }
+
+                modal.style.display = 'flex';
+            }
+
+            let currentStoreProduct = {};
+
+            function openPurchaseModal(name, price) {
+                currentStoreProduct = { name, price };
+                document.getElementById('store_product_name').value = name;
+                document.getElementById('store_product_price').value = price;
+                document.getElementById('disp_prod_name').innerText = name;
+                document.getElementById('disp_prod_price').innerText = price;
+
+                // Reset to GPay default
+                document.querySelector('input[name="payment_method"][value="GPay"]').checked = true;
+                toggleStoreBtn('GPay');
+
+                document.getElementById('store-modal').style.display = 'flex';
+            }
+
+            function toggleStoreBtn(method) {
+                const btn = document.getElementById('store-submit-btn');
+                if (method === 'GPay') {
+                    btn.innerText = 'Pay with GPay';
+                } else {
+                    btn.innerText = 'Confirm Order (Cash)';
+                }
+            }
+
+            function processStoreOrder() {
+                const method = document.querySelector('input[name="payment_method"]:checked').value;
+                if (method === 'GPay') {
+                    // Open QR Modal
+                    document.getElementById('store-modal').style.display = 'none';
+                    document.getElementById('qr-amount-display').innerText = '₹' + currentStoreProduct.price;
+                    document.getElementById('gpay-qr-modal').style.display = 'flex';
+
+                    // Generate QR Code URL
+                    const payUrl = `${serverBaseUrl}/gpay_mock.php?amt=${currentStoreProduct.price}&plan=${encodeURIComponent('Store: ' + currentStoreProduct.name)}&uid=${currentUserId}`;
+                    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(payUrl)}`;
+                    document.getElementById('gpay-qr-code').src = qrApiUrl;
+
+                    // Start polling for actual payment
+                    startPaymentPolling();
+                } else {
+                    document.getElementById('store-form').submit();
+                }
+            }
+
+            function startPaymentPolling() {
+                if (paymentPollInterval) clearInterval(paymentPollInterval);
+
+                paymentPollInterval = setInterval(() => {
+                    const planName = 'Store: ' + currentStoreProduct.name;
+                    fetch(`check_payment_status.php?uid=${currentUserId}&plan=${encodeURIComponent(planName)}`)
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.status === 'paid') {
+                                clearInterval(paymentPollInterval);
+                                showSuccessAndRedirect();
+                            }
+                        })
+                        .catch(err => console.error("Polling error:", err));
+                }, 2000);
+            }
+
+            function showSuccessAndRedirect() {
+                document.getElementById('scan-overlay').style.display = 'none'; // Hide if stuck
+                document.getElementById('success-overlay').style.display = 'flex';
+
+                setTimeout(() => {
+                    closeGPayModal();
+                    document.getElementById('category-modal').style.display = 'none';
+                    window.location.href = 'dashboard_member.php?section=gym-store';
+                }, 2000);
+            }
+
+            function closeGPayModal() {
+                if (paymentPollInterval) clearInterval(paymentPollInterval);
+                document.getElementById('gpay-qr-modal').style.display = 'none';
+                document.getElementById('scan-overlay').style.display = 'none';
+                document.getElementById('success-overlay').style.display = 'none';
+            }
+        </script>
 
     </div>
 
@@ -4019,8 +5018,45 @@ $is_beginner_completed = count($completed_weeks) >= 4;
 
 
 
+        let membershipPollInterval;
+
+        function startMembershipPolling() {
+            if (membershipPollInterval) clearInterval(membershipPollInterval);
+
+            // Determine plan name based on context
+            let planName = '';
+            if (paymentContext === 'membership') {
+                const selector = document.getElementById('plan-selector');
+                if (selector) {
+                    planName = selector.options[selector.selectedIndex].text.split(' - ')[0];
+                }
+            } else {
+                planName = currentPayDesc; // e.g. "Trainer Appointment"
+            }
+
+            if (!planName) return;
+
+            // Poll every 3 seconds for payment confirmation
+            membershipPollInterval = setInterval(() => {
+                // Use current user ID injected via PHP
+                const uid = <?php echo $user_id; ?>;
+                const url = `check_payment_status.php?uid=${uid}&plan=${encodeURIComponent(planName)}`;
+
+                fetch(url)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status === 'paid') {
+                            clearInterval(membershipPollInterval);
+                            startProcessing(true); // Auto-confirm payment
+                        }
+                    })
+                    .catch(console.error);
+            }, 3000);
+        }
+
         function closePaymentModal() {
             document.getElementById('payment-modal').style.display = 'none';
+            if (membershipPollInterval) clearInterval(membershipPollInterval);
         }
 
         function selectPayMethod(el, method) {
@@ -4032,44 +5068,50 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 document.getElementById('card-fields').style.display = 'none';
                 document.getElementById('gpay-fields').style.display = 'block';
                 updateUPI_QR();
+                startMembershipPolling(); // Start listening for GPay scan completion
             } else {
                 document.getElementById('card-fields').style.display = 'block';
                 document.getElementById('gpay-fields').style.display = 'none';
+                if (membershipPollInterval) clearInterval(membershipPollInterval);
             }
         }
 
-        function startProcessing() {
+        function startProcessing(fromScan = false) {
+            if (membershipPollInterval) clearInterval(membershipPollInterval);
+
             const errorEl = document.getElementById('payment-error');
             errorEl.style.display = 'none';
 
-            // Validation
-            if (currentMethod === 'Credit Card') {
-                const cardNum = document.getElementById('card-num').value.trim();
-                const cardExp = document.getElementById('card-exp').value.trim();
-                const cardCvv = document.getElementById('card-cvv').value.trim();
+            // Validation (skip if confirming from scan)
+            if (!fromScan) {
+                if (currentMethod === 'Credit Card') {
+                    const cardNum = document.getElementById('card-num').value.trim();
+                    const cardExp = document.getElementById('card-exp').value.trim();
+                    const cardCvv = document.getElementById('card-cvv').value.trim();
 
-                if (cardNum.length !== 16 || isNaN(cardNum)) {
-                    errorEl.innerText = "Please enter a valid 16-digit card number.";
-                    errorEl.style.display = 'block';
-                    return;
-                }
-                if (!/^\d{2}\/\d{2}$/.test(cardExp)) {
-                    errorEl.innerText = "Please enter expiry in MM/YY format.";
-                    errorEl.style.display = 'block';
-                    return;
-                }
-                if (cardCvv.length !== 3 || isNaN(cardCvv)) {
-                    errorEl.innerText = "Please enter a valid 3-digit CVV.";
-                    errorEl.style.display = 'block';
-                    return;
-                }
-            } else {
-                const upiId = document.getElementById('upi-id-input').value.trim();
-                // Strict UPI format: username@bank (Letters only, no numbers allowed as per request)
-                if (!/^[a-zA-Z][a-zA-Z.-]*@[a-zA-Z]+$/.test(upiId)) {
-                    errorEl.innerText = "Please enter a valid format: username@bank (only letters allowed, e.g. user@okaxis)";
-                    errorEl.style.display = 'block';
-                    return;
+                    if (cardNum.length !== 16 || isNaN(cardNum)) {
+                        errorEl.innerText = "Please enter a valid 16-digit card number.";
+                        errorEl.style.display = 'block';
+                        return;
+                    }
+                    if (!/^\d{2}\/\d{2}$/.test(cardExp)) {
+                        errorEl.innerText = "Please enter expiry in MM/YY format.";
+                        errorEl.style.display = 'block';
+                        return;
+                    }
+                    if (cardCvv.length !== 3 || isNaN(cardCvv)) {
+                        errorEl.innerText = "Please enter a valid 3-digit CVV.";
+                        errorEl.style.display = 'block';
+                        return;
+                    }
+                } else {
+                    const upiId = document.getElementById('upi-id-input').value.trim();
+                    // Strict UPI format: username@bank (Letters only, no numbers allowed as per request)
+                    if (!/^[a-zA-Z][a-zA-Z.-]*@[a-zA-Z]+$/.test(upiId)) {
+                        errorEl.innerText = "Please enter a valid format: username@bank (only letters allowed, e.g. user@okaxis)";
+                        errorEl.style.display = 'block';
+                        return;
+                    }
                 }
             }
 
