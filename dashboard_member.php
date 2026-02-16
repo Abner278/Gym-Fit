@@ -53,6 +53,16 @@ $measure_sql = "CREATE TABLE IF NOT EXISTS body_measurements (
 )";
 mysqli_query($link, $measure_sql);
 
+// Ensure body_measurements has weight and height
+$cols = mysqli_query($link, "SHOW COLUMNS FROM body_measurements LIKE 'weight'");
+if (mysqli_num_rows($cols) == 0) {
+    mysqli_query($link, "ALTER TABLE body_measurements ADD COLUMN weight DECIMAL(5,2) AFTER user_id");
+}
+$cols = mysqli_query($link, "SHOW COLUMNS FROM body_measurements LIKE 'height'");
+if (mysqli_num_rows($cols) == 0) {
+    mysqli_query($link, "ALTER TABLE body_measurements ADD COLUMN height DECIMAL(5,2) AFTER weight");
+}
+
 // Ensure transactions table has is_deleted_by_user column
 $check_col = mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'is_deleted_by_user'");
 if (mysqli_num_rows($check_col) == 0) {
@@ -3633,58 +3643,58 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     <div class="custom-scrollbar"
                         style="max-height: 320px; overflow-y: auto; padding: 0 30px 30px 30px;">
                         <?php if (empty($store_history)): ?>
-                                <p style="color: var(--text-gray); text-align: center; margin-top: 30px;">No store purchases
-                                    found.</p>
+                            <p style="color: var(--text-gray); text-align: center; margin-top: 30px;">No store purchases
+                                found.</p>
                         <?php else: ?>
-                                <div style="overflow-x: auto; margin-top: 15px;">
-                                    <table id="store-history-table"
-                                        style="width: 100%; border-collapse: collapse; min-width: 600px;">
-                                        <thead style="position: sticky; top: 0; background: #1a1a2e; z-index: 10;">
-                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left;">
-                                                <th style="padding: 10px; color: var(--text-gray);">Item</th>
-                                                <th style="padding: 10px; color: var(--text-gray);">Date</th>
-                                                <th style="padding: 10px; color: var(--text-gray);">Amount</th>
-                                                <th style="padding: 10px; color: var(--text-gray);">Status</th>
-                                                <th style="padding: 10px; color: var(--text-gray); text-align: right;">Actions
-                                                </th>
+                            <div style="overflow-x: auto; margin-top: 15px;">
+                                <table id="store-history-table"
+                                    style="width: 100%; border-collapse: collapse; min-width: 600px;">
+                                    <thead style="position: sticky; top: 0; background: #1a1a2e; z-index: 10;">
+                                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left;">
+                                            <th style="padding: 10px; color: var(--text-gray);">Item</th>
+                                            <th style="padding: 10px; color: var(--text-gray);">Date</th>
+                                            <th style="padding: 10px; color: var(--text-gray);">Amount</th>
+                                            <th style="padding: 10px; color: var(--text-gray);">Status</th>
+                                            <th style="padding: 10px; color: var(--text-gray); text-align: right;">Actions
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($store_history as $hist):
+                                            $item_name = str_replace('Store: ', '', $hist['plan_name']);
+                                            $date = date('d M Y', strtotime($hist['created_at']));
+                                            $status_color = $hist['status'] == 'completed' ? '#00ff88' : '#ffb74d';
+                                            ?>
+                                            <tr class="history-row" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                <td style="padding: 10px; font-weight: 500;" class="item-name">
+                                                    <?php echo htmlspecialchars($item_name); ?>
+                                                </td>
+                                                <td style="padding: 10px; color: var(--text-gray); font-size: 0.9rem;">
+                                                    <?php echo $date; ?>
+                                                </td>
+                                                <td style="padding: 10px;">₹<?php echo number_format($hist['amount']); ?></td>
+                                                <td
+                                                    style="padding: 10px; color: <?php echo $status_color; ?>; text-transform: capitalize;">
+                                                    <?php echo $hist['status']; ?>
+                                                </td>
+                                                <td style="padding: 10px; text-align: right;">
+                                                    <a href="invoice.php?tid=<?php echo $hist['id']; ?>" target="_blank"
+                                                        title="Download Invoice"
+                                                        style="color: var(--primary-color); margin-right: 10px; font-size: 1.1rem;">
+                                                        <i class="fa-solid fa-file-pdf"></i>
+                                                    </a>
+                                                    <button
+                                                        onclick="deleteTransaction(<?php echo $hist['id']; ?>, this.closest('tr'))"
+                                                        title="Delete Record"
+                                                        style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 1rem;">
+                                                        <i class="fa-solid fa-trash"></i>
+                                                    </button>
+                                                </td>
                                             </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php foreach ($store_history as $hist):
-                                                $item_name = str_replace('Store: ', '', $hist['plan_name']);
-                                                $date = date('d M Y', strtotime($hist['created_at']));
-                                                $status_color = $hist['status'] == 'completed' ? '#00ff88' : '#ffb74d';
-                                                ?>
-                                                    <tr class="history-row" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                                        <td style="padding: 10px; font-weight: 500;" class="item-name">
-                                                            <?php echo htmlspecialchars($item_name); ?>
-                                                        </td>
-                                                        <td style="padding: 10px; color: var(--text-gray); font-size: 0.9rem;">
-                                                            <?php echo $date; ?>
-                                                        </td>
-                                                        <td style="padding: 10px;">₹<?php echo number_format($hist['amount']); ?></td>
-                                                        <td
-                                                            style="padding: 10px; color: <?php echo $status_color; ?>; text-transform: capitalize;">
-                                                            <?php echo $hist['status']; ?>
-                                                        </td>
-                                                        <td style="padding: 10px; text-align: right;">
-                                                            <a href="invoice.php?tid=<?php echo $hist['id']; ?>" target="_blank"
-                                                                title="Download Invoice"
-                                                                style="color: var(--primary-color); margin-right: 10px; font-size: 1.1rem;">
-                                                                <i class="fa-solid fa-file-pdf"></i>
-                                                            </a>
-                                                            <button
-                                                                onclick="deleteTransaction(<?php echo $hist['id']; ?>, this.closest('tr'))"
-                                                                title="Delete Record"
-                                                                style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 1rem;">
-                                                                <i class="fa-solid fa-trash"></i>
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -4143,7 +4153,21 @@ $is_beginner_completed = count($completed_weeks) >= 4;
     </div>
 
     <script>
-        function showSection(sectionId) {
+        function showSection(sectionId, updateHistory = true) {
+            // Prevent default anchor behavior if triggered by click
+            if (typeof event !== 'undefined' && event && event.type === 'click') {
+                event.preventDefault();
+            }
+
+            // Update URL to include the section hash for copy-pasting
+            if (updateHistory) {
+                if (history.pushState) {
+                    history.pushState(null, null, '#' + sectionId);
+                } else {
+                    window.location.hash = sectionId;
+                }
+            }
+
             localStorage.setItem('activeSection', sectionId);
             document.querySelectorAll('.dashboard-section').forEach(section => section.classList.remove('active'));
             document.querySelectorAll('.sidebar-menu a').forEach(link => link.classList.remove('active'));
@@ -4907,6 +4931,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             const isMonthChange = urlParams.has('m');
 
             const sectionParam = urlParams.get('section');
+            // Get hash without the '#' (e.g. "workouts")
+            const hashSection = window.location.hash.substring(1);
 
             // Check for temporary section redirect (e.g. from completion actions)
             const tempSection = localStorage.getItem('temp_redirect_section');
@@ -4914,6 +4940,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
 
             if (sectionParam) {
                 showSection(sectionParam);
+            } else if (hashSection) {
+                showSection(hashSection, false);
             } else if (tempSection) {
                 showSection(tempSection);
             } else if (isMonthChange) {
@@ -4936,6 +4964,16 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             const scrollEl = document.getElementById('day-' + activeDay);
             if (scrollEl && isMonthChange) {
                 scrollEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+        });
+
+        // Handle Back/Forward Browser Buttons
+        window.addEventListener('popstate', function (event) {
+            const hashSection = window.location.hash.substring(1);
+            if (hashSection) {
+                showSection(hashSection, false);
+            } else {
+                showSection('overview', false);
             }
         });
 

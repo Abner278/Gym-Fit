@@ -134,7 +134,7 @@ $plans_res = mysqli_query($link, "SELECT * FROM membership_plans ORDER BY id ASC
                     <li><a id="header-login" href="<?php
                     if ($_SESSION['role'] === 'admin')
                         echo 'dashboard_admin.php';
-                    elseif ($_SESSION['role'] === 'staff')
+                    elseif ($_SESSION['role'] === 'staff' || $_SESSION['role'] === 'trainer')
                         echo 'dashboard_staff.php';
                     else
                         echo 'dashboard_member.php';

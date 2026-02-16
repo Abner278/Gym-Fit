@@ -6,7 +6,7 @@ session_start();
 if (isset($_SESSION["loggedin"]) && $_SESSION["loggedin"] === true) {
     if ($_SESSION["role"] == "admin") {
         header("location: dashboard_admin.php");
-    } elseif ($_SESSION["role"] == "staff") {
+    } elseif ($_SESSION["role"] == "staff" || $_SESSION["role"] == "trainer") {
         header("location: dashboard_staff.php");
     } else {
         header("location: dashboard_member.php");
@@ -24,29 +24,50 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
     if (empty($email) || empty($password)) {
         $error = "Please enter both email and password.";
     } else {
-        $sql = "SELECT id, full_name, email, password, role FROM users WHERE email = '$email'";
-        $result = mysqli_query($link, $sql);
-        if ($row = mysqli_fetch_assoc($result)) {
-            if (password_verify($password, $row['password'])) {
+        // Check trainers table first (since we are consolidating staff into trainers)
+        $sql_trainer = "SELECT id, name, email, password FROM trainers WHERE email = '$email'";
+        $res_trainer = mysqli_query($link, $sql_trainer);
+        if ($row_t = mysqli_fetch_assoc($res_trainer)) {
+            if ($row_t['password'] && password_verify($password, $row_t['password'])) {
                 $_SESSION["loggedin"] = true;
-                $_SESSION["id"] = $row['id'];
-                $_SESSION["full_name"] = $row['full_name'];
-                $_SESSION["email"] = $row['email'];
-                $_SESSION["role"] = $row['role'];
+                $_SESSION["id"] = $row_t['id'];
+                $_SESSION["full_name"] = $row_t['name'];
+                $_SESSION["email"] = $row_t['email'];
+                $_SESSION["role"] = 'trainer';
 
-                if ($row['role'] == "admin") {
-                    header("location: dashboard_admin.php");
-                } elseif ($row['role'] == "staff") {
-                    header("location: dashboard_staff.php");
-                } else {
-                    header("location: dashboard_member.php");
-                }
+                header("location: dashboard_staff.php");
                 exit;
+            } elseif (!$row_t['password']) {
+                $error = "Your account has not been set up with a password yet. Please contact the administrator.";
             } else {
                 $error = "Invalid password.";
             }
         } else {
-            $error = "No account found with that email.";
+            // Check users table for members and admins
+            $sql = "SELECT id, full_name, email, password, role FROM users WHERE email = '$email'";
+            $result = mysqli_query($link, $sql);
+            if ($row = mysqli_fetch_assoc($result)) {
+                if (password_verify($password, $row['password'])) {
+                    $_SESSION["loggedin"] = true;
+                    $_SESSION["id"] = $row['id'];
+                    $_SESSION["full_name"] = $row['full_name'];
+                    $_SESSION["email"] = $row['email'];
+                    $_SESSION["role"] = $row['role'];
+
+                    if ($row['role'] == "admin") {
+                        header("location: dashboard_admin.php");
+                    } elseif ($row['role'] == "staff") {
+                        header("location: dashboard_staff.php");
+                    } else {
+                        header("location: dashboard_member.php");
+                    }
+                    exit;
+                } else {
+                    $error = "Invalid password.";
+                }
+            } else {
+                $error = "No account found with that email.";
+            }
         }
     }
 }

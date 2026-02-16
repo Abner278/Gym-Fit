@@ -2,7 +2,7 @@
 require_once 'config.php';
 session_start();
 
-if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "staff") {
+if (!isset($_SESSION["loggedin"]) || !in_array($_SESSION["role"], ["staff", "trainer"])) {
     header("location: login.php");
     exit;
 }
@@ -18,6 +18,19 @@ $table_sql = "CREATE TABLE IF NOT EXISTS daily_workouts (
 )";
 mysqli_query($link, $table_sql);
 
+// Ensure body_measurements table has weight/height columns (for smooth staff UX if member.php wasn't visited)
+$bm_table_check = mysqli_query($link, "SHOW TABLES LIKE 'body_measurements'");
+if (mysqli_num_rows($bm_table_check) > 0) {
+    $check_weight = mysqli_query($link, "SHOW COLUMNS FROM body_measurements LIKE 'weight'");
+    if (mysqli_num_rows($check_weight) == 0) {
+        mysqli_query($link, "ALTER TABLE body_measurements ADD COLUMN weight DECIMAL(5,2) NULL AFTER recorded_at");
+    }
+    $check_height = mysqli_query($link, "SHOW COLUMNS FROM body_measurements LIKE 'height'");
+    if (mysqli_num_rows($check_height) == 0) {
+        mysqli_query($link, "ALTER TABLE body_measurements ADD COLUMN height DECIMAL(5,2) NULL AFTER weight");
+    }
+}
+
 $msg = "";
 if (isset($_SESSION['msg'])) {
     $msg = $_SESSION['msg'];
@@ -27,7 +40,11 @@ if (isset($_SESSION['msg'])) {
 $user_id = $_SESSION["id"];
 
 // FETCH LATEST USER DATA
-$stmt = mysqli_prepare($link, "SELECT full_name, email, profile_image, created_at FROM users WHERE id = ?");
+if ($_SESSION["role"] === "trainer") {
+    $stmt = mysqli_prepare($link, "SELECT name as full_name, email, image as profile_image, created_at FROM trainers WHERE id = ?");
+} else {
+    $stmt = mysqli_prepare($link, "SELECT full_name, email, profile_image, created_at FROM users WHERE id = ?");
+}
 mysqli_stmt_bind_param($stmt, "i", $user_id);
 mysqli_stmt_execute($stmt);
 $user_data = mysqli_stmt_get_result($stmt)->fetch_assoc();
@@ -225,6 +242,85 @@ if (isset($_POST['ajax_action'])) {
             $status = 'present';
         }
         echo json_encode(['success' => true, 'status' => $status]);
+        exit;
+    } elseif ($_POST['ajax_action'] == 'fetch_client_measurements') {
+        $uid = (int) $_POST['user_id'];
+        $sql = "SELECT * FROM body_measurements WHERE user_id = $uid ORDER BY recorded_at DESC";
+        $res = mysqli_query($link, $sql);
+
+        $html = '';
+        if (mysqli_num_rows($res) > 0) {
+            while ($row = mysqli_fetch_assoc($res)) {
+                $html .= '<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">';
+                $html .= '<td style="padding:15px; color:var(--text-gray);">' . date('M d, Y', strtotime($row['recorded_at'])) . '</td>';
+                $html .= '<td style="padding:15px;">' . (array_key_exists('weight', $row) && $row['weight'] ? $row['weight'] . ' kg' : '-') . '</td>';
+                $html .= '<td style="padding:15px;">' . (array_key_exists('height', $row) && $row['height'] ? $row['height'] . ' cm' : '-') . '</td>';
+                $html .= '<td style="padding:15px;">' . ($row['chest'] ? $row['chest'] . '"' : '-') . '</td>';
+                $html .= '<td style="padding:15px;">' . ($row['waist'] ? $row['waist'] . '"' : '-') . '</td>';
+                $html .= '<td style="padding:15px;">' . ($row['arms'] ? $row['arms'] . '"' : '-') . '</td>';
+                $html .= '<td style="padding:15px;">' . ($row['thighs'] ? $row['thighs'] . '"' : '-') . '</td>';
+                $html .= '<td style="padding:15px; text-align:right;">
+                            <button onclick="deleteMeasurement(' . $row['id'] . ')" style="background:none; border:none; color:#ff4d4d; cursor:pointer; font-size:1.1rem;" title="Delete Record">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                          </td>';
+                $html .= '</tr>';
+            }
+        } else {
+            $html .= '<tr><td colspan="8" style="padding:20px; text-align:center; color:var(--text-gray);">No measurements recorded yet.</td></tr>';
+        }
+        echo $html;
+        exit;
+    } elseif ($_POST['ajax_action'] == 'delete_measurement') {
+        $mid = (int) $_POST['measurement_id'];
+        if (mysqli_query($link, "DELETE FROM body_measurements WHERE id = $mid")) {
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false, 'message' => mysqli_error($link)]);
+        }
+        exit;
+    } elseif ($_POST['ajax_action'] == 'save_measurement') {
+        $target_user_id = (int) $_POST['user_id'];
+        $date = mysqli_real_escape_string($link, $_POST['date']);
+
+        // Use NULL if empty, otherwise cast to float
+        $weight = !empty($_POST['weight']) ? (float) $_POST['weight'] : "NULL";
+        $height = !empty($_POST['height']) ? (float) $_POST['height'] : "NULL";
+        $chest = !empty($_POST['chest']) ? (float) $_POST['chest'] : "NULL";
+        $waist = !empty($_POST['waist']) ? (float) $_POST['waist'] : "NULL";
+        $arms = !empty($_POST['arms']) ? (float) $_POST['arms'] : "NULL";
+        $thighs = !empty($_POST['thighs']) ? (float) $_POST['thighs'] : "NULL";
+
+        // Optional Backend Validation
+        if ($target_user_id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'Invalid User ID']);
+            exit;
+        }
+
+        // Check if record exists for this date
+        $check = mysqli_query($link, "SELECT id FROM body_measurements WHERE user_id = $target_user_id AND recorded_at = '$date'");
+
+        if (mysqli_num_rows($check) > 0) {
+            // Update existing
+            $sql = "UPDATE body_measurements SET 
+                    weight = $weight, 
+                    height = $height, 
+                    chest = $chest, 
+                    waist = $waist, 
+                    arms = $arms, 
+                    thighs = $thighs 
+                    WHERE user_id = $target_user_id AND recorded_at = '$date'";
+        } else {
+            // Insert new
+            $sql = "INSERT INTO body_measurements (user_id, recorded_at, weight, height, chest, waist, arms, thighs) 
+                    VALUES ($target_user_id, '$date', $weight, $height, $chest, $waist, $arms, $thighs)";
+        }
+
+        if (mysqli_query($link, $sql)) {
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false, 'message' => mysqli_error($link)]);
+        }
         exit;
     }
 }
@@ -522,6 +618,52 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['mark_member_attendance
     // though here we rely on 'showSection' state which resets on reload usually.
     // For now simple redirect is fine, user will navigate back.
     header("Location: dashboard_staff.php");
+    exit;
+}
+
+// Handle Client Measurement Logging
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['log_client_measurements'])) {
+    $target_user_id = (int) $_POST['user_id'];
+    $date = mysqli_real_escape_string($link, $_POST['date']);
+
+    // Use NULL if empty, otherwise cast to float
+    $weight = !empty($_POST['weight']) ? (float) $_POST['weight'] : "NULL";
+    $height = !empty($_POST['height']) ? (float) $_POST['height'] : "NULL";
+    $chest = !empty($_POST['chest']) ? (float) $_POST['chest'] : "NULL";
+    $waist = !empty($_POST['waist']) ? (float) $_POST['waist'] : "NULL";
+    $arms = !empty($_POST['arms']) ? (float) $_POST['arms'] : "NULL";
+    $thighs = !empty($_POST['thighs']) ? (float) $_POST['thighs'] : "NULL";
+
+    // Backend Validation
+    $errors = [];
+    if ($weight !== "NULL" && ($weight < 20 || $weight > 600))
+        $errors[] = "Weight must be between 20 and 600 kg.";
+    if ($height !== "NULL" && ($height < 50 || $height > 300))
+        $errors[] = "Height must be between 50 and 300 cm.";
+    if ($chest !== "NULL" && ($chest < 10 || $chest > 150))
+        $errors[] = "Chest measure must be between 10 and 150 inches.";
+    if ($waist !== "NULL" && ($waist < 10 || $waist > 150))
+        $errors[] = "Waist measure must be between 10 and 150 inches.";
+    if ($arms !== "NULL" && ($arms < 5 || $arms > 60))
+        $errors[] = "Arm measure must be between 5 and 60 inches.";
+    if ($thighs !== "NULL" && ($thighs < 5 || $thighs > 60))
+        $errors[] = "Thigh measure must be between 5 and 60 inches.";
+
+    if (!empty($errors)) {
+        $_SESSION['msg'] = "Error: " . implode(" ", $errors);
+        header("Location: dashboard_staff.php#client_measurements");
+        exit;
+    }
+
+    $sql = "INSERT INTO body_measurements (user_id, recorded_at, weight, height, chest, waist, arms, thighs) 
+            VALUES ($target_user_id, '$date', $weight, $height, $chest, $waist, $arms, $thighs)";
+
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['msg'] = "Measurements logged successfully!";
+    } else {
+        $_SESSION['msg'] = "Error logging measurements: " . mysqli_error($link);
+    }
+    header("Location: dashboard_staff.php#client_measurements");
     exit;
 }
 
@@ -1003,6 +1145,8 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                     Members</a></li>
             <li><a href="#" onclick="showSection('reports')"><i class="fa-solid fa-users-rectangle"></i> Member
                     Attendance </a></li>
+            <li><a href="#" onclick="showSection('client_measurements')"><i class="fa-solid fa-ruler-combined"></i>
+                    Client Measurements</a></li>
 
             <li><a href="#" onclick="showSection('content')"><i class="fa-solid fa-cloud-arrow-up"></i> Upload
                     Content</a></li>
@@ -1289,14 +1433,14 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         <?php echo $msg; ?>
                     </p>
                     <script>
-                        setTimeout(() => {
-                            const msgBox = document.getElementById("staff-msg");
-                            if (msgBox) {
-                                msgBox.style.transition = "opacity 0.5s";
-                                msgBox.style.opacity = "0";
-                                setTimeout(() => msgBox.remove(), 500);
-                            }
-                        }, 4000);
+                                                        setT                                       imeout(() => {
+                                                            const msgBox = document.getElementById("staff-msg");
+                                                            if (msgBox) {
+                                                                msgBox.style.transition = "opacity 0.5s";
+                                                                msgBox.style.opacity = "0";
+                                                                setTimeout(() => msgBox.remove(), 500);
+                                                            }
+                                                        }, 4000);
                     </script>
                 <?php endif; ?>
 
@@ -1926,6 +2070,302 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
         </div>
 
 
+        <!-- Client Measurements Section -->
+        <div id="client_measurements" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Client Measurements</h2>
+            <div class="dashboard-card" style="max-width: 800px;">
+                <form id="client-measurements-form" onsubmit="event.preventDefault(); saveMeasurements();">
+                    <input type="hidden" name="ajax_action" value="save_measurement">
+
+                    <div class="form-group">
+                        <label>Select Member</label>
+                        <select name="user_id" id="cm_user_id" class="form-control" required
+                            onchange="loadMeasurementHistory(this.value)">
+                            <option value="">-- Choose a Member --</option>
+                            <?php
+                            // Fetch all members for the dropdown
+                            $measure_members = mysqli_query($link, "SELECT id, full_name, email FROM users WHERE role = 'member' ORDER BY full_name ASC");
+                            while ($mm = mysqli_fetch_assoc($measure_members)):
+                                ?>
+                                <option value="<?php echo $mm['id']; ?>" style="background: #1a1a2e; color: #fff;">
+                                    <?php echo htmlspecialchars($mm['full_name']); ?>
+                                    (<?php echo htmlspecialchars($mm['email']); ?>)
+                                </option>
+                            <?php endwhile; ?>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Date Recorded</label>
+                        <input type="text" name="date" id="cm_recorded_date" class="form-control"
+                            value="<?php echo date('Y-m-d'); ?>" required placeholder="Select Date">
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label>Weight (kg)</label>
+                            <input type="number" step="0.1" name="weight" id="cm_weight" class="form-control"
+                                placeholder="0.0" min="20" max="600">
+                        </div>
+                        <div class="form-group">
+                            <label>Height (cm)</label>
+                            <input type="number" step="0.1" name="height" id="cm_height" class="form-control"
+                                placeholder="0.0" min="50" max="300">
+                        </div>
+                    </div>
+
+                    <h4
+                        style="color:var(--primary-color); border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px; margin-bottom:20px;">
+                        Body Part Measurements (inches)</h4>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label>Chest</label>
+                            <input type="number" step="0.1" name="chest" id="cm_chest" class="form-control"
+                                placeholder="0.0" min="10" max="150">
+                        </div>
+                        <div class="form-group">
+                            <label>Waist</label>
+                            <input type="number" step="0.1" name="waist" id="cm_waist" class="form-control"
+                                placeholder="0.0" min="10" max="150">
+                        </div>
+                        <div class="form-group">
+                            <label>Arms</label>
+                            <input type="number" step="0.1" name="arms" id="cm_arms" class="form-control"
+                                placeholder="0.0" min="5" max="60">
+                        </div>
+                        <div class="form-group">
+                            <label>Thighs</label>
+                            <input type="number" step="0.1" name="thighs" id="cm_thighs" class="form-control"
+                                placeholder="0.0" min="5" max="60">
+                        </div>
+                    </div>
+
+                    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+                    <script>
+                        document.addEventListener('DOMContentLoaded', function () {
+                            flatpickr("#cm_recorded_date", {
+                                dateFormat: "Y-m-d",
+                                defaultDate: "today",
+                                theme: "dark"
+                            });
+                        });
+
+                        function saveMeasurements() {
+                            if (!validateClientMeasurements()) return;
+
+                            const form = document.getElementById('client-measurements-form');
+                            const formData = new FormData(form);
+
+                            fetch('dashboard_staff.php', {
+                                method: 'POST',
+                                body: formData
+                            })
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.success) {
+                                        alert('Measurements saved successfully!');
+                                        // Reload history for the current user
+                                        const userId = document.getElementById('cm_user_id').value;
+                                        if (userId) {
+                                            loadMeasurementHistory(userId);
+                                        }
+                                        // Optional: Clear inputs but keep user selected
+                                        // form.reset(); // This would clear the user selection too, which is annoying
+                                        // Better to clear only measurement fields:
+                                        ['cm_weight', 'cm_height', 'cm_chest', 'cm_waist', 'cm_arms', 'cm_thighs'].forEach(id => {
+                                            document.getElementById(id).value = '';
+                                        });
+                                    } else {
+                                        alert('Error saving: ' + (data.message || 'Unknown error'));
+                                    }
+                                })
+                                .catch(err => {
+                                    console.error(err);
+                                    alert('Request failed.');
+                                });
+                        }
+
+                        function loadMeasurementHistory(userId) {
+                            const container = document.getElementById('measurement-history-body');
+                            if (!userId) {
+                                container.innerHTML = '<tr><td colspan="7" style="padding:20px; text-align:center; color:var(--text-gray);">Select a user to view history.</td></tr>';
+                                return;
+                            }
+
+                            const formData = new FormData();
+                            formData.append('ajax_action', 'fetch_client_measurements');
+                            formData.append('user_id', userId);
+
+                            fetch('dashboard_staff.php', {
+                                method: 'POST',
+                                body: formData
+                            })
+                                .then(response => response.text())
+                                .then(html => {
+                                    container.innerHTML = html;
+                                    applyPagination();
+                                })
+                                .catch(err => console.error(err));
+                        }
+
+                        function deleteMeasurement(id) {
+                            if (!confirm('Are you sure you want to delete this measurement?')) return;
+
+                            const formData = new FormData();
+                            formData.append('ajax_action', 'delete_measurement');
+                            formData.append('measurement_id', id);
+
+                            fetch('dashboard_staff.php', { method: 'POST', body: formData })
+                                .then(res => res.json())
+                                .then(data => {
+                                    if (data.success) {
+                                        // Reload history
+                                        const userId = document.getElementById('cm_user_id').value;
+                                        loadMeasurementHistory(userId);
+                                    } else {
+                                        alert('Error deleting: ' + (data.message || 'Unknown error'));
+                                    }
+                                });
+                        }
+
+                        // Simple client-side pagination
+                        let currentPage = 1;
+                        const recordsPerPage = 5;
+
+                        function applyPagination() {
+                            const rows = document.querySelectorAll('#measurement-history-body tr');
+                            const totalRows = rows.length;
+
+                            // If no data or just the empty message
+                            if (totalRows === 1 && rows[0].innerText.includes('No measurements')) {
+                                document.getElementById('history-pagination').style.display = 'none';
+                                return;
+                            }
+
+                            const totalPages = Math.ceil(totalRows / recordsPerPage);
+
+                            if (totalPages <= 1) {
+                                document.getElementById('history-pagination').style.display = 'none';
+                                rows.forEach(r => r.style.display = '');
+                                return;
+                            }
+
+                            document.getElementById('history-pagination').style.display = 'flex';
+
+                            // Adjust currentPage if out of bounds
+                            if (currentPage > totalPages) currentPage = totalPages;
+                            if (currentPage < 1) currentPage = 1;
+
+                            const start = (currentPage - 1) * recordsPerPage;
+                            const end = start + recordsPerPage;
+
+                            rows.forEach((row, index) => {
+                                if (index >= start && index < end) {
+                                    row.style.display = '';
+                                } else {
+                                    row.style.display = 'none';
+                                }
+                            });
+
+                            document.getElementById('page-indicator').innerText = `Page ${currentPage} of ${totalPages}`;
+
+                            document.getElementById('prev-btn').disabled = currentPage === 1;
+                            document.getElementById('next-btn').disabled = currentPage === totalPages;
+                            document.getElementById('prev-btn').style.opacity = currentPage === 1 ? '0.5' : '1';
+                            document.getElementById('next-btn').style.opacity = currentPage === totalPages ? '0.5' : '1';
+                        }
+
+                        function changePage(delta) {
+                            currentPage += delta;
+                            applyPagination();
+                        }
+
+                        function validateClientMeasurements() {
+                            const weight = parseFloat(document.getElementById('cm_weight').value);
+                            const height = parseFloat(document.getElementById('cm_height').value);
+                            const chest = parseFloat(document.getElementById('cm_chest').value);
+                            const waist = parseFloat(document.getElementById('cm_waist').value);
+                            const arms = parseFloat(document.getElementById('cm_arms').value);
+                            const thighs = parseFloat(document.getElementById('cm_thighs').value);
+
+                            if (!isNaN(weight) && (weight < 20 || weight > 600)) {
+                                alert("Weight must be between 20 and 600 kg");
+                                return false;
+                            }
+                            if (!isNaN(height) && (height < 50 || height > 300)) {
+                                alert("Height must be between 50 and 300 cm");
+                                return false;
+                            }
+                            if (!isNaN(chest) && (chest < 10 || chest > 150)) {
+                                alert("Chest measurement must be between 10 and 150 inches");
+                                return false;
+                            }
+                            if (!isNaN(waist) && (waist < 10 || waist > 150)) {
+                                alert("Waist measurement must be between 10 and 150 inches");
+                                return false;
+                            }
+                            if (!isNaN(arms) && (arms < 5 || arms > 60)) {
+                                alert("Arm measurement must be between 5 and 60 inches");
+                                return false;
+                            }
+                            if (!isNaN(thighs) && (thighs < 5 || thighs > 60)) {
+                                alert("Thigh measurement must be between 5 and 60 inches");
+                                return false;
+                            }
+                            return true;
+                        }
+                    </script>
+
+                    <button type="submit" class="btn-action">
+                        <i class="fa-solid fa-save"></i> Save Measurements
+                    </button>
+                </form>
+            </div>
+
+            <!-- History Section -->
+            <h3 style="font-family: 'Oswald', sans-serif; margin: 30px 0 20px 0;">Measurement History</h3>
+            <div class="dashboard-card">
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Weight</th>
+                                <th>Height</th>
+                                <th>Chest</th>
+                                <th>Waist</th>
+                                <th>Arms</th>
+                                <th>Thighs</th>
+                                <th style="text-align: right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="measurement-history-body">
+                            <tr>
+                                <td colspan="8" style="padding: 20px; text-align: center; color: var(--text-gray);">
+                                    Select a member to view their history.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination Controls -->
+                <div id="history-pagination"
+                    style="display:none; justify-content:center; align-items:center; gap:15px; padding:20px 15px; border-top:1px solid rgba(255,255,255,0.05);">
+                    <button id="prev-btn" onclick="changePage(-1)" class="btn-sm btn-edit"
+                        style="padding: 8px 20px; font-family: 'Oswald'; text-transform: uppercase; letter-spacing: 1px;">&lt;
+                        Prev</button>
+                    <span id="page-indicator"
+                        style="color:var(--primary-color); font-family: 'Oswald'; font-size: 0.9rem; letter-spacing: 1px;">Page
+                        1 of 1</span>
+                    <button id="next-btn" onclick="changePage(1)" class="btn-sm btn-edit"
+                        style="padding: 8px 20px; font-family: 'Oswald'; text-transform: uppercase; letter-spacing: 1px;">Next
+                        &gt;</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Profile Section -->
         <div id="profile" class="dashboard-section">
             <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Profile Settings</h2>
@@ -2092,12 +2532,62 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             disableMobile: "true" // Ensures the custom look is used on mobile attributes
         });
 
-        function showSection(sectionId) {
+        function showSection(sectionId, updateHistory = true) {
+            // Prevent default anchor behavior if triggered by click
+            if (typeof event !== 'undefined' && event && event.type === 'click') {
+                event.preventDefault();
+            }
+
+            // Update URL to include the section hash for copy-pasting
+            if (updateHistory) {
+                if (history.pushState) {
+                    history.pushState(null, null, '#' + sectionId);
+                } else {
+                    window.location.hash = sectionId;
+                }
+            }
+
             document.querySelectorAll('.dashboard-section').forEach(s => s.classList.remove('active'));
             document.querySelectorAll('.sidebar-menu a').forEach(a => a.classList.remove('active'));
-            document.getElementById(sectionId).classList.add('active');
-            if (event && event.currentTarget) event.currentTarget.classList.add('active');
+            const target = document.getElementById(sectionId);
+            if (target) target.classList.add('active');
+
+            // Find and activate sidebar link
+            if (event && event.currentTarget && event.currentTarget.classList) {
+                event.currentTarget.classList.add('active');
+            } else {
+                document.querySelectorAll('.sidebar-menu a').forEach(a => {
+                    const onclick = a.getAttribute('onclick');
+                    if (onclick && onclick.includes(`showSection('${sectionId}')`)) {
+                        a.classList.add('active');
+                    }
+                });
+            }
         }
+
+        // Initialize from URL hash
+        window.addEventListener('load', function () {
+            const hash = window.location.hash.substring(1);
+            if (hash) {
+                showSection(hash, false);
+            } else {
+                // If no hash, keep default active section but ensure sidebar is sync
+                const activeSec = document.querySelector('.dashboard-section.active');
+                if (activeSec) showSection(activeSec.id, false);
+            }
+        });
+
+        // Handle Back/Forward
+        window.addEventListener('popstate', function (event) {
+            const hash = window.location.hash.substring(1);
+            if (hash) {
+                showSection(hash, false);
+            } else {
+                // Fallback to default active section
+                const activeSec = document.querySelector('.dashboard-section'); // First one
+                if (activeSec) showSection(activeSec.id, false);
+            }
+        });
 
         function editContent(data) {
             // Populate form fields
