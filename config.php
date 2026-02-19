@@ -79,6 +79,15 @@ $table_sql = "CREATE TABLE IF NOT EXISTS users (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 )";
 
+// Update role ENUM to include shop_staff if not present
+$check_role = mysqli_query($link, "SHOW COLUMNS FROM users LIKE 'role'");
+if ($check_role) {
+    $role_row = mysqli_fetch_assoc($check_role);
+    if (strpos($role_row['Type'], "'shop_staff'") === false) {
+        mysqli_query($link, "ALTER TABLE users MODIFY COLUMN role ENUM('member', 'staff', 'admin', 'shop_staff') DEFAULT 'member'");
+    }
+}
+
 if (!mysqli_query($link, $table_sql)) {
     die("ERROR: Could not create table. " . mysqli_error($link));
     // Create user_progress_photos table

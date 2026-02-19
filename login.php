@@ -8,8 +8,17 @@ if (isset($_SESSION["loggedin"]) && $_SESSION["loggedin"] === true) {
         header("location: dashboard_admin.php");
     } elseif ($_SESSION["role"] == "staff" || $_SESSION["role"] == "trainer") {
         header("location: dashboard_staff.php");
-    } else {
+    } elseif ($_SESSION["role"] == "shop_staff") {
+        header("location: dashboard_shop_staff.php");
+    } elseif ($_SESSION["role"] == "member") {
         header("location: dashboard_member.php");
+    } else {
+        // Unknown or invalid role
+        session_unset();
+        session_destroy();
+        // Redirect to login page (refresh)
+        header("location: login.php");
+        exit;
     }
     exit;
 }
@@ -58,8 +67,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
                         header("location: dashboard_admin.php");
                     } elseif ($row['role'] == "staff") {
                         header("location: dashboard_staff.php");
-                    } else {
+                    } elseif ($row['role'] == "shop_staff") {
+                        header("location: dashboard_shop_staff.php");
+                    } elseif ($row['role'] == "member") {
                         header("location: dashboard_member.php");
+                    } else {
+                        // Unknown role
+                        session_unset();
+                        session_destroy();
+                        $error = "Invalid role assigned. Please contact admin.";
                     }
                     exit;
                 } else {

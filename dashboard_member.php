@@ -308,12 +308,15 @@ $join_date = date('Y-m-d', strtotime($user_data['created_at']));
 $trainers_query = mysqli_query($link, "SELECT * FROM trainers ORDER BY created_at DESC");
 
 
-// FETCH LATEST ANNOUNCEMENT
-$ann_res = mysqli_query($link, "SELECT * FROM announcements ORDER BY created_at DESC LIMIT 1");
-$latest_announcement = mysqli_fetch_assoc($ann_res);
+// FETCH ANNOUNCEMENTS (ALL)
+$ann_res = mysqli_query($link, "SELECT * FROM announcements ORDER BY created_at DESC");
+$all_announcements = [];
+while ($row = mysqli_fetch_assoc($ann_res)) {
+    $all_announcements[] = $row;
+}
 
 // FETCH MEMBERSHIP PLANS
-$plans_res = mysqli_query($link, "SELECT * FROM membership_plans ORDER BY id ASC");
+$plans_res = mysqli_query($link, "SELECT * FROM membership_plans WHERE name IN ('Basic', 'Standard', 'Premium') ORDER BY id ASC");
 
 // FETCH MEASUREMENTS
 $measure_res = mysqli_query($link, "SELECT * FROM body_measurements WHERE user_id = $user_id ORDER BY recorded_at DESC");
@@ -1748,30 +1751,43 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 </div>
 
                 <!-- Announcement Section -->
-                <?php if ($latest_announcement): ?>
-                    <div class="dashboard-card">
-                        <h3>Announcements <i class="fa-solid fa-bullhorn"></i></h3>
-                        <div
-                            style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; border-left: 4px solid var(--primary-color);">
-                            <h4
-                                style="color: #fff; margin-bottom: 8px; font-family: 'Oswald', sans-serif; font-size: 1.1rem;">
-                                <?php echo htmlspecialchars($latest_announcement['title']); ?>
-                            </h4>
-                            <p style="color: var(--text-gray); font-size: 0.95rem; line-height: 1.5;">
-                                <?php echo nl2br(htmlspecialchars($latest_announcement['message'])); ?>
-                            </p>
+                <div class="dashboard-card" style="max-height: 500px; overflow-y: auto; scrollbar-width: thin;">
+                    <h3
+                        style="position: sticky; top: 0; background: var(--card-bg); z-index: 2; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 15px;">
+                        Announcements <i class="fa-solid fa-bullhorn"></i>
+                    </h3>
+
+                    <?php if (count($all_announcements) > 0): ?>
+                        <div style="display: flex; flex-direction: column; gap: 15px;">
+                            <?php foreach ($all_announcements as $ann): ?>
+                                <div
+                                    style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; border-left: 4px solid var(--primary-color);">
+                                    <div
+                                        style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                                        <h4
+                                            style="color: #fff; font-family: 'Oswald', sans-serif; font-size: 1.1rem; margin: 0;">
+                                            <?php echo htmlspecialchars($ann['title']); ?>
+                                        </h4>
+                                        <span
+                                            style="font-size: 0.75rem; color: var(--text-gray); background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; white-space: nowrap;">
+                                            <?php echo date('M d, Y', strtotime($ann['created_at'])); ?>
+                                        </span>
+                                    </div>
+                                    <p style="color: var(--text-gray); font-size: 0.95rem; line-height: 1.5; margin: 0;">
+                                        <?php echo nl2br(htmlspecialchars($ann['message'])); ?>
+                                    </p>
+                                </div>
+                            <?php endforeach; ?>
                         </div>
-                    </div>
-                <?php else: ?>
-                    <!-- Fallback if no announcement -->
-                    <div class="dashboard-card">
-                        <h3>Announcements <i class="fa-solid fa-bullhorn"></i></h3>
+                    <?php else: ?>
                         <div
-                            style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; text-align:center;">
-                            <p style="color: var(--text-gray);">No new announcements.</p>
+                            style="background: rgba(255,255,255,0.05); padding: 40px; border-radius: 10px; text-align:center;">
+                            <i class="fa-solid fa-bell-slash"
+                                style="font-size: 2rem; color: var(--text-gray); opacity: 0.5; margin-bottom: 10px;"></i>
+                            <p style="color: var(--text-gray);">No announcements at this time.</p>
                         </div>
-                    </div>
-                <?php endif; ?>
+                    <?php endif; ?>
+                </div>
             </div>
         </div>
 
@@ -1942,7 +1958,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                                             </ul>
                                         </div>
                                         <div>
-                                            <h5 style="color: var(--primary-color); margin-bottom: 8px;">Video Topics</h5>
+                                            <h5 style="color: var(--primary-color); margin-bottom: 8px;">Video Topics
+                                            </h5>
                                             <ul
                                                 style="list-style: none; padding-left: 0; font-size: 0.9rem; color: var(--text-gray);">
                                                 <?php foreach ($week['topics'] as $topic): ?>
@@ -1973,7 +1990,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         <i class="fa-solid fa-lock"
                             style="font-size: 3rem; color: var(--text-gray); margin-bottom: 15px;"></i>
                         <h3>Daily Challenges Locked</h3>
-                        <p style="color: var(--text-gray);">Please complete the Beginner Gym Timeline to unlock your daily
+                        <p style="color: var(--text-gray);">Please complete the Beginner Gym Timeline to unlock your
+                            daily
                             workout schedule.</p>
                     </div>
                 <?php else: ?>
@@ -2312,7 +2330,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
 
                 <!-- Upgrade / Renew Plans (Full Width) -->
                 <div class="pricing-section-container monthly" id="pricing-container">
-                    <h3 style="font-family:'Oswald'; margin-bottom:20px; text-align:center;">Renew or Upgrade Your Plan
+                    <h3 style="font-family:'Oswald'; margin-bottom:20px; text-align:center;">Renew or Upgrade Your
+                        Plan
                     </h3>
 
                     <div class="pricing-toggle">
@@ -2884,7 +2903,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                                     <th style="padding:15px; color:var(--text-gray);">Waist</th>
                                     <th style="padding:15px; color:var(--text-gray);">Arms</th>
                                     <th style="padding:15px; color:var(--text-gray);">Thighs</th>
-                                    <th style="padding:15px; color:var(--text-gray); text-align: center;">Actions</th>
+                                    <th style="padding:15px; color:var(--text-gray); text-align: center;">Actions
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -3222,7 +3242,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                                 style="width:100%; padding:12px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff;">
                                 <option value="progress" style="background: #2b2b2b; color: #fff;">Progress Update
                                 </option>
-                                <option value="before" style="background: #2b2b2b; color: #fff;">Before Transformation
+                                <option value="before" style="background: #2b2b2b; color: #fff;">Before
+                                    Transformation
                                 </option>
                                 <option value="after" style="background: #2b2b2b; color: #fff;">After Transformation
                                 </option>
@@ -3595,8 +3616,35 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 <h2 style="font-family: 'Oswald', sans-serif; margin: 0;">Gym Store</h2>
                 <button onclick="document.getElementById('history-modal').style.display='flex'" class="btn-action"
                     style="width: auto; display: inline-flex; align-items: center; justify-content: center; padding: 10px 20px; font-size: 0.9rem; border-radius: 5px;">
-                    <i class="fa-solid fa-clock-rotate-left" style="margin-right: 8px;"></i> Payment History
+                    <i class="fa-solid fa-bag-shopping" style="margin-right: 8px;"></i> My Orders
                 </button>
+            </div>
+
+            <!-- Token Viewer Popup -->
+            <div id="token-viewer-modal"
+                style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 3000; align-items: center; justify-content: center; flex-direction: column;">
+                <div
+                    style="background: #1a1a2e; border-radius: 20px; padding: 40px 50px; text-align: center; border: 2px solid var(--primary-color); box-shadow: 0 0 40px rgba(206,255,0,0.2); position: relative; max-width: 380px; width: 90%;">
+                    <button onclick="document.getElementById('token-viewer-modal').style.display='none'"
+                        style="position: absolute; top: 15px; right: 15px; background: none; border: none; color: #fff; cursor: pointer; font-size: 1.3rem;">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                    <i class="fa-solid fa-ticket"
+                        style="font-size: 2.5rem; color: var(--primary-color); margin-bottom: 15px; display: block;"></i>
+                    <p
+                        style="color: var(--text-gray); font-size: 0.85rem; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 2px;">
+                        Your Pickup Token</p>
+                    <div id="tv-item-name" style="color: #fff; font-size: 1rem; margin-bottom: 20px; font-weight: 500;">
+                    </div>
+                    <div id="tv-token"
+                        style="font-family: 'Oswald'; font-size: 3rem; font-weight: bold; color: var(--primary-color); letter-spacing: 6px; background: rgba(206,255,0,0.08); border: 2px dashed rgba(206,255,0,0.4); border-radius: 12px; padding: 20px 30px; margin-bottom: 20px;">
+                        ------</div>
+                    <div id="tv-status" style="font-size: 0.85rem; margin-bottom: 25px;"></div>
+                    <p style="color: var(--text-gray); font-size: 0.78rem; line-height: 1.5;"><i
+                            class="fa-solid fa-circle-info"></i> Show this token to the <strong
+                            style="color: var(--primary-color);">shop staff</strong> at the counter to collect
+                        your item.</p>
+                </div>
             </div>
 
             <!-- History Modal -->
@@ -3612,7 +3660,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                             style="position: absolute; top: 15px; right: 15px; background: none; border: none; color: #fff; cursor: pointer; font-size: 1.2rem;"><i
                                 class="fa-solid fa-xmark"></i></button>
 
-                        <h3 style="font-family: 'Oswald'; margin-bottom: 15px; color: var(--primary-color);">Purchase
+                        <h3 style="font-family: 'Oswald'; margin-bottom: 15px; color: var(--primary-color);">
+                            Purchase
                             History</h3>
 
                         <!-- Search Bar -->
@@ -3626,7 +3675,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     <?php
                     // Update query to include ID and filter out deleted items
                     $store_history = [];
-                    $hist_sql = "SELECT id, plan_name, amount, payment_method, status, created_at FROM transactions WHERE user_id = ? AND plan_name LIKE 'Store:%' AND is_deleted_by_user = 0 ORDER BY created_at DESC";
+                    $hist_sql = "SELECT id, plan_name, amount, payment_method, status, created_at, token_number, token_accepted FROM transactions WHERE user_id = ? AND plan_name LIKE 'Store:%' AND is_deleted_by_user = 0 ORDER BY created_at DESC";
 
                     if ($stmt = mysqli_prepare($link, $hist_sql)) {
                         mysqli_stmt_bind_param($stmt, "i", $user_id);
@@ -3655,7 +3704,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                                             <th style="padding: 10px; color: var(--text-gray);">Date</th>
                                             <th style="padding: 10px; color: var(--text-gray);">Amount</th>
                                             <th style="padding: 10px; color: var(--text-gray);">Status</th>
-                                            <th style="padding: 10px; color: var(--text-gray); text-align: right;">Actions
+                                            <th style="padding: 10px; color: var(--text-gray); text-align: right;">
+                                                Actions
                                             </th>
                                         </tr>
                                     </thead>
@@ -3672,23 +3722,35 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                                                 <td style="padding: 10px; color: var(--text-gray); font-size: 0.9rem;">
                                                     <?php echo $date; ?>
                                                 </td>
-                                                <td style="padding: 10px;">₹<?php echo number_format($hist['amount']); ?></td>
+                                                <td style="padding: 10px;">₹<?php echo number_format($hist['amount']); ?>
+                                                </td>
                                                 <td
                                                     style="padding: 10px; color: <?php echo $status_color; ?>; text-transform: capitalize;">
                                                     <?php echo $hist['status']; ?>
                                                 </td>
                                                 <td style="padding: 10px; text-align: right;">
-                                                    <a href="invoice.php?tid=<?php echo $hist['id']; ?>" target="_blank"
-                                                        title="Download Invoice"
-                                                        style="color: var(--primary-color); margin-right: 10px; font-size: 1.1rem;">
-                                                        <i class="fa-solid fa-file-pdf"></i>
-                                                    </a>
-                                                    <button
-                                                        onclick="deleteTransaction(<?php echo $hist['id']; ?>, this.closest('tr'))"
-                                                        title="Delete Record"
-                                                        style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 1rem;">
-                                                        <i class="fa-solid fa-trash"></i>
-                                                    </button>
+                                                    <div
+                                                        style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
+                                                        <?php if (!empty($hist['token_number'])): ?>
+                                                            <button
+                                                                onclick="viewToken('<?php echo htmlspecialchars($item_name); ?>', '<?php echo $hist['token_number']; ?>', <?php echo $hist['token_accepted'] ? 'true' : 'false'; ?>)"
+                                                                title="View Pickup Token"
+                                                                style="background: rgba(206,255,0,0.1); border: 1px solid rgba(206,255,0,0.4); color: var(--primary-color); cursor: pointer; font-size: 0.75rem; padding: 5px 10px; border-radius: 5px; font-weight: bold; display: inline-flex; align-items: center; gap: 5px;">
+                                                                <i class="fa-solid fa-ticket"></i> Token
+                                                            </button>
+                                                        <?php endif; ?>
+                                                        <a href="invoice.php?tid=<?php echo $hist['id']; ?>" target="_blank"
+                                                            title="Download Invoice"
+                                                            style="color: var(--primary-color); font-size: 1.1rem;">
+                                                            <i class="fa-solid fa-file-pdf"></i>
+                                                        </a>
+                                                        <button
+                                                            onclick="deleteTransaction(<?php echo $hist['id']; ?>, this.closest('tr'))"
+                                                            title="Delete Record"
+                                                            style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 1rem;">
+                                                            <i class="fa-solid fa-trash"></i>
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         <?php endforeach; ?>
@@ -3736,6 +3798,20 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         }
                     });
                 }
+
+                function viewToken(itemName, token, accepted) {
+                    document.getElementById('tv-item-name').innerText = itemName;
+                    document.getElementById('tv-token').innerText = token;
+                    const statusEl = document.getElementById('tv-status');
+                    if (accepted) {
+                        statusEl.innerHTML = '<span style="color:#00ff88;"><i class="fa-solid fa-circle-check"></i> Accepted by Shop Staff — Ready to collect!</span>';
+                    } else {
+                        statusEl.innerHTML = '<span style="color:#ffb74d;"><i class="fa-solid fa-clock"></i> Pending — Show this to Shop Staff at the counter</span>';
+                    }
+                    // Hide the orders modal and show token viewer
+                    document.getElementById('history-modal').style.display = 'none';
+                    document.getElementById('token-viewer-modal').style.display = 'flex';
+                }
             </script>
             <div class="dashboard-grid"
                 style="grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px;">
@@ -3748,7 +3824,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                             style="width: 65%; height: 100%; object-fit: cover;object-position: center 15%;">
                     </div>
                     <h3 style="font-family: 'Oswald'; margin-bottom: 5px;">Proteins</h3>
-                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Whey, Isolate, Vegan &
+                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Whey, Isolate, Vegan
+                        &
                         more.</p>
                     <button onclick="openCategoryModal('protein')" class="btn-action" style="width: 100%;">View
                         Products</button>
@@ -3790,7 +3867,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                             style="width: 100%; height: 100%; object-fit: cover;">
                     </div>
                     <h3 style="font-family: 'Oswald'; margin-bottom: 5px;">Lifting Belts</h3>
-                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Support for heavy lifts.
+                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Support for heavy
+                        lifts.
                     </p>
                     <button onclick="openCategoryModal('belts')" class="btn-action" style="width: 100%;">View
                         Products</button>
@@ -3834,7 +3912,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                             style="width: 120%; height: 100%; object-fit: cover;">
                     </div>
                     <h3 style="font-family: 'Oswald'; margin-bottom: 5px;">Hygiene Essentials</h3>
-                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Stay fresh after every
+                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">Stay fresh after
+                        every
                         session.</p>
                     <button onclick="openCategoryModal('hygiene')" class="btn-action" style="width: 100%;">View
                         Products</button>
@@ -3904,11 +3983,20 @@ $is_beginner_completed = count($completed_weeks) >= 4;
         <?php
         // Get Server IP for QR Code (so phone can scan)
         $server_ip = getHostByName(getHostName());
-        // Fallback if it returns localhost
+
+        // Better IP detection: try to get a non-localhost IP
         if ($server_ip == '127.0.0.1' || $server_ip == '::1') {
-            // Try simpler method or just default to localhost (user might need to fix)
-            $server_ip = $_SERVER['SERVER_NAME'];
+            if (isset($_SERVER['SERVER_ADDR']) && $_SERVER['SERVER_ADDR'] != '127.0.0.1') {
+                $server_ip = $_SERVER['SERVER_ADDR'];
+            } else if (isset($_SERVER['HTTP_HOST'])) {
+                // Split port if exists
+                $host_parts = explode(':', $_SERVER['HTTP_HOST']);
+                $server_ip = $host_parts[0];
+            } else {
+                $server_ip = $_SERVER['SERVER_NAME'];
+            }
         }
+
         $base_url = "http://" . $server_ip . "/Gym-Fit-master";
         ?>
 
@@ -3940,6 +4028,16 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         <i class="fa-solid fa-circle-check"
                             style="font-size: 4rem; color: #00ff88; margin-bottom: 15px;"></i>
                         <h4 style="color: #333; margin: 0;">Payment Successful!</h4>
+                        <div id="token-display-area"
+                            style="margin-top: 15px; padding: 10px; background: #f0f0f0; border-radius: 8px; border: 1px dashed #ccc; display: none;">
+                            <span
+                                style="font-size: 0.7rem; color: #666; display: block; text-transform: uppercase;">Your
+                                Pickup Token:</span>
+                            <span id="store-token-number"
+                                style="font-family: 'Oswald'; font-size: 1.5rem; font-weight: bold; color: #333; letter-spacing: 2px;">XXXXXX</span>
+                            <p style="font-size: 0.65rem; color: #888; margin: 4px 0 0 0;">Show this to Admin to pick up
+                                your item.</p>
+                        </div>
                     </div>
                 </div>
 
@@ -3952,6 +4050,28 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 <p id="qr-amount-display" style="font-size: 1.2rem; font-weight: bold; color: #333;">₹0</p>
                 <div style="font-size: 0.9rem; color: #666; width: 100%; text-align: center; margin-top: 15px;">
                     <i class="fa-solid fa-spinner fa-spin"></i> Waiting for payment...
+                </div>
+
+                <!-- IP Correction UI -->
+                <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #eee;">
+                    <p style="font-size: 0.75rem; color: #888; margin-bottom: 5px;">Can't access on phone?</p>
+                    <button
+                        onclick="document.getElementById('ip-fix-area').style.display='block'; this.style.display='none'"
+                        style="background: none; border: none; color: #3498db; text-decoration: underline; font-size: 0.75rem; cursor: pointer;">
+                        Click here to check Server IP
+                    </button>
+                    <div id="ip-fix-area" style="display: none; margin-top: 10px;">
+                        <p style="font-size: 0.7rem; color: #666; margin-bottom: 8px;">Your computer's IP might be
+                            different. Enter local IP (e.g. 192.168.1.5):</p>
+                        <div style="display: flex; gap: 5px;">
+                            <input type="text" id="manual-ip-input" placeholder="e.g. 192.168.1.5"
+                                style="flex: 1; padding: 5px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.8rem;">
+                            <button onclick="updateServerIp()"
+                                style="background: #3498db; color: #fff; border: none; padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; cursor: pointer;">Update</button>
+                        </div>
+                        <p style="font-size: 0.6rem; color: #999; margin-top: 5px;">Tip: Run 'ipconfig' in CMD to find
+                            your IPv4 Address.</p>
+                    </div>
                 </div>
             </div>
             <style>
@@ -4103,9 +4223,7 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     document.getElementById('gpay-qr-modal').style.display = 'flex';
 
                     // Generate QR Code URL
-                    const payUrl = `${serverBaseUrl}/gpay_mock.php?amt=${currentStoreProduct.price}&plan=${encodeURIComponent('Store: ' + currentStoreProduct.name)}&uid=${currentUserId}`;
-                    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(payUrl)}`;
-                    document.getElementById('gpay-qr-code').src = qrApiUrl;
+                    generateStoreQR();
 
                     // Start polling for actual payment
                     startPaymentPolling();
@@ -4124,22 +4242,27 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         .then(data => {
                             if (data.status === 'paid') {
                                 clearInterval(paymentPollInterval);
-                                showSuccessAndRedirect();
+                                showSuccessAndRedirect(data.token);
                             }
                         })
                         .catch(err => console.error("Polling error:", err));
                 }, 2000);
             }
 
-            function showSuccessAndRedirect() {
+            function showSuccessAndRedirect(token = '') {
                 document.getElementById('scan-overlay').style.display = 'none'; // Hide if stuck
                 document.getElementById('success-overlay').style.display = 'flex';
+
+                if (token) {
+                    document.getElementById('token-display-area').style.display = 'block';
+                    document.getElementById('store-token-number').innerText = token;
+                }
 
                 setTimeout(() => {
                     closeGPayModal();
                     document.getElementById('category-modal').style.display = 'none';
                     window.location.href = 'dashboard_member.php?section=gym-store';
-                }, 2000);
+                }, 5000); // 5 seconds to let them see the token
             }
 
             function closeGPayModal() {
@@ -4147,6 +4270,28 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 document.getElementById('gpay-qr-modal').style.display = 'none';
                 document.getElementById('scan-overlay').style.display = 'none';
                 document.getElementById('success-overlay').style.display = 'none';
+            }
+
+            let customServerBaseUrl = null;
+
+            function generateStoreQR() {
+                const baseUrl = customServerBaseUrl || serverBaseUrl;
+                const payUrl = `${baseUrl}/gpay_mock.php?amt=${currentStoreProduct.price}&plan=${encodeURIComponent('Store: ' + currentStoreProduct.name)}&uid=${currentUserId}`;
+                const qrImg = document.getElementById('gpay-qr-code');
+                qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(payUrl)}`;
+
+                // Set the current IP in the input for convenience
+                const currentIp = baseUrl.replace('http://', '').split('/')[0];
+                document.getElementById('manual-ip-input').value = currentIp;
+            }
+
+            function updateServerIp() {
+                const newIp = document.getElementById('manual-ip-input').value.trim();
+                if (newIp) {
+                    customServerBaseUrl = `http://${newIp}/Gym-Fit-master`;
+                    generateStoreQR();
+                    alert("QR Code updated with IP: " + newIp);
+                }
             }
         </script>
 

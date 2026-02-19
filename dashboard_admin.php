@@ -40,6 +40,284 @@ if (mysqli_num_rows($check_trainer_email) == 0) {
     mysqli_query($link, "ALTER TABLE trainers ADD COLUMN visible_password VARCHAR(255) DEFAULT NULL AFTER password");
 }
 
+// Ensure services table exists
+$services_sql = "CREATE TABLE IF NOT EXISTS services (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    icon VARCHAR(255) NOT NULL,
+    priority INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)";
+mysqli_query($link, $services_sql);
+
+// Seed Services if empty
+$check_services = mysqli_query($link, "SELECT id FROM services LIMIT 1");
+if (mysqli_num_rows($check_services) == 0) {
+    $service_seeds = [
+        ['Personal Trainer', 'One-on-one customized workouts to smash your goals.', 'assets/icons/muscle_custom.png', 1],
+        ['Group Training', 'High-energy classes to keep you motivated and moving.', 'assets/icons/group.svg', 2],
+        ['Treadmill', 'State-of-the-art cardio equipment for endurance.', 'assets/icons/treadmill.svg', 3],
+        ['Yoga', 'Find your balance and improve flexibility with experts.', 'assets/icons/yoga_custom.png', 4],
+        ['Workout Videos', 'Access expert-guided workout videos anytime, anywhere to stay fit and motivated.', 'assets/icons/online.svg', 5],
+        ['Diet And Tips', 'Nutrition guidance ensuring you fuel your gains properly.', 'assets/icons/tips.svg', 6]
+    ];
+    foreach ($service_seeds as $s) {
+        $t = mysqli_real_escape_string($link, $s[0]);
+        $d = mysqli_real_escape_string($link, $s[1]);
+        $i = mysqli_real_escape_string($link, $s[2]);
+        $p = (int) $s[3];
+        mysqli_query($link, "INSERT INTO services (title, description, icon, priority) VALUES ('$t', '$d', '$i', '$p')");
+    }
+}
+
+// Ensure equipment showcase table exists
+$equip_sql = "CREATE TABLE IF NOT EXISTS equipment_showcase (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description VARCHAR(255) NOT NULL,
+    image VARCHAR(255) NOT NULL,
+    priority INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)";
+mysqli_query($link, $equip_sql);
+
+// Seed if empty
+$check_empty = mysqli_query($link, "SELECT id FROM equipment_showcase LIMIT 1");
+if (mysqli_num_rows($check_empty) == 0) {
+    $seeds = [
+        ['Dumbbell', 'Adjustable weights', 'assets/images/dumble.png', 1],
+        ['Cardio Bike', 'High-intensity cardio', 'assets/images/product-bike.png', 2],
+        ['Treadmill Elite', 'Smart incline run', 'assets/images/product-treadmill.png', 3],
+        ['Cable Machine', 'Full body workout', 'assets/images/product-cable.png', 4],
+        ['Flat Bench', 'Steel frame support', 'assets/images/bench.png', 5],
+        ['Smith Machine', 'Guided weight training', 'assets/images/smith.png', 6],
+        ['Kettlebells', 'Explosive power', 'assets/images/kettlebell.png', 7],
+        ['Pull-up Bar', 'Upper body strength', 'assets/images/pullup.png', 8],
+        ['Medicine Ball', 'Core plyometrics', 'assets/images/medicineball.png', 9],
+        ['Resistance Bands', 'Elastic resistance', 'assets/images/bands.png', 10],
+        ['Rowing Machine', 'Full body cardio', 'assets/images/rowing.png', 11],
+        ['Leg Press Machine', 'Lower body strength', 'assets/images/legpress.png', 12]
+    ];
+    foreach ($seeds as $s) {
+        $n = mysqli_real_escape_string($link, $s[0]);
+        $d = mysqli_real_escape_string($link, $s[1]);
+        $i = mysqli_real_escape_string($link, $s[2]);
+        $p = (int) $s[3];
+        mysqli_query($link, "INSERT INTO equipment_showcase (name, description, image, priority) VALUES ('$n', '$d', '$i', '$p')");
+    }
+}
+
+
+// Ensure transactions table has token columns
+$check_trans_token = mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'token_number'");
+if (mysqli_num_rows($check_trans_token) == 0) {
+    mysqli_query($link, "ALTER TABLE transactions ADD COLUMN token_number VARCHAR(20) DEFAULT NULL AFTER status");
+    mysqli_query($link, "ALTER TABLE transactions ADD COLUMN token_accepted TINYINT(1) DEFAULT 0 AFTER token_number");
+}
+
+// Ensure gym_store_orders table exists
+$store_orders_sql = "CREATE TABLE IF NOT EXISTS gym_store_orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    product_name VARCHAR(255) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    token_number VARCHAR(20) NOT NULL UNIQUE,
+    status ENUM('pending', 'accepted') DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)";
+mysqli_query($link, $store_orders_sql);
+
+// HANDLE EQUIPMENT ADDITION
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_equipment'])) {
+    $name = mysqli_real_escape_string($link, $_POST['eq_name']);
+    $desc = mysqli_real_escape_string($link, $_POST['eq_desc']);
+    $priority = (int) $_POST['eq_priority'];
+    $image_path = "";
+
+    if (isset($_FILES['eq_image']) && $_FILES['eq_image']['error'] == 0) {
+        $target_dir = "assets/images/equipment/";
+        if (!file_exists($target_dir)) {
+            mkdir($target_dir, 0777, true);
+        }
+        $file_ext = pathinfo($_FILES["eq_image"]["name"], PATHINFO_EXTENSION);
+        $file_name = time() . "_" . uniqid() . "." . $file_ext;
+        $target_file = $target_dir . $file_name;
+
+        if (move_uploaded_file($_FILES["eq_image"]["tmp_name"], $target_file)) {
+            $image_path = $target_file;
+        }
+    }
+
+    $sql = "INSERT INTO equipment_showcase (name, description, image, priority) VALUES ('$name', '$desc', '$image_path', '$priority')";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Equipment added successfully!";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error adding equipment: " . mysqli_error($link);
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// HANDLE EQUIPMENT UPDATE
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_equipment'])) {
+    $id = (int) $_POST['eq_id'];
+    $name = mysqli_real_escape_string($link, $_POST['eq_name']);
+    $desc = mysqli_real_escape_string($link, $_POST['eq_desc']);
+    $priority = (int) $_POST['eq_priority'];
+
+    $image_update_sql = "";
+
+    if (isset($_FILES['eq_image']) && $_FILES['eq_image']['error'] == 0) {
+        $target_dir = "assets/images/equipment/";
+        if (!file_exists($target_dir)) {
+            mkdir($target_dir, 0777, true);
+        }
+        $file_ext = pathinfo($_FILES["eq_image"]["name"], PATHINFO_EXTENSION);
+        $file_name = time() . "_" . uniqid() . "." . $file_ext;
+        $target_file = $target_dir . $file_name;
+
+        if (move_uploaded_file($_FILES["eq_image"]["tmp_name"], $target_file)) {
+            // Delete old image
+            $img_res = mysqli_query($link, "SELECT image FROM equipment_showcase WHERE id = $id");
+            $img_data = mysqli_fetch_assoc($img_res);
+            if ($img_data && !empty($img_data['image']) && file_exists($img_data['image'])) {
+                unlink($img_data['image']);
+            }
+            $image_update_sql = ", image = '$target_file'";
+        }
+    }
+
+    $sql = "UPDATE equipment_showcase SET name='$name', description='$desc', priority='$priority' $image_update_sql WHERE id=$id";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Equipment updated successfully!";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error updating equipment: " . mysqli_error($link);
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// HANDLE EQUIPMENT DELETION
+if (isset($_GET['delete_equipment'])) {
+    $id = (int) $_GET['delete_equipment'];
+    // Delete image
+    $img_res = mysqli_query($link, "SELECT image FROM equipment_showcase WHERE id = $id");
+    $img_data = mysqli_fetch_assoc($img_res);
+    if ($img_data && !empty($img_data['image']) && file_exists($img_data['image'])) {
+        unlink($img_data['image']);
+    }
+
+    if (mysqli_query($link, "DELETE FROM equipment_showcase WHERE id = $id")) {
+        $_SESSION['message'] = "Equipment deleted successfully!";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error deleting equipment.";
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+
+
+// HANDLE SERVICE ADDITION
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_service'])) {
+    $title = mysqli_real_escape_string($link, $_POST['service_title']);
+    $desc = mysqli_real_escape_string($link, $_POST['service_desc']);
+    $priority = (int) $_POST['service_priority'];
+    $icon_path = "";
+
+    if (isset($_FILES['service_icon']) && $_FILES['service_icon']['error'] == 0) {
+        $target_dir = "assets/icons/";
+        if (!file_exists($target_dir)) {
+            mkdir($target_dir, 0777, true);
+        }
+        $file_ext = pathinfo($_FILES["service_icon"]["name"], PATHINFO_EXTENSION);
+        $file_name = time() . "_" . uniqid() . "." . $file_ext;
+        $target_file = $target_dir . $file_name;
+
+        if (move_uploaded_file($_FILES["service_icon"]["tmp_name"], $target_file)) {
+            $icon_path = $target_file;
+        }
+    }
+
+    $sql = "INSERT INTO services (title, description, icon, priority) VALUES ('$title', '$desc', '$icon_path', '$priority')";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Service added successfully!";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error adding service: " . mysqli_error($link);
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// HANDLE SERVICE UPDATE
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_service'])) {
+    $id = (int) $_POST['service_id'];
+    $title = mysqli_real_escape_string($link, $_POST['service_title']);
+    $desc = mysqli_real_escape_string($link, $_POST['service_desc']);
+    $priority = (int) $_POST['service_priority'];
+
+    $icon_update_sql = "";
+
+    if (isset($_FILES['service_icon']) && $_FILES['service_icon']['error'] == 0) {
+        $target_dir = "assets/icons/";
+        if (!file_exists($target_dir)) {
+            mkdir($target_dir, 0777, true);
+        }
+        $file_ext = pathinfo($_FILES["service_icon"]["name"], PATHINFO_EXTENSION);
+        $file_name = time() . "_" . uniqid() . "." . $file_ext;
+        $target_file = $target_dir . $file_name;
+
+        if (move_uploaded_file($_FILES["service_icon"]["tmp_name"], $target_file)) {
+            $icon_update_sql = ", icon = '$target_file'";
+        }
+    }
+
+    $sql = "UPDATE services SET title='$title', description='$desc', priority='$priority' $icon_update_sql WHERE id=$id";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Service updated successfully!";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error updating service: " . mysqli_error($link);
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// HANDLE SERVICE DELETION
+if (isset($_GET['delete_service'])) {
+    $id = (int) $_GET['delete_service'];
+
+    $ico_res = mysqli_query($link, "SELECT icon FROM services WHERE id = $id");
+    $ico_data = mysqli_fetch_assoc($ico_res);
+    if ($ico_data && !empty($ico_data['icon']) && file_exists($ico_data['icon'])) {
+        if (preg_match('/^\d+_[a-z0-9]+\./', basename($ico_data['icon']))) {
+            unlink($ico_data['icon']);
+        }
+    }
+
+    $sql = "DELETE FROM services WHERE id=$id";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Service deleted successfully!";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error deleting service: " . mysqli_error($link);
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+
 // HANDLE ANNOUNCEMENT ADDITION
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_announcement'])) {
     $title = mysqli_real_escape_string($link, $_POST['title']);
@@ -260,6 +538,12 @@ $ann_query = mysqli_query($link, "SELECT * FROM announcements ORDER BY created_a
 $inventory_query = mysqli_query($link, "SELECT * FROM inventory ORDER BY created_at ASC");
 $inventory_count = mysqli_num_rows($inventory_query);
 
+// FETCH EQUIPMENT SHOWCASE
+$equip_query = mysqli_query($link, "SELECT * FROM equipment_showcase ORDER BY priority ASC, created_at DESC");
+
+// FETCH SERVICES
+$services_query = mysqli_query($link, "SELECT * FROM services ORDER BY priority ASC, created_at DESC");
+
 
 // --- QUERY MANAGEMENT ---
 require_once 'mailer.php';
@@ -413,6 +697,14 @@ while ($row = mysqli_fetch_assoc($payments_res)) {
 }
 
 
+// Fetch Store Orders (Pending Pickup)
+$store_orders_sql = "SELECT t.*, u.full_name, u.email as user_email 
+                    FROM transactions t 
+                    JOIN users u ON t.user_id = u.id 
+                    WHERE t.token_number IS NOT NULL 
+                    ORDER BY t.token_accepted ASC, t.created_at DESC";
+$store_orders_res = mysqli_query($link, $store_orders_sql);
+
 // Handle Delete Query
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_query'])) {
     $id = (int) $_POST['query_id'];
@@ -429,6 +721,98 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_query'])) {
 
 // Fetch Queries
 $queries_res = mysqli_query($link, "SELECT * FROM member_queries ORDER BY created_at DESC");
+
+// HANDLE TRANSACTION DELETION
+if (isset($_GET['delete_transaction'])) {
+    $tid = (int) $_GET['delete_transaction'];
+    if (mysqli_query($link, "DELETE FROM transactions WHERE id = $tid")) {
+        $_SESSION['message'] = "Transaction deleted successfully.";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error deleting transaction.";
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php");
+    exit;
+}
+
+// HANDLE TOKEN ACCEPTANCE
+if (isset($_GET['accept_token'])) {
+    $tid = (int) $_GET['accept_token'];
+    $uid = isset($_GET['uid']) ? (int) $_GET['uid'] : 0;
+    $sql = "UPDATE transactions SET token_accepted = 1, status = 'completed' WHERE id = $tid";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Token accepted! You can now release the product.";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error accepting token.";
+        $_SESSION['message_type'] = "error";
+    }
+
+    $redirect = "dashboard_admin.php#store-orders";
+    header("Location: $redirect");
+    exit;
+}
+
+// HANDLE STORE ORDER DELETION
+if (isset($_GET['delete_store_order'])) {
+    $tid = (int) $_GET['delete_store_order'];
+    if (mysqli_query($link, "DELETE FROM transactions WHERE id = $tid AND token_number IS NOT NULL")) {
+        $_SESSION['message'] = "Store order deleted successfully.";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error deleting store order.";
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php#store-orders");
+    exit;
+}
+
+// HANDLE SHOP STAFF ADDITION
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_shop_staff'])) {
+    $name = mysqli_real_escape_string($link, trim($_POST['shop_staff_name']));
+    $email = mysqli_real_escape_string($link, trim($_POST['shop_staff_email']));
+    $password_raw = $_POST['shop_staff_password'];
+
+    if (empty($name) || empty($email) || empty($password_raw)) {
+        $_SESSION['message'] = "All fields are required.";
+        $_SESSION['message_type'] = "error";
+    } elseif (strlen($password_raw) < 6) {
+        $_SESSION['message'] = "Password must be at least 6 characters.";
+        $_SESSION['message_type'] = "error";
+    } else {
+        $check = mysqli_query($link, "SELECT id FROM users WHERE email = '$email'");
+        if (mysqli_num_rows($check) > 0) {
+            $_SESSION['message'] = "Email already registered.";
+            $_SESSION['message_type'] = "error";
+        } else {
+            $password = password_hash($password_raw, PASSWORD_DEFAULT);
+            if (mysqli_query($link, "INSERT INTO users (full_name, email, password, role) VALUES ('$name', '$email', '$password', 'shop_staff')")) {
+                $_SESSION['message'] = "Shop staff account created successfully!";
+                $_SESSION['message_type'] = "success";
+            } else {
+                $_SESSION['message'] = "Error creating account: " . mysqli_error($link);
+                $_SESSION['message_type'] = "error";
+            }
+        }
+    }
+    header("Location: dashboard_admin.php#shop-staff");
+    exit;
+}
+
+// HANDLE SHOP STAFF DELETION
+if (isset($_GET['delete_shop_staff'])) {
+    $sid = (int) $_GET['delete_shop_staff'];
+    if (mysqli_query($link, "DELETE FROM users WHERE id = $sid AND role = 'shop_staff'")) {
+        $_SESSION['message'] = "Shop staff account deleted.";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error deleting shop staff.";
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php#shop-staff");
+    exit;
+}
 
 // Handle Add Plan
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_plan'])) {
@@ -571,6 +955,39 @@ $inventory_stats_query = mysqli_query($link, "SELECT
 $iv_stats = mysqli_fetch_assoc($inventory_stats_query);
 $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv_stats['total']) * 100) : 100;
 
+// 5. Pending Store Pickups
+$pending_pickups_query = mysqli_query($link, "SELECT COUNT(*) as count FROM transactions WHERE token_number IS NOT NULL AND token_accepted = 0");
+$pending_pickups = mysqli_fetch_assoc($pending_pickups_query)['count'];
+
+// --- REVENUE CHART DATA ---
+$selected_year = isset($_GET['revenue_year']) ? (int) $_GET['revenue_year'] : date('Y');
+
+// Fetch available years for the dropdown
+$years_query = mysqli_query($link, "SELECT DISTINCT YEAR(created_at) as year FROM transactions WHERE status = 'completed' ORDER BY year DESC");
+$available_years = [];
+while ($y_row = mysqli_fetch_assoc($years_query)) {
+    $available_years[] = $y_row['year'];
+}
+if (!in_array(date('Y'), $available_years)) {
+    array_unshift($available_years, date('Y'));
+}
+
+// Monthly revenue for selected year
+$monthly_data = array_fill(1, 12, 0);
+$chart_query = mysqli_query($link, "SELECT MONTH(created_at) as month, SUM(amount) as total 
+                                   FROM transactions 
+                                   WHERE status = 'completed' AND YEAR(created_at) = $selected_year 
+                                   GROUP BY MONTH(created_at)");
+while ($c_row = mysqli_fetch_assoc($chart_query)) {
+    $monthly_data[(int) $c_row['month']] = (float) $c_row['total'];
+}
+
+$chart_labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+$chart_values = array_values($monthly_data);
+
+// Fetch all shop staff
+$shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at FROM users WHERE role = 'shop_staff' ORDER BY created_at DESC");
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -674,7 +1091,7 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
         /* Stats Grid */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
@@ -970,26 +1387,26 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
 <body>
 
     <?php if (!empty($message)): ?>
-        <div style="position: fixed; top: 20px; right: 20px; background: <?php echo $message_type == 'success' ? '#27ae60' : '#e74c3c'; ?>; color: #fff; padding: 15px 25px; border-radius: 8px; z-index: 10000; box-shadow: 0 5px 15px rgba(0,0,0,0.3); animation: slideIn 0.5s ease-out;"
-            id="admin-toast">
-            <i class="fa-solid <?php echo $message_type == 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'; ?>"
-                style="margin-right: 10px;"></i>
-            <?php echo $message; ?>
-        </div>
-        <script>setTimeout(() => { document.getElementById('admin-toast').style.opacity = '0'; setTimeout(() => document.getElementById('admin-toast').remove(), 500); }, 3000);</script>
-        <style>
-            @keyframes slideIn {
-                from {
-                    transform: translateX(100%);
-                    opacity: 0;
-                }
+            <div style="position: fixed; top: 20px; right: 20px; background: <?php echo $message_type == 'success' ? '#27ae60' : '#e74c3c'; ?>; color: #fff; padding: 15px 25px; border-radius: 8px; z-index: 10000; box-shadow: 0 5px 15px rgba(0,0,0,0.3); animation: slideIn 0.5s ease-out;"
+                id="admin-toast">
+                <i class="fa-solid <?php echo $message_type == 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'; ?>"
+                    style="margin-right: 10px;"></i>
+                <?php echo $message; ?>
+            </div>
+            <script>setTimeout(() => { document.getElementById('admin-toast').style.opacity = '0'; setTimeout(() => document.getElementById('admin-toast').remove(), 500); }, 3000);</script>
+            <style>
+                @keyframes slideIn {
+                    from {
+                        transform: translateX(100%);
+                        opacity: 0;
+                    }
 
-                to {
-                    transform: translateX(0);
-                    opacity: 1;
+                    to {
+                        transform: translateX(0);
+                        opacity: 1;
+                    }
                 }
-            }
-        </style>
+            </style>
     <?php endif; ?>
 
     <div class="sidebar">
@@ -1005,14 +1422,17 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
             <li><a href="#" onclick="showSection('queries')"><i class="fa-solid fa-comments"></i> Member Queries</a>
             </li>
             <li><a href="#" onclick="showSection('trainers')"><i class="fa-solid fa-dumbbell"></i> Trainers</a></li>
-            <li><a href="#" onclick="showSection('financials')"><i class="fa-solid fa-money-bill-trend-up"></i>
-                    Financial Records</a></li>
-            <li><a href="#" onclick="showSection('schedule')"><i class="fa-solid fa-calendar-check"></i> Class
-                    Schedule</a></li>
+
             <li><a href="#" onclick="showSection('inventory')"><i class="fa-solid fa-boxes-stacked"></i> Inventory</a>
+            </li>
+            <li><a href="#" onclick="showSection('shop-staff')"><i class="fa-solid fa-users-gear"></i> Shop Staff</a>
             </li>
             <li><a href="#" onclick="showSection('announcements')"><i class="fa-solid fa-bullhorn"></i>
                     Announcements</a></li>
+            <li><a href="#" onclick="showSection('showcase')"><i class="fa-solid fa-images"></i>
+                    Website Showcase</a></li>
+            <li><a href="#" onclick="showSection('services-section')"><i class="fa-solid fa-list-check"></i>
+                    Website Services</a></li>
 
         </ul>
         <div style="margin-top: auto;">
@@ -1057,11 +1477,25 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                             style="color: var(--primary-color);"></i>
                     </div>
                 </div>
+                <div class="stat-card" style="cursor: pointer;" onclick="showSection('store-orders')">
+                    <h4>Pending Pickups</h4>
+                    <div class="value"><?php echo number_format($pending_pickups); ?> <i
+                            class="fa-solid fa-truck-ramp-box" style="color: var(--primary-color);"></i>
+                    </div>
+                </div>
             </div>
 
             <div class="card">
-                <div class="card-header">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                     <h3>Revenue Growth</h3>
+                    <select onchange="location.href='?revenue_year=' + this.value + '#overview'"
+                        style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 5px 15px; border-radius: 20px; outline: none; cursor: pointer; font-size: 0.85rem;">
+                        <?php foreach ($available_years as $yr): ?>
+                                <option value="<?php echo $yr; ?>" <?php echo $yr == $selected_year ? 'selected' : ''; ?>>Year
+                                    <?php echo $yr; ?>
+                                </option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div class="chart-container">
                     <canvas id="revenueChart"></canvas>
@@ -1103,176 +1537,214 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                         </thead>
                         <tbody>
                             <?php if (mysqli_num_rows($members_res) > 0): ?>
-                                <?php while ($member = mysqli_fetch_assoc($members_res)): ?>
+                                    <?php while ($member = mysqli_fetch_assoc($members_res)): ?>
+                                            <tr>
+                                                <td><?php echo htmlspecialchars($member['full_name']); ?></td>
+                                                <td><?php echo htmlspecialchars($member['email']); ?></td>
+                                                <td><?php echo date('M d, Y', strtotime($member['created_at'])); ?></td>
+                                                <td>
+                                                    <div style="display: flex; gap: 5px;">
+                                                        <button class="btn-action btn-view"
+                                                            onclick='openEditMemberModal(<?php echo json_encode($member); ?>)'>Edit</button>
+                                                        <form method="POST"
+                                                            onsubmit="return confirm('Remove this member permanently?');"
+                                                            style="margin:0;">
+                                                            <input type="hidden" name="delete_member" value="1">
+                                                            <input type="hidden" name="member_id" value="<?php echo $member['id']; ?>">
+                                                            <button type="submit" class="btn-action btn-delete">Remove</button>
+                                                        </form>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                    <?php endwhile; ?>
+                            <?php else: ?>
                                     <tr>
-                                        <td><?php echo htmlspecialchars($member['full_name']); ?></td>
-                                        <td><?php echo htmlspecialchars($member['email']); ?></td>
-                                        <td><?php echo date('M d, Y', strtotime($member['created_at'])); ?></td>
-                                        <td>
-                                            <div style="display: flex; gap: 5px;">
-                                                <button class="btn-action btn-view"
-                                                    onclick='openEditMemberModal(<?php echo json_encode($member); ?>)'>Edit</button>
-                                                <form method="POST"
-                                                    onsubmit="return confirm('Remove this member permanently?');"
-                                                    style="margin:0;">
-                                                    <input type="hidden" name="delete_member" value="1">
-                                                    <input type="hidden" name="member_id" value="<?php echo $member['id']; ?>">
-                                                    <button type="submit" class="btn-action btn-delete">Remove</button>
-                                                </form>
-                                            </div>
+                                        <td colspan="4" style="text-align: center; color: var(--text-gray);">No members found.
                                         </td>
                                     </tr>
-                                <?php endwhile; ?>
-                            <?php else: ?>
-                                <tr>
-                                    <td colspan="4" style="text-align: center; color: var(--text-gray);">No members found.
-                                    </td>
-                                </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
             </div>
-        </div>
 
-        <div id="tab-payments" class="user-tab-content">
-            <div class="card">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h3 style="margin: 0; font-family: 'Oswald', sans-serif;">Member Payment History</h3>
-                    <div style="position: relative; width: 300px;">
-                        <i class="fa-solid fa-magnifying-glass"
-                            style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
-                        <input type="text" id="payment-search" onkeyup="searchPayments()" placeholder="Search payments"
-                            style="width: 100%; padding: 10px 15px 10px 40px; border-radius: 30px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;">
+
+            <div id="tab-payments" class="user-tab-content">
+                <div class="card">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0; font-family: 'Oswald', sans-serif;">Member Payment History</h3>
+                        <div style="position: relative; width: 300px;">
+                            <i class="fa-solid fa-magnifying-glass"
+                                style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
+                            <input type="text" id="payment-search" onkeyup="searchPayments()"
+                                placeholder="Search payments"
+                                style="width: 100%; padding: 10px 15px 10px 40px; border-radius: 30px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;">
+                        </div>
                     </div>
-                </div>
-                <div style="overflow-x: auto;">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Member</th>
-                                <th>Latest Plan</th>
-                                <th>Last Payment</th>
-                                <th style="text-align: right;">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (count($grouped_payments) > 0): ?>
-                                <?php foreach ($grouped_payments as $uid => $data):
-                                    $latest = $data['history'][0]; // First item is latest
-                                    $count = count($data['history']);
-                                    ?>
-                                    <!-- Main User Row -->
-                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                        <td>
-                                            <div style="display: flex; flex-direction: column;">
-                                                <span
-                                                    style="font-weight: bold; font-size: 1rem; color: #fff;"><?php echo htmlspecialchars($data['user']['full_name']); ?></span>
-                                                <small
-                                                    style="color: var(--text-gray); font-size: 0.8rem;"><?php echo htmlspecialchars($data['user']['user_email']); ?></small>
-                                            </div>
-                                        </td>
-                                        <td><span
-                                                style="color: var(--primary-color);"><?php echo htmlspecialchars($latest['plan_name']); ?></span>
-                                        </td>
-                                        <td>
-                                            <?php echo date('M d, Y', strtotime($latest['created_at'])); ?>
-                                            <span
-                                                class="badge <?php echo $latest['status'] == 'completed' ? 'badge-success' : ($latest['status'] == 'pending' ? 'badge-warning' : ''); ?>"
-                                                style="margin-left: 5px; font-size: 0.7rem;">
-                                                <?php echo ucfirst($latest['status']); ?>
-                                            </span>
-                                        </td>
-                                        <td style="text-align: right;">
-                                            <button onclick="toggleHistory(<?php echo $uid; ?>)" class="btn-action btn-view"
-                                                style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer; width: auto;">
-                                                <i class="fa-solid fa-clock-rotate-left"></i> History
-                                                (<?php echo $count; ?>) <i class="fa-solid fa-chevron-down"
-                                                    id="icon-<?php echo $uid; ?>"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-
-                                    <!-- Hidden History Row -->
-                                    <tr id="history-<?php echo $uid; ?>" style="display: none; background: rgba(0,0,0,0.15);">
-                                        <td colspan="4" style="padding: 0;">
-                                            <div style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                                <div style="background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden;">
-                                                    <table style="width: 100%; border-collapse: collapse;">
-                                                        <thead>
-                                                            <tr style="background: rgba(255,255,255,0.03);">
-                                                                <th
-                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                    Plan</th>
-                                                                <th
-                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                    Amount</th>
-                                                                <th
-                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                    Method</th>
-                                                                <th
-                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                    Date</th>
-                                                                <th
-                                                                    style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                    Status</th>
-                                                                <th
-                                                                    style="font-size: 0.75rem; padding: 10px; text-align: right; color: var(--text-gray); text-transform: uppercase;">
-                                                                    Invoice</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            <?php foreach ($data['history'] as $payment): ?>
-                                                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
-                                                                    <td style="padding: 10px; font-size: 0.9rem;">
-                                                                        <?php echo htmlspecialchars($payment['plan_name']); ?>
-                                                                    </td>
-                                                                    <td
-                                                                        style="padding: 10px; font-size: 0.9rem; color: var(--primary-color);">
-                                                                        ₹<?php echo number_format($payment['amount'], 2); ?>
-                                                                    </td>
-                                                                    <td
-                                                                        style="padding: 10px; font-size: 0.9rem; text-transform: capitalize;">
-                                                                        <?php echo htmlspecialchars($payment['payment_method']); ?>
-                                                                    </td>
-                                                                    <td style="padding: 10px; font-size: 0.9rem; color: #ddd;">
-                                                                        <?php echo date('M d, Y', strtotime($payment['created_at'])); ?>
-                                                                    </td>
-                                                                    <td style="padding: 10px;">
-                                                                        <span
-                                                                            class="badge <?php echo $payment['status'] == 'completed' ? 'badge-success' : ($payment['status'] == 'pending' ? 'badge-warning' : ''); ?>"
-                                                                            style="font-size: 0.65rem;">
-                                                                            <?php echo ucfirst($payment['status']); ?>
-                                                                        </span>
-                                                                    </td>
-                                                                    <td style="padding: 10px; text-align: right;">
-                                                                        <a href="invoice.php?tid=<?php echo $payment['id']; ?>"
-                                                                            target="_blank"
-                                                                            style="color: var(--text-gray); font-size: 1rem;"
-                                                                            title="Download Invoice">
-                                                                            <i class="fa-solid fa-file-pdf"></i>
-                                                                        </a>
-                                                                    </td>
-                                                                </tr>
-                                                            <?php endforeach; ?>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php else: ?>
+                    <div style="overflow-x: auto;">
+                        <table class="data-table">
+                            <thead>
                                 <tr>
-                                    <td colspan="4" style="text-align: center; color: var(--text-gray); padding: 30px;">
-                                        <i class="fa-solid fa-receipt"
-                                            style="font-size: 2rem; display: block; margin-bottom: 10px; opacity: 0.3;"></i>
-                                        No payment records found.
-                                    </td>
+                                    <th>Member</th>
+                                    <th>Latest Plan</th>
+                                    <th>Last Payment</th>
+                                    <th style="text-align: right;">Action</th>
                                 </tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                <?php if (count($grouped_payments) > 0): ?>
+                                        <?php foreach ($grouped_payments as $uid => $data):
+                                            $latest = $data['history'][0]; // First item is latest
+                                    
+                                            // Find latest valid Membership Plan (ignoring Trainer Appointments & Store)
+                                            $latest_plan_name = "None";
+                                            foreach ($data['history'] as $h_item) {
+                                                $pn = $h_item['plan_name'];
+                                                // Filter out non-membership transactions
+                                                if (strpos($pn, 'Trainer Appointment') === false && strpos($pn, 'Store:') === false) {
+                                                    $latest_plan_name = $pn;
+                                                    break;
+                                                }
+                                            }
+
+                                            $count = count($data['history']);
+                                            ?>
+                                                <!-- Main User Row -->
+                                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                    <td>
+                                                        <div style="display: flex; flex-direction: column;">
+                                                            <span
+                                                                style="font-weight: bold; font-size: 1rem; color: #fff;"><?php echo htmlspecialchars($data['user']['full_name']); ?></span>
+                                                            <small
+                                                                style="color: var(--text-gray); font-size: 0.8rem;"><?php echo htmlspecialchars($data['user']['user_email']); ?></small>
+                                                        </div>
+                                                    </td>
+                                                    <td><span
+                                                            style="color: var(--primary-color);"><?php echo htmlspecialchars($latest_plan_name); ?></span>
+                                                    </td>
+                                                    <td>
+                                                        <?php echo date('M d, Y', strtotime($latest['created_at'])); ?>
+                                                        <span
+                                                            class="badge <?php echo $latest['status'] == 'completed' ? 'badge-success' : ($latest['status'] == 'pending' ? 'badge-warning' : ''); ?>"
+                                                            style="margin-left: 5px; font-size: 0.7rem;">
+                                                            <?php echo ucfirst($latest['status']); ?>
+                                                        </span>
+                                                    </td>
+                                                    <td style="text-align: right;">
+                                                        <button onclick="toggleHistory(<?php echo $uid; ?>)" class="btn-action btn-view"
+                                                            style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer; width: auto;">
+                                                            <i class="fa-solid fa-clock-rotate-left"></i> History
+                                                            (<?php echo $count; ?>) <i class="fa-solid fa-chevron-down"
+                                                                id="icon-<?php echo $uid; ?>"></i>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+
+                                                <!-- Hidden History Row -->
+                                                <tr id="history-<?php echo $uid; ?>"
+                                                    style="display: none; background: rgba(0,0,0,0.15);">
+                                                    <td colspan="4" style="padding: 0;">
+                                                        <div
+                                                            style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                            <div style="margin-bottom: 10px; display: flex; justify-content: flex-end;">
+                                                                <input type="text" placeholder="Search history..."
+                                                                    onkeyup="filterUserHistory(this)"
+                                                                    style="padding: 6px 12px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-size: 0.8rem; outline: none; width: 200px;">
+                                                            </div>
+                                                            <div
+                                                                style="background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden;">
+                                                                <table style="width: 100%; border-collapse: collapse;">
+                                                                    <thead>
+                                                                        <tr style="background: rgba(255,255,255,0.03);">
+                                                                            <th
+                                                                                style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                Plan</th>
+                                                                            <th
+                                                                                style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                Amount</th>
+                                                                            <th
+                                                                                style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                Method</th>
+                                                                            <th
+                                                                                style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                Date</th>
+                                                                            <th
+                                                                                style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                Status</th>
+                                                                            <th
+                                                                                style="font-size: 0.75rem; padding: 10px; text-align: right; color: var(--text-gray); text-transform: uppercase;">
+                                                                                Action</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        <?php foreach ($data['history'] as $payment): ?>
+                                                                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                                                                                    <td style="padding: 10px; font-size: 0.9rem;">
+                                                                                        <?php echo htmlspecialchars($payment['plan_name']); ?>
+                                                                                    </td>
+                                                                                    <td
+                                                                                        style="padding: 10px; font-size: 0.9rem; color: var(--primary-color);">
+                                                                                        ₹<?php echo number_format($payment['amount'], 2); ?>
+                                                                                    </td>
+                                                                                    <td
+                                                                                        style="padding: 10px; font-size: 0.9rem; text-transform: capitalize;">
+                                                                                        <?php echo htmlspecialchars($payment['payment_method']); ?>
+                                                                                    </td>
+                                                                                    <td style="padding: 10px; font-size: 0.9rem; color: #ddd;">
+                                                                                        <?php echo date('M d, Y', strtotime($payment['created_at'])); ?>
+                                                                                    </td>
+                                                                                    <td style="padding: 10px;">
+                                                                                        <span
+                                                                                            class="badge <?php echo $payment['status'] == 'completed' ? 'badge-success' : ($payment['status'] == 'pending' ? 'badge-warning' : ''); ?>"
+                                                                                            style="font-size: 0.65rem;">
+                                                                                            <?php echo ucfirst($payment['status']); ?>
+                                                                                        </span>
+                                                                                    </td>
+                                                                                    <td
+                                                                                        style="padding: 10px; text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 10px;">
+                                                                                        <?php if (!empty($payment['token_number'])): ?>
+                                                                                                <span
+                                                                                                    title="Pickup Token: <?php echo $payment['token_number']; ?>"
+                                                                                                    style="color: var(--text-gray); font-size: 0.75rem;"><i
+                                                                                                        class="fa-solid fa-cart-shopping"></i> Store
+                                                                                                    Item</span>
+                                                                                        <?php endif; ?>
+
+                                                                                        <a href="invoice.php?tid=<?php echo $payment['id']; ?>"
+                                                                                            target="_blank"
+                                                                                            style="color: var(--text-gray); font-size: 1rem;"
+                                                                                            title="Download Invoice">
+                                                                                            <i class="fa-solid fa-file-pdf"></i>
+                                                                                        </a>
+                                                                                        <a href="dashboard_admin.php?delete_transaction=<?php echo $payment['id']; ?>"
+                                                                                            onclick="return confirm('Are you sure you want to delete this payment record?');"
+                                                                                            style="color: #ff4d4d; font-size: 1rem;"
+                                                                                            title="Delete Record">
+                                                                                            <i class="fa-solid fa-trash"></i>
+                                                                                        </a>
+                                                                                    </td>
+                                                                                </tr>
+                                                                        <?php endforeach; ?>
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                        <?php endforeach; ?>
+                                <?php else: ?>
+                                        <tr>
+                                            <td colspan="4" style="text-align: center; color: var(--text-gray); padding: 30px;">
+                                                <i class="fa-solid fa-receipt"
+                                                    style="font-size: 2rem; display: block; margin-bottom: 10px; opacity: 0.3;"></i>
+                                                No payment records found.
+                                            </td>
+                                        </tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1290,118 +1762,43 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                     mysqli_data_seek($plans_res, 0);
                     while ($plan = mysqli_fetch_assoc($plans_res)):
                         ?>
-                        <div class="stat-card"
-                            style="position: relative; border: 1px solid rgba(255,255,255,0.05); transition: 0.3s;">
-                            <?php if ($plan['is_popular']): ?>
-                                <span class="badge badge-success"
-                                    style="position: absolute; top: 15px; right: 15px; background: var(--primary-color); color: #000;">Popular</span>
-                            <?php endif; ?>
-                            <h4 style="color: var(--primary-color); font-size: 1.4rem; margin-bottom: 5px;">
-                                <?php echo htmlspecialchars($plan['name']); ?>
-                            </h4>
-                            <div style="margin: 15px 0; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 10px;">
-                                <p style="font-size: 1.8rem; font-weight: bold; margin: 0;">
-                                    ₹<?php echo number_format($plan['price_monthly']); ?><span
-                                        style="font-size: 0.9rem; color: var(--text-gray); font-weight: normal;">/mo</span>
-                                </p>
-                                <p style="font-size: 1.2rem; color: var(--text-gray); margin-top: 5px;">
-                                    ₹<?php echo number_format($plan['price_yearly']); ?><span
-                                        style="font-size: 0.8rem;">/yr</span></p>
+                            <div class="stat-card"
+                                style="position: relative; border: 1px solid rgba(255,255,255,0.05); transition: 0.3s;">
+                                <?php if ($plan['is_popular']): ?>
+                                        <span class="badge badge-success"
+                                            style="position: absolute; top: 15px; right: 15px; background: var(--primary-color); color: #000;">Popular</span>
+                                <?php endif; ?>
+                                <h4 style="color: var(--primary-color); font-size: 1.4rem; margin-bottom: 5px;">
+                                    <?php echo htmlspecialchars($plan['name']); ?>
+                                </h4>
+                                <div style="margin: 15px 0; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 10px;">
+                                    <p style="font-size: 1.8rem; font-weight: bold; margin: 0;">
+                                        ₹<?php echo number_format($plan['price_monthly']); ?><span
+                                            style="font-size: 0.9rem; color: var(--text-gray); font-weight: normal;">/mo</span>
+                                    </p>
+                                    <p style="font-size: 1.2rem; color: var(--text-gray); margin-top: 5px;">
+                                        ₹<?php echo number_format($plan['price_yearly']); ?><span
+                                            style="font-size: 0.8rem;">/yr</span></p>
+                                </div>
+                                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                    <button class="btn-action btn-view"
+                                        style="flex: 1; padding: 12px; font-weight: bold; border-radius: 8px;"
+                                        onclick='openEditPlanModal(<?php echo json_encode($plan); ?>)'>
+                                        <i class="fa-solid fa-pen-to-square"></i> Edit Attributes
+                                    </button>
+                                    <a href="?delete_plan=<?php echo $plan['id']; ?>" class="btn-action btn-delete"
+                                        style="flex: 1; padding: 12px; font-weight: bold; border-radius: 8px; text-align: center; display: inline-block;"
+                                        onclick="return confirm('Are you sure you want to delete this plan?')">
+                                        <i class="fa-solid fa-trash"></i> Delete Plan
+                                    </a>
+                                </div>
                             </div>
-                            <div style="display: flex; gap: 10px; margin-top: 10px;">
-                                <button class="btn-action btn-view"
-                                    style="flex: 1; padding: 12px; font-weight: bold; border-radius: 8px;"
-                                    onclick='openEditPlanModal(<?php echo json_encode($plan); ?>)'>
-                                    <i class="fa-solid fa-pen-to-square"></i> Edit Attributes
-                                </button>
-                                <a href="?delete_plan=<?php echo $plan['id']; ?>" class="btn-action btn-delete"
-                                    style="flex: 1; padding: 12px; font-weight: bold; border-radius: 8px; text-align: center; display: inline-block;"
-                                    onclick="return confirm('Are you sure you want to delete this plan?')">
-                                    <i class="fa-solid fa-trash"></i> Delete Plan
-                                </a>
-                            </div>
-                        </div>
                     <?php endwhile; ?>
                 </div>
             </div>
         </div>
 
-        <!-- Financials -->
-        <div id="financials" class="dashboard-section">
-            <div class="card">
-                <div class="card-header">
-                    <h3>Financial Records</h3>
-                    <button class="btn-add">Export Report</button>
-                </div>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Transaction ID</th>
-                            <th>Member</th>
-                            <th>Plan</th>
-                            <th>Amount</th>
-                            <th>Date</th>
-                            <th>Method</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>#TXN9827</td>
-                            <td>John Member</td>
-                            <td>Standard</td>
-                            <td>₹899.00</td>
-                            <td>Dec 18, 2025</td>
-                            <td>Credit Card</td>
-                        </tr>
-                        <tr>
-                            <td>#TXN9826</td>
-                            <td>Jane Member</td>
-                            <td>Premium</td>
-                            <td>₹999.00</td>
-                            <td>Dec 17, 2025</td>
-                            <td>UPI</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
 
-        <!-- Schedule -->
-        <div id="schedule" class="dashboard-section">
-            <div class="card">
-                <div class="card-header">
-                    <h3>Fitness Class Schedule</h3>
-                    <button class="btn-add">Add Class</button>
-                </div>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Class Name</th>
-                            <th>Trainer</th>
-                            <th>Time</th>
-                            <th>Days</th>
-                            <th>Capacity</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>Yoga Basics</td>
-                            <td>Sarah J.</td>
-                            <td>07:00 AM</td>
-                            <td>Mon, Wed, Fri</td>
-                            <td>15 / 20</td>
-                        </tr>
-                        <tr>
-                            <td>Power Lifting</td>
-                            <td>Alex R.</td>
-                            <td>06:00 PM</td>
-                            <td>Tue, Thu, Sat</td>
-                            <td>8 / 10</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
 
         <!-- Inventory -->
         <div id="inventory" class="dashboard-section">
@@ -1442,34 +1839,34 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                         </thead>
                         <tbody>
                             <?php if (mysqli_num_rows($inventory_query) > 0): ?>
-                                <?php
-                                mysqli_data_seek($inventory_query, 0); // Reset pointer
-                                while ($item = mysqli_fetch_assoc($inventory_query)):
-                                    $status_color = ($item['status'] == 'Functional' || $item['status'] == 'Good') ? '#ceff00' : '#ff4d4d';
-                                    ?>
-                                    <tr>
-                                        <td style="font-weight: bold;"><?php echo htmlspecialchars($item['item_name']); ?>
-                                        </td>
-                                        <td><?php echo $item['quantity']; ?></td>
-                                        <td style="color: <?php echo $status_color; ?>">
-                                            <?php echo htmlspecialchars($item['status']); ?>
-                                        </td>
-                                        <td><?php echo date('M d, Y', strtotime($item['last_maintenance'])); ?></td>
-                                        <td><?php echo date('M d, Y', strtotime($item['next_service'])); ?></td>
-                                        <td>
-                                            <button class="btn-action btn-view"
-                                                onclick='openEditInventoryModal(<?php echo json_encode($item); ?>)'>Edit</button>
-                                            <a href="?delete_inventory=<?php echo $item['id']; ?>" class="btn-action btn-delete"
-                                                onclick="return confirm('Are you sure you want to delete this item?')">Delete</a>
-                                        </td>
-                                    </tr>
-                                <?php endwhile; ?>
+                                    <?php
+                                    mysqli_data_seek($inventory_query, 0); // Reset pointer
+                                    while ($item = mysqli_fetch_assoc($inventory_query)):
+                                        $status_color = ($item['status'] == 'Functional' || $item['status'] == 'Good') ? '#ceff00' : '#ff4d4d';
+                                        ?>
+                                            <tr>
+                                                <td style="font-weight: bold;"><?php echo htmlspecialchars($item['item_name']); ?>
+                                                </td>
+                                                <td><?php echo $item['quantity']; ?></td>
+                                                <td style="color: <?php echo $status_color; ?>">
+                                                    <?php echo htmlspecialchars($item['status']); ?>
+                                                </td>
+                                                <td><?php echo date('M d, Y', strtotime($item['last_maintenance'])); ?></td>
+                                                <td><?php echo date('M d, Y', strtotime($item['next_service'])); ?></td>
+                                                <td>
+                                                    <button class="btn-action btn-view"
+                                                        onclick='openEditInventoryModal(<?php echo json_encode($item); ?>)'>Edit</button>
+                                                    <a href="?delete_inventory=<?php echo $item['id']; ?>" class="btn-action btn-delete"
+                                                        onclick="return confirm('Are you sure you want to delete this item?')">Delete</a>
+                                                </td>
+                                            </tr>
+                                    <?php endwhile; ?>
                             <?php else: ?>
-                                <tr>
-                                    <td colspan="6" style="text-align: center; color: var(--text-gray);">No inventory
-                                        items
-                                        found.</td>
-                                </tr>
+                                    <tr>
+                                        <td colspan="6" style="text-align: center; color: var(--text-gray);">No inventory
+                                            items
+                                            found.</td>
+                                    </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -1499,28 +1896,127 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                     </thead>
                     <tbody>
                         <?php if (mysqli_num_rows($trainers_query) > 0): ?>
-                            <?php while ($trainer = mysqli_fetch_assoc($trainers_query)): ?>
+                                <?php while ($trainer = mysqli_fetch_assoc($trainers_query)): ?>
+                                        <tr>
+                                            <td>
+                                                <img src="<?php echo $trainer['image'] ? $trainer['image'] : 'https://ui-avatars.com/api/?name=' . urlencode($trainer['name']) . '&background=ceff00&color=1a1a2e'; ?>"
+                                                    style="width: 50px; height: 50px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary-color);">
+                                            </td>
+                                            <td><?php echo htmlspecialchars($trainer['name']); ?></td>
+                                            <td><?php echo date('M d, Y', strtotime($trainer['created_at'])); ?></td>
+                                            <td>
+                                                <button class="btn-action btn-view"
+                                                    onclick='openEditTrainerModal(<?php echo json_encode($trainer); ?>)'>Edit</button>
+                                                <a href="?delete_trainer=<?php echo $trainer['id']; ?>" class="btn-action btn-delete"
+                                                    onclick="return confirm('Are you sure you want to delete this trainer?')">Delete</a>
+                                            </td>
+                                        </tr>
+                                <?php endwhile; ?>
+                        <?php else: ?>
                                 <tr>
-                                    <td>
-                                        <img src="<?php echo $trainer['image'] ? $trainer['image'] : 'https://ui-avatars.com/api/?name=' . urlencode($trainer['name']) . '&background=ceff00&color=1a1a2e'; ?>"
-                                            style="width: 50px; height: 50px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary-color);">
-                                    </td>
-                                    <td><?php echo htmlspecialchars($trainer['name']); ?></td>
-                                    <td><?php echo date('M d, Y', strtotime($trainer['created_at'])); ?></td>
-                                    <td>
-                                        <button class="btn-action btn-view"
-                                            onclick='openEditTrainerModal(<?php echo json_encode($trainer); ?>)'>Edit</button>
-                                        <a href="?delete_trainer=<?php echo $trainer['id']; ?>" class="btn-action btn-delete"
-                                            onclick="return confirm('Are you sure you want to delete this trainer?')">Delete</a>
+                                    <td colspan="4" style="text-align: center; color: var(--text-gray);">No trainers found.
+                                        Add
+                                        your first trainer!</td>
+                                </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Website Showcase -->
+        <div id="showcase" class="dashboard-section">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Website Equipment Showcase</h3>
+                    <button class="btn-add"
+                        onclick="document.getElementById('add-equipment-modal').style.display='flex'">+
+                        Add Item</button>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Image</th>
+                            <th>Name</th>
+                            <th>Description</th>
+                            <th>Priority</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (mysqli_num_rows($equip_query) > 0): ?>
+                                <?php while ($eq = mysqli_fetch_assoc($equip_query)): ?>
+                                        <tr>
+                                            <td>
+                                                <img src="<?php echo $eq['image'] ? $eq['image'] : 'assets/images/placeholder.png'; ?>"
+                                                    style="width: 60px; height: 60px; object-fit: contain; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 5px;">
+                                            </td>
+                                            <td><?php echo htmlspecialchars($eq['name']); ?></td>
+                                            <td><?php echo htmlspecialchars($eq['description']); ?></td>
+                                            <td><?php echo $eq['priority']; ?></td>
+                                            <td>
+                                                <button class="btn-action btn-view"
+                                                    onclick='openEditEquipmentModal(<?php echo htmlspecialchars(json_encode($eq), ENT_QUOTES, "UTF-8"); ?>)'>Edit</button>
+                                                <a href="?delete_equipment=<?php echo $eq['id']; ?>" class="btn-action btn-delete"
+                                                    onclick="return confirm('Are you sure you want to delete this item?')">Delete</a>
+                                            </td>
+                                        </tr>
+                                <?php endwhile; ?>
+                        <?php else: ?>
+                                <tr>
+                                    <td colspan="5" style="text-align: center; color: var(--text-gray);">No showcase items
+                                        found.
                                     </td>
                                 </tr>
-                            <?php endwhile; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Website Services -->
+        <div id="services-section" class="dashboard-section">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Website Our Services</h3>
+                    <button class="btn-add"
+                        onclick="document.getElementById('add-service-modal').style.display='flex'">+
+                        Add Service</button>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Icon</th>
+                            <th>Title</th>
+                            <th>Description</th>
+                            <th>Priority</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (mysqli_num_rows($services_query) > 0): ?>
+                                <?php while ($srv = mysqli_fetch_assoc($services_query)): ?>
+                                        <tr>
+                                            <td>
+                                                <img src="<?php echo $srv['icon'] ? $srv['icon'] : 'assets/icons/muscle_custom.png'; ?>"
+                                                    style="width: 40px; height: 40px; object-fit: contain; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 50%;">
+                                            </td>
+                                            <td><?php echo htmlspecialchars($srv['title']); ?></td>
+                                            <td><?php echo htmlspecialchars(substr($srv['description'], 0, 50)) . '...'; ?></td>
+                                            <td><?php echo $srv['priority']; ?></td>
+                                            <td>
+                                                <button class="btn-action btn-view"
+                                                    onclick='openEditServiceModal(<?php echo htmlspecialchars(json_encode($srv), ENT_QUOTES, "UTF-8"); ?>)'>Edit</button>
+                                                <a href="?delete_service=<?php echo $srv['id']; ?>" class="btn-action btn-delete"
+                                                    onclick="return confirm('Are you sure you want to delete this service?')">Delete</a>
+                                            </td>
+                                        </tr>
+                                <?php endwhile; ?>
                         <?php else: ?>
-                            <tr>
-                                <td colspan="4" style="text-align: center; color: var(--text-gray);">No trainers found.
-                                    Add
-                                    your first trainer!</td>
-                            </tr>
+                                <tr>
+                                    <td colspan="5" style="text-align: center; color: var(--text-gray);">No services found.
+                                    </td>
+                                </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -1547,27 +2043,27 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                     </thead>
                     <tbody>
                         <?php if (mysqli_num_rows($ann_query) > 0): ?>
-                            <?php while ($ann = mysqli_fetch_assoc($ann_query)): ?>
+                                <?php while ($ann = mysqli_fetch_assoc($ann_query)): ?>
+                                        <tr>
+                                            <td style="font-weight: bold; color: var(--primary-color);">
+                                                <?php echo htmlspecialchars($ann['title']); ?>
+                                            </td>
+                                            <td><?php echo nl2br(htmlspecialchars($ann['message'])); ?></td>
+                                            <td><?php echo date('M d, Y', strtotime($ann['created_at'])); ?></td>
+                                            <td>
+                                                <button class="btn-action btn-view"
+                                                    onclick='openEditAnnouncementModal(<?php echo htmlspecialchars(json_encode($ann), ENT_QUOTES, "UTF-8"); ?>)'>Edit</button>
+                                                <a href="?delete_announcement=<?php echo $ann['id']; ?>" class="btn-action btn-delete"
+                                                    onclick="return confirm('Delete this announcement?')">Delete</a>
+                                            </td>
+                                        </tr>
+                                <?php endwhile; ?>
+                        <?php else: ?>
                                 <tr>
-                                    <td style="font-weight: bold; color: var(--primary-color);">
-                                        <?php echo htmlspecialchars($ann['title']); ?>
-                                    </td>
-                                    <td><?php echo nl2br(htmlspecialchars($ann['message'])); ?></td>
-                                    <td><?php echo date('M d, Y', strtotime($ann['created_at'])); ?></td>
-                                    <td>
-                                        <button class="btn-action btn-view"
-                                            onclick='openEditAnnouncementModal(<?php echo htmlspecialchars(json_encode($ann), ENT_QUOTES, "UTF-8"); ?>)'>Edit</button>
-                                        <a href="?delete_announcement=<?php echo $ann['id']; ?>" class="btn-action btn-delete"
-                                            onclick="return confirm('Delete this announcement?')">Delete</a>
+                                    <td colspan="4" style="text-align: center; color: var(--text-gray);">No announcements
+                                        found.
                                     </td>
                                 </tr>
-                            <?php endwhile; ?>
-                        <?php else: ?>
-                            <tr>
-                                <td colspan="4" style="text-align: center; color: var(--text-gray);">No announcements
-                                    found.
-                                </td>
-                            </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -1737,12 +2233,14 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                     <input type="text" style="display:none">
                     <input type="password" style="display:none">
                     <div style="margin-bottom: 20px;">
-                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Trainer Name</label>
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Trainer
+                            Name</label>
                         <input type="text" name="trainer_name" required placeholder="Full Name"
                             style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
                     </div>
                     <div style="margin-bottom: 20px;">
-                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Email Address</label>
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Email
+                            Address</label>
                         <input type="email" name="trainer_email" required placeholder="trainer@gmail.com"
                             onfocus="this.removeAttribute('readonly');" readonly
                             style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
@@ -1775,6 +2273,90 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                     </div>
                     <button type="submit" name="add_trainer" class="btn-add" style="width:100%;">Save
                         Trainer</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Shop Staff Section -->
+        <div id="shop-staff" class="dashboard-section">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Manage Shop Staff</h3>
+                    <button class="btn-add"
+                        onclick="document.getElementById('add-shop-staff-modal').style.display='flex'">+ Add New
+                        Staff</button>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Added On</th>
+                                <th style="text-align: right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (mysqli_num_rows($shop_staff_res) > 0): ?>
+                                    <?php while ($staff = mysqli_fetch_assoc($shop_staff_res)): ?>
+                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                <td style="font-weight: 500; font-family: 'Oswald'; letter-spacing: 0.5px;">
+                                                    <?php echo htmlspecialchars($staff['full_name']); ?>
+                                                </td>
+                                                <td style="color: var(--text-gray);"><?php echo htmlspecialchars($staff['email']); ?>
+                                                </td>
+                                                <td style="color: var(--text-gray); font-size: 0.9rem;">
+                                                    <?php echo date('M d, Y', strtotime($staff['created_at'])); ?>
+                                                </td>
+                                                <td style="text-align: right;">
+                                                    <a href="dashboard_admin.php?delete_shop_staff=<?php echo $staff['id']; ?>"
+                                                        onclick="return confirm('Delete this shop staff account?');" class="btn-delete"
+                                                        title="Delete">
+                                                        <i class="fa-solid fa-trash-can"></i>
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                    <?php endwhile; ?>
+                            <?php else: ?>
+                                    <tr>
+                                        <td colspan="4" style="text-align: center; padding: 30px; color: var(--text-gray);">No
+                                            shop staff found.</td>
+                                    </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Shop Staff Modal -->
+        <div id="add-shop-staff-modal"
+            style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1100; align-items:center; justify-content:center; backdrop-filter: blur(5px);">
+            <div class="card"
+                style="width:100%; max-width:450px; background: var(--secondary-color); border: 1px solid rgba(255,255,255,0.1);">
+                <div class="card-header">
+                    <h3>Add Shop Staff</h3>
+                    <button onclick="document.getElementById('add-shop-staff-modal').style.display='none'"
+                        style="background:none; border:none; color:#fff; cursor:pointer; font-size:1.5rem;">&times;</button>
+                </div>
+                <form method="POST" autocomplete="off">
+                    <input type="hidden" name="add_shop_staff" value="1">
+                    <div style="margin-bottom: 20px;">
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Full Name</label>
+                        <input type="text" name="shop_staff_name" required placeholder="Staff Name"
+                            style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
+                    </div>
+                    <div style="margin-bottom: 20px;">
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Email Address</label>
+                        <input type="email" name="shop_staff_email" required placeholder="staff@gym.com"
+                            style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
+                    </div>
+                    <div style="margin-bottom: 25px;">
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Password</label>
+                        <input type="password" name="shop_staff_password" required placeholder="Create password"
+                            style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
+                    </div>
+                    <button type="submit" class="btn-add" style="width:100%;">Create Account</button>
                 </form>
             </div>
         </div>
@@ -1915,7 +2497,8 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                             style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
                     </div>
                     <div style="margin-bottom: 20px;">
-                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Email Address</label>
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">Email
+                            Address</label>
                         <input type="email" name="trainer_email" id="edit-trainer-email" required
                             onfocus="this.removeAttribute('readonly');" readonly
                             style="width:100%; padding:12px; background:rgba(0,0,0,0.3); border:1px solid #333; color:#fff; border-radius:8px;">
@@ -1935,7 +2518,8 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                     </div>
 
                     <div style="margin-bottom: 20px;">
-                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">New Password (leave
+                        <label style="display:block; margin-bottom: 8px; color: var(--text-gray);">New Password
+                            (leave
                             blank to keep current)</label>
                         <div style="position: relative;">
                             <input type="password" name="trainer_password" id="edit-trainer-new-password"
@@ -2074,7 +2658,8 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                 style="max-width: 850px; width: 95%; max-height: 90vh; overflow-y: auto; background: #1a1a2e; padding: 40px; border-radius: 20px; scrollbar-width: thin; scrollbar-color: var(--primary-color) #1a1a2e;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:30px;">
                     <h3 id="edit-plan-title"
-                        style="color: var(--primary-color); font-family: 'Oswald', sans-serif; font-size: 2rem;">Edit
+                        style="color: var(--primary-color); font-family: 'Oswald', sans-serif; font-size: 2rem;">
+                        Edit
                         Plan</h3>
                     <span onclick="closeModal('edit-plan-modal')"
                         style="cursor:pointer; font-size:1.8rem; color:#fff;">&times;</span>
@@ -2097,7 +2682,8 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                             </label>
                         </div>
                         <div class="form-group">
-                            <label style="color: #fff; display: block; margin-bottom: 8px;">Monthly Price (₹)</label>
+                            <label style="color: #fff; display: block; margin-bottom: 8px;">Monthly Price
+                                (₹)</label>
                             <input type="number" name="price_monthly" id="edit-plan-monthly" class="form-control"
                                 required
                                 style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px;">
@@ -2384,7 +2970,8 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
 
                     <div
                         style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 12px; border: 1px dashed rgba(255,255,255,0.1);">
-                        <p style="color: var(--text-gray); font-size: 0.85rem; margin-bottom: 10px;">Add New Attribute
+                        <p style="color: var(--text-gray); font-size: 0.85rem; margin-bottom: 10px;">Add New
+                            Attribute
                         </p>
                         <div style="display: flex; gap: 10px; align-items: center;">
                             <input type="text" id="new-attr-name" placeholder="Feature name (e.g. Free WiFi)"
@@ -2392,11 +2979,13 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                                 style="flex: 2; height: 40px; font-size: 0.9rem; background: rgba(0,0,0,0.2);">
                             <label
                                 style="color: #eee; font-size: 0.8rem; display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                                <input type="checkbox" id="new-attr-monthly" style="width: 16px; height: 16px;"> Monthly
+                                <input type="checkbox" id="new-attr-monthly" style="width: 16px; height: 16px;">
+                                Monthly
                             </label>
                             <label
                                 style="color: #eee; font-size: 0.8rem; display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                                <input type="checkbox" id="new-attr-yearly" style="width: 16px; height: 16px;"> Yearly
+                                <input type="checkbox" id="new-attr-yearly" style="width: 16px; height: 16px;">
+                                Yearly
                             </label>
                             <button type="button" id="btn-add-attr" onclick="addNewAttribute()"
                                 style="background: var(--primary-color); color: #000; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 0.8rem;">Add</button>
@@ -2436,7 +3025,8 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                             style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); padding: 15px;">
                     </div>
                     <div class="form-group">
-                        <label style="color: #fff; font-weight: 500; margin-bottom: 10px;">Reset Password (blank to keep
+                        <label style="color: #fff; font-weight: 500; margin-bottom: 10px;">Reset Password (blank to
+                            keep
                             current)</label>
                         <div class="pass-wrapper">
                             <input type="password" name="password" id="edit-pass" class="form-control"
@@ -2452,6 +3042,157 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                         <button type="button" class="btn-action-modal"
                             style="flex: 1; background: #333; color: #fff; font-size: 1.1rem; padding: 15px;"
                             onclick="closeModal('edit-member-modal')">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <!-- Add Service Modal -->
+        <div id="add-service-modal" class="modal">
+            <div class="modal-content" style="max-width: 500px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <h3 style="color: var(--primary-color); font-family: 'Oswald', sans-serif;">Add New Service</h3>
+                    <span onclick="closeModal('add-service-modal')"
+                        style="cursor:pointer; font-size:1.5rem; color:#fff;">&times;</span>
+                </div>
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="add_service" value="1">
+                    <div class="form-group">
+                        <label>Service Title</label>
+                        <input type="text" name="service_title" class="form-control" required
+                            placeholder="e.g. Yoga Class"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea name="service_desc" class="form-control" required rows="4"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Display Priority</label>
+                        <input type="number" name="service_priority" class="form-control" value="0"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div class="form-group">
+                        <label>Icon / Image</label>
+                        <input type="file" name="service_icon" class="form-control" required accept="image/*"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div style="margin-top: 20px; text-align: right;">
+                        <button type="submit" class="btn-action-modal">Save Service</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Edit Service Modal -->
+        <div id="edit-service-modal" class="modal">
+            <div class="modal-content" style="max-width: 500px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <h3 style="color: var(--primary-color); font-family: 'Oswald', sans-serif;">Edit Service</h3>
+                    <span onclick="closeModal('edit-service-modal')"
+                        style="cursor:pointer; font-size:1.5rem; color:#fff;">&times;</span>
+                </div>
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="edit_service" value="1">
+                    <input type="hidden" name="service_id" id="edit-service-id">
+                    <div class="form-group">
+                        <label>Service Title</label>
+                        <input type="text" name="service_title" id="edit-service-title" class="form-control" required
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea name="service_desc" id="edit-service-desc" class="form-control" required rows="4"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Display Priority</label>
+                        <input type="number" name="service_priority" id="edit-service-priority" class="form-control"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div class="form-group">
+                        <label>Icon / Image (leave blank to keep current)</label>
+                        <input type="file" name="service_icon" class="form-control" accept="image/*"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div style="margin-top: 20px; text-align: right;">
+                        <button type="submit" class="btn-action-modal">Update Service</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Add Equipment Modal -->
+        <div id="add-equipment-modal" class="modal">
+            <div class="modal-content" style="max-width: 500px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <h3 style="color: var(--primary-color); font-family: 'Oswald', sans-serif;">Add Showcase Item</h3>
+                    <span onclick="closeModal('add-equipment-modal')"
+                        style="cursor:pointer; font-size:1.5rem; color:#fff;">&times;</span>
+                </div>
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="add_equipment" value="1">
+                    <div class="form-group">
+                        <label>Equipment Name</label>
+                        <input type="text" name="eq_name" class="form-control" required placeholder="e.g. Dumbbell"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" name="eq_desc" class="form-control" required
+                            placeholder="e.g. Adjustable weights"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div class="form-group">
+                        <label>Priority (Lower numbers show first)</label>
+                        <input type="number" name="eq_priority" class="form-control" value="0"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div class="form-group">
+                        <label>Equipment Image</label>
+                        <input type="file" name="eq_image" class="form-control" required accept="image/*"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div style="margin-top: 20px; text-align: right;">
+                        <button type="submit" class="btn-action-modal">Save Item</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Edit Equipment Modal -->
+        <div id="edit-equipment-modal" class="modal">
+            <div class="modal-content" style="max-width: 500px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <h3 style="color: var(--primary-color); font-family: 'Oswald', sans-serif;">Edit Showcase Item</h3>
+                    <span onclick="closeModal('edit-equipment-modal')"
+                        style="cursor:pointer; font-size:1.5rem; color:#fff;">&times;</span>
+                </div>
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="edit_equipment" value="1">
+                    <input type="hidden" name="eq_id" id="edit-eq-id">
+                    <div class="form-group">
+                        <label>Equipment Name</label>
+                        <input type="text" name="eq_name" id="edit-eq-name" class="form-control" required
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" name="eq_desc" id="edit-eq-desc" class="form-control" required
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div class="form-group">
+                        <label>Priority</label>
+                        <input type="number" name="eq_priority" id="edit-eq-priority" class="form-control"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div class="form-group">
+                        <label>Equipment Image (leave blank to keep current)</label>
+                        <input type="file" name="eq_image" class="form-control" accept="image/*"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; color: #fff;">
+                    </div>
+                    <div style="margin-top: 20px; text-align: right;">
+                        <button type="submit" class="btn-action-modal">Update Item</button>
                     </div>
                 </form>
             </div>
@@ -2504,6 +3245,22 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                 const activeSec = document.querySelector('.dashboard-section.active') || document.querySelector('.dashboard-section');
                 if (activeSec) showSection(activeSec.id, false);
             }
+
+            // AUTO-OPEN USER HISTORY if open_uid is present
+            const urlParams = new URLSearchParams(window.location.search);
+            const openUid = urlParams.get('open_uid');
+            if (openUid && hash === 'users') {
+                const paymentsTabBtn = document.querySelector('.user-tab:nth-child(2)');
+                if (paymentsTabBtn) switchUserTab('payments', paymentsTabBtn);
+
+                setTimeout(() => {
+                    const histRow = document.getElementById('history-' + openUid);
+                    if (histRow && histRow.style.display === 'none') {
+                        toggleHistory(openUid);
+                        histRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 600);
+            }
         });
 
         // Handle Back/Forward
@@ -2551,6 +3308,22 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
             }
 
             document.getElementById('edit-trainer-modal').style.display = 'flex';
+        }
+
+        function openEditEquipmentModal(eq) {
+            document.getElementById('edit-eq-id').value = eq.id;
+            document.getElementById('edit-eq-name').value = eq.name;
+            document.getElementById('edit-eq-desc').value = eq.description;
+            document.getElementById('edit-eq-priority').value = eq.priority;
+            document.getElementById('edit-equipment-modal').style.display = 'flex';
+        }
+
+        function openEditServiceModal(srv) {
+            document.getElementById('edit-service-id').value = srv.id;
+            document.getElementById('edit-service-title').value = srv.title;
+            document.getElementById('edit-service-desc').value = srv.description;
+            document.getElementById('edit-service-priority').value = srv.priority;
+            document.getElementById('edit-service-modal').style.display = 'flex';
         }
 
         function openEditAnnouncementModal(ann) {
@@ -2896,12 +3669,29 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
             tr.forEach(row => {
                 let name = row.querySelector('span').innerText.toLowerCase();
                 let email = row.querySelector('small').innerText.toLowerCase();
-                if (name.includes(filter) || email.includes(filter)) {
+                let plan = row.cells[1].innerText.toLowerCase();
+                if (name.includes(filter) || email.includes(filter) || plan.includes(filter)) {
                     row.style.display = "";
                 } else {
                     row.style.display = "none";
                 }
             });
+        }
+
+        function filterUserHistory(input) {
+            let filter = input.value.toLowerCase();
+            let tableContainer = input.parentNode.nextElementSibling;
+            let tableBody = tableContainer.querySelector('tbody');
+            let rows = tableBody.getElementsByTagName('tr');
+
+            for (let i = 0; i < rows.length; i++) {
+                let text = rows[i].innerText.toLowerCase();
+                if (text.includes(filter)) {
+                    rows[i].style.display = "";
+                } else {
+                    rows[i].style.display = "none";
+                }
+            }
         }
 
         function switchUserTab(tabName, btn) {
@@ -2913,6 +3703,22 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
             // Add active to current
             btn.classList.add('active');
             document.getElementById('tab-' + tabName).classList.add('active');
+        }
+
+        function searchStoreOrders() {
+            let input = document.getElementById('store-order-search');
+            let filter = input.value.toLowerCase();
+            let table = document.getElementById('store-orders-table');
+            let tr = table.getElementsByTagName('tr');
+
+            for (let i = 1; i < tr.length; i++) {
+                let text = tr[i].innerText.toLowerCase();
+                if (text.includes(filter)) {
+                    tr[i].style.display = "";
+                } else {
+                    tr[i].style.display = "none";
+                }
+            }
         }
 
         function searchInventory() {
@@ -2958,10 +3764,10 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
         new Chart(ctx, {
             type: 'line',
             data: {
-                labels: ['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+                labels: <?php echo json_encode($chart_labels); ?>,
                 datasets: [{
-                    label: 'Revenue (in Thousands ₹)',
-                    data: [800, 950, 900, 1100, 1050, 1200],
+                    label: 'Revenue (₹)',
+                    data: <?php echo json_encode($chart_values); ?>,
                     borderColor: '#ceff00',
                     backgroundColor: 'rgba(206, 255, 0, 0.1)',
                     fill: true,
@@ -2980,6 +3786,7 @@ $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv
                     legend: { display: false }
                 }
             }
+
         });
     </script>
 </body>

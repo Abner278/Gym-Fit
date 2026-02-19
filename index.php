@@ -29,6 +29,80 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['send_query'])) {
 
 // Fetch Membership Plans
 $plans_res = mysqli_query($link, "SELECT * FROM membership_plans ORDER BY id ASC");
+
+// Ensure equipment showcase table exists
+$equip_sql = "CREATE TABLE IF NOT EXISTS equipment_showcase (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description VARCHAR(255) NOT NULL,
+    image VARCHAR(255) NOT NULL,
+    priority INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)";
+mysqli_query($link, $equip_sql);
+
+// Seed if empty
+$check_empty = mysqli_query($link, "SELECT id FROM equipment_showcase LIMIT 1");
+if (mysqli_num_rows($check_empty) == 0) {
+    $seeds = [
+        ['Dumbbell', 'Adjustable weights', 'assets/images/dumble.png', 1],
+        ['Cardio Bike', 'High-intensity cardio', 'assets/images/product-bike.png', 2],
+        ['Treadmill Elite', 'Smart incline run', 'assets/images/product-treadmill.png', 3],
+        ['Cable Machine', 'Full body workout', 'assets/images/product-cable.png', 4],
+        ['Flat Bench', 'Steel frame support', 'assets/images/bench.png', 5],
+        ['Smith Machine', 'Guided weight training', 'assets/images/smith.png', 6],
+        ['Kettlebells', 'Explosive power', 'assets/images/kettlebell.png', 7],
+        ['Pull-up Bar', 'Upper body strength', 'assets/images/pullup.png', 8],
+        ['Medicine Ball', 'Core plyometrics', 'assets/images/medicineball.png', 9],
+        ['Resistance Bands', 'Elastic resistance', 'assets/images/bands.png', 10],
+        ['Rowing Machine', 'Full body cardio', 'assets/images/rowing.png', 11],
+        ['Leg Press Machine', 'Lower body strength', 'assets/images/legpress.png', 12]
+    ];
+    foreach ($seeds as $s) {
+        $n = mysqli_real_escape_string($link, $s[0]);
+        $d = mysqli_real_escape_string($link, $s[1]);
+        $i = mysqli_real_escape_string($link, $s[2]);
+        $p = (int) $s[3];
+        mysqli_query($link, "INSERT INTO equipment_showcase (name, description, image, priority) VALUES ('$n', '$d', '$i', '$p')");
+    }
+}
+
+// Fetch Equipment Showcase
+$equip_res = mysqli_query($link, "SELECT * FROM equipment_showcase ORDER BY priority ASC, created_at DESC");
+
+// Ensure services table exists
+$services_sql = "CREATE TABLE IF NOT EXISTS services (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    icon VARCHAR(255) NOT NULL,
+    priority INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)";
+mysqli_query($link, $services_sql);
+
+// Seed Services if empty
+$check_services = mysqli_query($link, "SELECT id FROM services LIMIT 1");
+if (mysqli_num_rows($check_services) == 0) {
+    $service_seeds = [
+        ['Personal Trainer', 'One-on-one customized workouts to smash your goals.', 'assets/icons/muscle_custom.png', 1],
+        ['Group Training', 'High-energy classes to keep you motivated and moving.', 'assets/icons/group.svg', 2],
+        ['Treadmill', 'State-of-the-art cardio equipment for endurance.', 'assets/icons/treadmill.svg', 3],
+        ['Yoga', 'Find your balance and improve flexibility with experts.', 'assets/icons/yoga_custom.png', 4],
+        ['Workout Videos', 'Access expert-guided workout videos anytime, anywhere to stay fit and motivated.', 'assets/icons/online.svg', 5],
+        ['Diet And Tips', 'Nutrition guidance ensuring you fuel your gains properly.', 'assets/icons/tips.svg', 6]
+    ];
+    foreach ($service_seeds as $s) {
+        $t = mysqli_real_escape_string($link, $s[0]);
+        $d = mysqli_real_escape_string($link, $s[1]);
+        $i = mysqli_real_escape_string($link, $s[2]);
+        $p = (int) $s[3];
+        mysqli_query($link, "INSERT INTO services (title, description, icon, priority) VALUES ('$t', '$d', '$i', '$p')");
+    }
+}
+
+// Fetch Services
+$srv_res = mysqli_query($link, "SELECT * FROM services ORDER BY priority ASC, created_at DESC");
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -202,66 +276,25 @@ $plans_res = mysqli_query($link, "SELECT * FROM membership_plans ORDER BY id ASC
     <section id="services" class="section services-section">
         <h2 class="section-title center">Our Services</h2>
         <div class="container services-grid">
-            <!-- Service 1 -->
-            <div class="service-card">
-                <div class="icon-box">
-                    <img src="assets/icons/muscle_custom.png" alt="Personal Training">
-                </div>
-                <h3>Personal Trainer</h3>
-                <p>One-on-one customized workouts to smash your goals.</p>
-                <a href="login.php" class="btn-text">Join Now</a>
-
-            </div>
-            <!-- Service 2 -->
-            <div class="service-card">
-                <div class="icon-box">
-                    <img src="assets/icons/group.svg" alt="Group Training">
-                </div>
-                <h3>Group Training</h3>
-                <p>High-energy classes to keep you motivated and moving.</p>
-                <a href="login.php" class="btn-text">Join Now</a>
-
-            </div>
-            <!-- Service 3 (Highlighted) -->
-            <div class="service-card active">
-                <div class="icon-box">
-                    <img src="assets/icons/treadmill.svg" alt="Treadmill">
-                </div>
-                <h3>Treadmill</h3>
-                <p>State-of-the-art cardio equipment for endurance.</p>
-                <a href="login.php" class="btn-text">Join Now</a>
-
-            </div>
-            <!-- Service 4 -->
-            <div class="service-card">
-                <div class="icon-box">
-                    <img src="assets/icons/yoga_custom.png" alt="Yoga">
-                </div>
-                <h3>Yoga</h3>
-                <p>Find your balance and improve flexibility with experts.</p>
-                <a href="login.php" class="btn-text">Join Now</a>
-
-            </div>
-            <!-- Service 5 -->
-            <div class="service-card">
-                <div class="icon-box">
-                    <img src="assets/icons/online.svg" alt="Online Training">
-                </div>
-                <h3>Workout Videos</h3>
-                <p>Access expert-guided workout videos anytime, anywhere to stay fit and motivated.</p>
-                <a href="login.php" class="btn-text">Join Now</a>
-
-            </div>
-            <!-- Service 6 -->
-            <div class="service-card">
-                <div class="icon-box">
-                    <img src="assets/icons/tips.svg" alt="Diet And Tips">
-                </div>
-                <h3>Diet And Tips</h3>
-                <p>Nutrition guidance ensuring you fuel your gains properly.</p>
-                <a href="login.php" class="btn-text">Join Now</a>
-
-            </div>
+            <?php
+            if (mysqli_num_rows($srv_res) > 0):
+                while ($srv = mysqli_fetch_assoc($srv_res)):
+                    // Check if title is Treadmill to add 'active' class (as per original design)
+                    $active_class = (strtolower($srv['title']) == 'treadmill') ? 'active' : '';
+                    ?>
+                    <div class="service-card <?php echo $active_class; ?>">
+                        <div class="icon-box">
+                            <img src="<?php echo htmlspecialchars($srv['icon']); ?>"
+                                alt="<?php echo htmlspecialchars($srv['title']); ?>">
+                        </div>
+                        <h3><?php echo htmlspecialchars($srv['title']); ?></h3>
+                        <p><?php echo htmlspecialchars($srv['description']); ?></p>
+                        <a href="login.php" class="btn-text">JOIN NOW</a>
+                    </div>
+                <?php endwhile;
+            else: ?>
+                <p class="center" style="grid-column: 1/-1; opacity: 0.5;">No services listed yet.</p>
+            <?php endif; ?>
         </div>
     </section>
 
@@ -294,91 +327,25 @@ $plans_res = mysqli_query($link, "SELECT * FROM membership_plans ORDER BY id ASC
     <section id="equipment-showcase" class="section equipment-section">
         <h2 class="section-title center"><span class="highlight">Gym Equipment Showcase</span></h2>
         <div class="container equipment-grid">
-            <!-- Item 1: Dumbbell -->
-            <div class="equipment-card">
-                <div class="equip-image"><img src="assets/images/dumble.png" alt="Dumbbell"></div>
-                <h3>Dumbbell</h3>
-                <p class="small-text">Adjustable weights</p>
-
-            </div>
-            <!-- Item 2: Cardio Bike -->
-            <div class="equipment-card">
-                <div class="equip-image"><img src="assets/images/product-bike.png" alt="Cardio Bike"></div>
-                <!-- Sack as Bag -->
-                <h3>Cardio Bike</h3>
-                <p class="small-text">High-intensity cardio</p>
-
-            </div>
-            <!-- Item 3: Treadmill Elite -->
-            <div class="equipment-card">
-                <div class="equip-image"><img src="assets/images/product-treadmill.png" alt="Treadmill"></div>
-                <h3>Treadmill Elite</h3>
-                <p class="small-text">Smart incline run</p>
-
-            </div>
-            <!-- Item 4: Cable Machine -->
-            <div class="equipment-card">
-                <div class="equip-image"><img src="assets/images/product-cable.png" alt="Cable Machine"></div>
-                <h3>Cable Machine</h3>
-                <p class="small-text">Full body workout</p>
-
-            </div>
-            <!-- Item 5: Flat Bench -->
-            <div class="equipment-card">
-                <div class="equip-image"><img src="assets/images/bench.png" alt="Flat Bench"></div>
-                <h3>Flat Bench</h3>
-                <p class="small-text">Steel frame support</p>
-
-            </div>
-            <!-- Item 6 : Smith Machine -->
-            <div class="equipment-card">
-                <div class="equip-image"><img src="assets/images/smith.png" alt="Smith Machine"></div>
-                <h3>Smith Machine</h3>
-                <p class="small-text">Guided weight training</p>
-
-            </div>
-            <!-- Item 7 (Hidden): Kettlebells -->
-            <div class="equipment-card hidden-item">
-                <div class="equip-image"><img src="assets/images/kettlebell.png" alt="Kettlebells"></div>
-                <h3>Kettlebells</h3>
-                <p class="small-text">Explosive power</p>
-
-            </div>
-            <!-- Item 8 (Hidden): Pull-up Bar -->
-            <div class="equipment-card hidden-item">
-                <div class="equip-image"><img src="assets/images/pullup.png" alt="Pull-up Bar"></div>
-                <h3>Pull-up Bar</h3>
-                <p class="small-text">Upper body strength</p>
-
-            </div>
-            <!-- Item 9 (Hidden): Medicine Ball -->
-            <div class="equipment-card hidden-item">
-                <div class="equip-image"><img src="assets/images/medicineball.png" alt="Medicine Ball"></div>
-                <h3>Medicine Ball</h3>
-                <p class="small-text">Core plyometrics</p>
-
-            </div>
-            <!-- Item 10 (Hidden): Resistance Bands -->
-            <div class="equipment-card hidden-item">
-                <div class="equip-image"><img src="assets/images/bands.png" alt="Resistance Bands"></div>
-                <h3>Resistance Bands</h3>
-                <p class="small-text">Elastic resistance</p>
-
-            </div>
-            <!-- Item 11 (Hidden): Rowing Machine -->
-            <div class="equipment-card hidden-item">
-                <div class="equip-image"><img src="assets/images/rowing.png" alt="Rowing Machine"></div>
-                <h3>Rowing Machine</h3>
-                <p class="small-text">Full body cardio</p>
-
-            </div>
-            <!-- Item 12 (Hidden): Leg Press Machine -->
-            <div class="equipment-card hidden-item">
-                <div class="equip-image"><img src="assets/images/legpress.png" alt="Leg Press Machine"></div>
-                <h3>Leg Press Machine</h3>
-                <p class="small-text">Lower body strength</p>
-
-            </div>
+            <?php
+            $eq_count = 0;
+            if (mysqli_num_rows($equip_res) > 0):
+                while ($eq = mysqli_fetch_assoc($equip_res)):
+                    $eq_count++;
+                    $hidden_class = ($eq_count > 6) ? 'hidden-item' : '';
+                    ?>
+                    <div class="equipment-card <?php echo $hidden_class; ?>">
+                        <div class="equip-image">
+                            <img src="<?php echo htmlspecialchars($eq['image']); ?>"
+                                alt="<?php echo htmlspecialchars($eq['name']); ?>">
+                        </div>
+                        <h3><?php echo htmlspecialchars($eq['name']); ?></h3>
+                        <p class="small-text"><?php echo htmlspecialchars($eq['description']); ?></p>
+                    </div>
+                <?php endwhile;
+            else: ?>
+                <p class="center" style="grid-column: 1/-1; opacity: 0.5;">No equipment listed yet.</p>
+            <?php endif; ?>
         </div>
         <div class="center-btn-container" style="text-align: center; margin-top: 40px;">
             <button id="load-more-equipment" class="btn-primary">See More Equipment</button>
