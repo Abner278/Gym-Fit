@@ -2,7 +2,7 @@
 require_once 'config.php';
 session_start();
 
-if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "staff") {
+if (!isset($_SESSION["loggedin"]) || !in_array($_SESSION["role"], ["staff", "trainer"])) {
     header("location: login.php");
     exit;
 }
@@ -10,10 +10,14 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "staff") {
 $user_id = $_SESSION["id"];
 $full_name = $_SESSION["full_name"];
 
-// Fetch staff user's join date
-$user_query = mysqli_query($link, "SELECT created_at FROM users WHERE id = $user_id");
+// Fetch user's join date from correct table
+if ($_SESSION["role"] === "trainer") {
+    $user_query = mysqli_query($link, "SELECT created_at FROM trainers WHERE id = $user_id");
+} else {
+    $user_query = mysqli_query($link, "SELECT created_at FROM users WHERE id = $user_id");
+}
 $user_data = mysqli_fetch_assoc($user_query);
-$join_date = date('Y-m-d', strtotime($user_data['created_at']));
+$join_date = isset($user_data['created_at']) ? date('Y-m-d', strtotime($user_data['created_at'])) : date('Y-m-d');
 
 // Default to current month/year or get from GET
 $month = isset($_GET['m']) ? (int) $_GET['m'] : (int) date('n');
@@ -32,7 +36,8 @@ $days_in_month = date('t', mktime(0, 0, 0, $month, 1, $year));
 $start_date = "$year-" . sprintf('%02d', $month) . "-01";
 $end_date = "$year-" . sprintf('%02d', $month) . "-" . $days_in_month;
 
-$sql = "SELECT date, status FROM attendance WHERE user_id = $user_id AND date BETWEEN '$start_date' AND '$end_date' ORDER BY date ASC";
+$att_type_check = ($_SESSION["role"] === "trainer") ? "trainer" : (($_SESSION["role"] === "staff") ? "staff" : "user");
+$sql = "SELECT date, status FROM attendance WHERE user_id = $user_id AND user_type = '$att_type_check' AND date BETWEEN '$start_date' AND '$end_date' ORDER BY date ASC";
 $result = mysqli_query($link, $sql);
 
 $attendance_map = [];
@@ -40,7 +45,12 @@ while ($row = mysqli_fetch_assoc($result)) {
     $attendance_map[$row['date']] = $row['status'];
 }
 
-$total_present = count($attendance_map);
+$total_present = 0;
+foreach ($attendance_map as $date => $status) {
+    if ($status === 'present') {
+        $total_present++;
+    }
+}
 
 // Calculate total trackable days (only count days after joining)
 $join_timestamp = strtotime($join_date);
@@ -321,19 +331,22 @@ for ($d = 1; $d <= $days_in_month; $d++) {
                     $day_name = date('l', $timestamp);
                     $display_date = date('M d, Y', $timestamp);
 
-                    $is_present = isset($attendance_map[$current_date_str]);
+                    $db_status = isset($attendance_map[$current_date_str]) ? $attendance_map[$current_date_str] : null;
                     $is_future = $timestamp > time();
                     $is_before_join = $current_date_str < $join_date;
 
-                    $status_label = 'Absent';
-                    $status_class = 'status-absent';
+                    $status_label = 'Not Marked';
+                    $status_class = 'status-future';
 
                     if ($is_before_join) {
                         $status_label = 'Not Joined';
-                        $status_class = 'status-future'; // Reuse future styling for not-joined
-                    } elseif ($is_present) {
+                        $status_class = 'status-future';
+                    } elseif ($db_status === 'present') {
                         $status_label = 'Present';
                         $status_class = 'status-present';
+                    } elseif ($db_status === 'absent') {
+                        $status_label = 'Absent';
+                        $status_class = 'status-absent';
                     } elseif ($is_future) {
                         $status_label = '-';
                         $status_class = 'status-future';

@@ -205,7 +205,8 @@ if (isset($_POST['ajax_action'])) {
         $start_date = "$year-" . sprintf('%02d', $month) . "-01";
         $end_date = date("Y-m-t", strtotime($start_date));
 
-        $sql = "SELECT date, status FROM attendance WHERE user_id = $uid AND date BETWEEN '$start_date' AND '$end_date'";
+        $type = ($uid > 0 && isset($_POST['user_type'])) ? mysqli_real_escape_string($link, $_POST['user_type']) : 'user';
+        $sql = "SELECT date, status FROM attendance WHERE user_id = $uid AND user_type = '$type' AND date BETWEEN '$start_date' AND '$end_date'";
         $res = mysqli_query($link, $sql);
 
         $attendance_map = [];
@@ -220,10 +221,11 @@ if (isset($_POST['ajax_action'])) {
         $date = mysqli_real_escape_string($link, $_POST['date']);
         $status = mysqli_real_escape_string($link, $_POST['status']);
 
+        $type = isset($_POST['user_type']) ? mysqli_real_escape_string($link, $_POST['user_type']) : 'user';
         // Use INSERT ... ON DUPLICATE KEY UPDATE to handle both insert and update
-        // Assumes there's a UNIQUE constraint on (user_id, date)
-        $sql = "INSERT INTO attendance (user_id, date, status) 
-                VALUES ($uid, '$date', '$status')
+        // Assumes there's a UNIQUE constraint on (user_id, user_type, date)
+        $sql = "INSERT INTO attendance (user_id, user_type, date, status) 
+                VALUES ($uid, '$type', '$date', '$status')
                 ON DUPLICATE KEY UPDATE status = '$status'";
 
         mysqli_query($link, $sql);
@@ -234,12 +236,13 @@ if (isset($_POST['ajax_action'])) {
         $uid = (int) $_POST['member_id'];
         $date = mysqli_real_escape_string($link, $_POST['date']);
 
-        $check = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = $uid AND date = '$date'");
+        $type = isset($_POST['user_type']) ? mysqli_real_escape_string($link, $_POST['user_type']) : 'user';
+        $check = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = $uid AND user_type = '$type' AND date = '$date'");
         if (mysqli_num_rows($check) > 0) {
-            mysqli_query($link, "DELETE FROM attendance WHERE user_id = $uid AND date = '$date'");
+            mysqli_query($link, "DELETE FROM attendance WHERE user_id = $uid AND user_type = '$type' AND date = '$date'");
             $status = 'absent';
         } else {
-            mysqli_query($link, "INSERT INTO attendance (user_id, date, status) VALUES ($uid, '$date', 'present')");
+            mysqli_query($link, "INSERT INTO attendance (user_id, user_type, date, status) VALUES ($uid, '$type', '$date', 'present')");
             $status = 'present';
         }
         echo json_encode(['success' => true, 'status' => $status]);
@@ -489,18 +492,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_member'])) {
     exit;
 }
 
-// Delete Member
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['delete_member'])) {
-    $id = (int) $_POST['member_id'];
-    if (mysqli_query($link, "DELETE FROM users WHERE id = $id AND role='member'")) {
-        $_SESSION['msg'] = "Member removed successfully.";
-    } else {
-        $_SESSION['msg'] = "Error removing member.";
-    }
-    header("Location: dashboard_staff.php");
-    exit;
-}
-
 // Fetch all members
 $members_res = mysqli_query($link, "SELECT * FROM users WHERE role = 'member' ORDER BY created_at DESC");
 
@@ -585,9 +576,10 @@ while ($row = mysqli_fetch_assoc($payments_res)) {
 // 1. Handle Self-Attendance
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['mark_staff_attendance'])) {
     $date = date('Y-m-d');
-    $check = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = $user_id AND date = '$date'");
+    $staff_type = ($_SESSION["role"] === "trainer") ? "trainer" : "staff";
+    $check = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = $user_id AND user_type = '$staff_type' AND date = '$date'");
     if (mysqli_num_rows($check) == 0) {
-        if (mysqli_query($link, "INSERT INTO attendance (user_id, date, status) VALUES ($user_id, '$date', 'present')")) {
+        if (mysqli_query($link, "INSERT INTO attendance (user_id, user_type, date, status) VALUES ($user_id, '$staff_type', '$date', 'present')")) {
             $_SESSION['msg'] = "Attendance marked successfully!";
         }
     } else {
@@ -603,9 +595,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['mark_member_attendance
     $date = date('Y-m-d');
 
     // specific check for member
-    $check = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = $target_member_id AND date = '$date'");
+    $check = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = $target_member_id AND user_type = 'user' AND date = '$date'");
     if (mysqli_num_rows($check) == 0) {
-        if (mysqli_query($link, "INSERT INTO attendance (user_id, date, status) VALUES ($target_member_id, '$date', 'present')")) {
+        if (mysqli_query($link, "INSERT INTO attendance (user_id, user_type, date, status) VALUES ($target_member_id, 'user', '$date', 'present')")) {
             $_SESSION['msg'] = "Member attendance marked as present!";
         } else {
             $_SESSION['msg'] = "Error marking attendance.";
@@ -669,7 +661,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['log_client_measurement
 }
 
 // 2. Fetch Own History
-$staff_att_res = mysqli_query($link, "SELECT date FROM attendance WHERE user_id = $user_id ORDER BY date DESC");
+$att_type_check = ($_SESSION["role"] === "trainer") ? "trainer" : "user";
+$staff_att_res = mysqli_query($link, "SELECT date FROM attendance WHERE user_id = $user_id AND user_type = '$att_type_check' AND status = 'present' ORDER BY date DESC");
 $staff_dates = [];
 while ($r = mysqli_fetch_assoc($staff_att_res))
     $staff_dates[] = $r['date'];
@@ -711,7 +704,7 @@ for ($y = $current_sys_year; $y >= $staff_min_year; $y--) {
 
 // 3. Member Daily Stats
 $today_date = date('Y-m-d');
-$mem_att_query = mysqli_query($link, "SELECT COUNT(*) as cnt FROM attendance a JOIN users u ON a.user_id = u.id WHERE u.role='member' AND a.date='$today_date'");
+$mem_att_query = mysqli_query($link, "SELECT COUNT(*) as cnt FROM attendance a JOIN users u ON a.user_id = u.id WHERE u.role='member' AND a.user_type = 'user' AND a.date='$today_date' AND a.status = 'present'");
 $mem_present_count = $mem_att_query->fetch_assoc()['cnt'];
 
 $total_mem_query = mysqli_query($link, "SELECT COUNT(*) as cnt FROM users WHERE role='member'");
@@ -1434,14 +1427,14 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         <?php echo $msg; ?>
                     </p>
                     <script>
-                                                                                                    setT                                       imeout(() => {
-                                                                                                        const msgBox = document.getElementById("staff-msg");
-                                                                                                        if (msgBox) {
-                                                                                                            msgBox.style.transition = "opacity 0.5s";
-                                                                                                            msgBox.style.opacity = "0";
-                                                                                                            setTimeout(() => msgBox.remove(), 500);
-                                                                                                        }
-                                                                                                    }, 4000);
+                                                                                                                                                    setT                                       imeout(() => {
+                                                                                                                                                        const msgBox = document.getElementById("staff-msg");
+                                                                                                                                                        if (msgBox) {
+                                                                                                                                                            msgBox.style.transition = "opacity 0.5s";
+                                                                                                                                                            msgBox.style.opacity = "0";
+                                                                                                                                                            setTimeout(() => msgBox.remove(), 500);
+                                                                                                                                                        }
+                                                                                                                                                    }, 4000);
                     </script>
                 <?php endif; ?>
 
@@ -1465,12 +1458,6 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                                         <div style="display: flex; gap: 5px;">
                                             <button class="btn-sm btn-edit"
                                                 onclick='openEditMemberModal(<?php echo json_encode($member); ?>)'>Edit</button>
-                                            <form method="POST" onsubmit="return confirm('Remove this member permanentely?');"
-                                                style="margin:0;">
-                                                <input type="hidden" name="delete_member" value="1">
-                                                <input type="hidden" name="member_id" value="<?php echo $member['id']; ?>">
-                                                <button type="submit" class="btn-sm btn-delete">Remove</button>
-                                            </form>
                                         </div>
                                     </td>
                                 </tr>
@@ -1846,116 +1833,93 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                                                                             <i class="fa-solid fa-file-pdf"></i>
                                                                         </a>
                                                                     </td>
-                                            </tr>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            </td>
-                            </tr>
-                    <?php endforeach; ?>
-            <?php else: ?>
-                    <tr>
-                        <td colspan="4" style="text-align: center; color: var(--text-gray); padding: 30px;">
-                            <i class="fa-solid fa-receipt"
-                                style="font-size: 2rem; display: block; margin-bottom: 10px; opacity: 0.3;"></i>
-                            No payment records found.
-                        </td>
-                    </tr>
-            <?php endif; ?>
-            </tbody>
-            </table>
+                                                                </tr>
+                                                            <?php endforeach; ?>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <tr>
+                                    <td colspan="4" style="text-align: center; color: var(--text-gray); padding: 30px;">
+                                        <i class="fa-solid fa-receipt"
+                                            style="font-size: 2rem; display: block; margin-bottom: 10px; opacity: 0.3;"></i>
+                                        No payment records found.
+                                    </td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
-    </div>
-    </div>
-    <!-- Attendance Section -->
-    <div id="attendance" class="dashboard-section active">
-        <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Attendance Management</h2>
+        <!-- Attendance Section -->
+        <div id="attendance" class="dashboard-section active">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Attendance Management</h2>
 
-        <div class="dashboard-grid">
-            <!-- Staff Self Attendance -->
-            <div class="dashboard-card" style="padding: 40px;">
-                <h3><i class="fa-solid fa-user-check"></i> My Attendance</h3>
-                <div style="text-align: center; padding: 30px 0;">
-                    <h2 style="font-family:'Oswald'; margin-bottom:10px;">Daily Attendance</h2>
-                    <p style="color: var(--text-gray); margin-bottom: 20px;">Mark your daily attendance here.</p>
-                    <form method="POST" style="display:flex; justify-content:center;">
-                        <input type="hidden" name="mark_staff_attendance" value="1">
-                        <?php if ($is_staff_present): ?>
-                                <button type="button" class="btn-action"
-                                    style="width: auto; padding: 15px 40px; background:rgba(255,255,255,0.05); cursor:not-allowed; border: 1px solid var(--primary-color); color: var(--primary-color);">
-                                    <i class="fa-solid fa-check-double"></i> Checked In Today
-                                </button>
-                        <?php else: ?>
-                                <button type="submit" class="btn-action"
-                                    style="width: auto; padding: 15px 50px; font-size: 1.1rem; transform: scale(1.05);">
-                                    <i class="fa-solid fa-hand-point-up"></i> Check In Now
-                                </button>
-                        <?php endif; ?>
-                    </form>
-
-                    <div style="margin-top: 50px; padding-top: 30px; border-top: 1px solid rgba(255,255,255,0.05);">
-                        <div
-                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h4
-                                style="font-size: 1rem; color: #fff; margin: 0; font-family: 'Oswald', sans-serif; letter-spacing: 1px;">
-                                <i class="fa-solid fa-calendar-days"
-                                    style="color: var(--primary-color); margin-right: 10px;"></i>
-                                ATTENDANCE HISTORY (<?php echo date('F Y'); ?>)
-                            </h4>
-                            <button onclick="document.getElementById('staff-reports-modal').style.display='flex'"
-                                style="background:none; color:var(--primary-color); cursor:pointer; font-size:0.8rem; border:1px solid var(--primary-color); padding:6px 15px; border-radius:4px; transition:0.3s; background:rgba(206, 255, 0, 0.05);">
-                                <i class="fa-solid fa-folder-open"></i> View Attendance
-                            </button>
-                        </div>
-                        <div
-                            style="display: grid; grid-template-columns: repeat(auto-fill, minmax(45px, 1fr)); gap: 15px; justify-content: start;">
-                            <?php
-                            $s_month = date('m');
-                            $s_year = date('Y');
-                            $s_days = date('t');
-                            for ($d = 1; $d <= $s_days; $d++):
-                                $s_date = sprintf('%04d-%02d-%02d', $s_year, $s_month, $d);
-                                $s_is_pres = in_array($s_date, $staff_dates);
-                                $s_is_fut = strtotime($s_date) > time();
-                                $s_bg = $s_is_pres ? 'var(--primary-color)' : 'rgba(255,255,255,0.05)';
-                                $s_col = $s_is_pres ? '#000' : '#fff';
-                                $s_op = $s_is_fut ? '0.2' : '1';
-                                $s_border = $s_is_pres ? 'none' : '1px solid rgba(255,255,255,0.1)';
-                                ?>
-                                    <div style="height:45px; display:flex; align-items:center; justify-content:center; background:<?php echo $s_bg; ?>; color:<?php echo $s_col; ?>; border-radius:10px; font-weight:bold; font-size:0.9rem; opacity:<?php echo $s_op; ?>; border: <?php echo $s_border; ?>; transition: 0.3s; cursor: pointer;"
-                                        onclick="showAttendanceStatus('<?php echo date('M d, Y', strtotime($s_date)); ?>', '<?php echo $s_is_pres ? 'Present' : 'Absent'; ?>', <?php echo $s_is_fut ? 'true' : 'false'; ?>)"
-                                        title="<?php echo $s_date; ?>">
-                                        <?php echo $d; ?>
-                                    </div>
-                            <?php endfor; ?>
-                        </div>
-                        <div
-                            style="margin-top:20px; display:flex; gap:20px; font-size:0.85rem; color:var(--text-gray);">
-                            <span id="legend-present"
-                                style="display:flex; align-items:center; gap:8px; padding: 5px 10px; border-radius: 8px; transition: 0.3s; border: 1px solid transparent;">
-                                <div id="legend-present-box"
-                                    style="width:12px; height:12px; background:var(--primary-color); border-radius:4px; transition: 0.3s;">
-                                </div>
-                                Present
-                            </span>
-                            <span id="legend-absent"
-                                style="display:flex; align-items:center; gap:8px; padding: 5px 10px; border-radius: 8px; transition: 0.3s; border: 1px solid transparent;">
-                                <div id="legend-absent-box"
-                                    style="width:12px; height:12px; background:rgba(255,255,255,0.1); border-radius:4px; transition: 0.3s;">
-                                </div> Absent
-                            </span>
-                        </div>
+            <div class="dashboard-grid">
+                <!-- Staff Attendance History -->
+                <div class="dashboard-card" style="padding: 40px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 20px;">
+                        <h4
+                            style="font-size: 1.1rem; color: #fff; margin: 0; font-family: 'Oswald', sans-serif; letter-spacing: 1.5px; text-transform: uppercase;">
+                            <i class="fa-solid fa-calendar-days"
+                                style="color: var(--primary-color); margin-right: 12px;"></i>
+                            Attendance History <span
+                                style="color: var(--text-gray); font-size: 0.9rem; margin-left:10px; font-weight: normal;">(<?php echo date('F Y'); ?>)</span>
+                        </h4>
+                        <button onclick="document.getElementById('staff-reports-modal').style.display='flex'"
+                            style="background:rgba(206, 255, 0, 0.1); color:var(--primary-color); cursor:pointer; font-size:0.85rem; border:1px solid var(--primary-color); padding:8px 20px; border-radius:6px; transition:0.3s; font-weight: 500;">
+                            <i class="fa-solid fa-folder-open"></i> View All Reports
+                        </button>
+                    </div>
+                    <div
+                        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(45px, 1fr)); gap: 12px; justify-content: start;">
+                        <?php
+                        $s_month = date('m');
+                        $s_year = date('Y');
+                        $s_days = date('t');
+                        for ($d = 1; $d <= $s_days; $d++):
+                            $s_date = sprintf('%04d-%02d-%02d', $s_year, $s_month, $d);
+                            $s_is_pres = in_array($s_date, $staff_dates);
+                            $s_is_fut = strtotime($s_date) > time();
+                            $s_bg = $s_is_pres ? 'var(--primary-color)' : 'rgba(255,255,255,0.05)';
+                            $s_col = $s_is_pres ? '#000' : '#fff';
+                            $s_op = $s_is_fut ? '0.2' : '1';
+                            $s_border = $s_is_pres ? 'none' : '1px solid rgba(255,255,255,0.1)';
+                            ?>
+                            <div style="height:45px; display:flex; align-items:center; justify-content:center; background:<?php echo $s_bg; ?>; color:<?php echo $s_col; ?>; border-radius:10px; font-weight:bold; font-size:0.9rem; opacity:<?php echo $s_op; ?>; border: <?php echo $s_border; ?>; transition: 0.3s; cursor: pointer;"
+                                onclick="showAttendanceStatus('<?php echo date('M d, Y', strtotime($s_date)); ?>', '<?php echo $s_is_pres ? 'Present' : 'Absent'; ?>', <?php echo $s_is_fut ? 'true' : 'false'; ?>)"
+                                title="<?php echo $s_date; ?>">
+                                <?php echo $d; ?>
+                            </div>
+                        <?php endfor; ?>
+                    </div>
+                    <div style="margin-top:20px; display:flex; gap:20px; font-size:0.85rem; color:var(--text-gray);">
+                        <span id="legend-present"
+                            style="display:flex; align-items:center; gap:8px; padding: 5px 10px; border-radius: 8px; transition: 0.3s; border: 1px solid transparent;">
+                            <div id="legend-present-box"
+                                style="width:12px; height:12px; background:var(--primary-color); border-radius:4px; transition: 0.3s;">
+                            </div>
+                            Present
+                        </span>
+                        <span id="legend-absent"
+                            style="display:flex; align-items:center; gap:8px; padding: 5px 10px; border-radius: 8px; transition: 0.3s; border: 1px solid transparent;">
+                            <div id="legend-absent-box"
+                                style="width:12px; height:12px; background:rgba(255,255,255,0.1); border-radius:4px; transition: 0.3s;">
+                            </div> Absent
+                        </span>
                     </div>
                 </div>
             </div>
-
-
-
-
         </div>
-    </div>
+
+
+
 
     <!-- Member Reports Section -->
     <div id="reports" class="dashboard-section">
@@ -2044,31 +2008,31 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                             $chk_res = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = " . $m['id'] . " AND date = '$today_chk'");
                             $is_already_present = mysqli_num_rows($chk_res) > 0;
                             ?>
-                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                        <td style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
-                                            <?php echo htmlspecialchars($m['full_name']); ?>
-                                        </td>
-                                        <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
-                                            <?php echo htmlspecialchars($m['email']); ?>
-                                        </td>
-                                        <td style="padding: 15px 20px; text-align: right;">
-                                            <button
-                                                onclick="openAttendanceModal(<?php echo $m['id']; ?>, '<?php echo htmlspecialchars(addslashes($m['full_name'])); ?>')"
-                                                class="btn-sm"
-                                                style="background: var(--primary-color); color: var(--secondary-color); font-weight: bold; padding: 8px 15px; font-size: 0.85rem; border:none; border-radius:4px; cursor:pointer;">
-                                                <i class="fa-solid fa-calendar-days"></i> Attendance
-                                            </button>
-                                        </td>
-                                    </tr>
-                                    <?php
+                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                <td style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
+                                                    <?php echo htmlspecialchars($m['full_name']); ?>
+                                                </td>
+                                                <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
+                                                    <?php echo htmlspecialchars($m['email']); ?>
+                                                </td>
+                                                <td style="padding: 15px 20px; text-align: right;">
+                                                    <button
+                                                        onclick="openAttendanceModal(<?php echo $m['id']; ?>, '<?php echo htmlspecialchars(addslashes($m['full_name'])); ?>')"
+                                                        class="btn-sm"
+                                                        style="background: var(--primary-color); color: var(--secondary-color); font-weight: bold; padding: 8px 15px; font-size: 0.85rem; border:none; border-radius:4px; cursor:pointer;">
+                                                        <i class="fa-solid fa-calendar-days"></i> Attendance
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                            <?php
                         endwhile;
                     else:
                         ?>
-                            <tr>
-                                <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
-                                    No members found.
-                                </td>
-                            </tr>
+                                <tr>
+                                    <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
+                                        No members found.
+                                    </td>
+                                </tr>
                     <?php endif; ?>
                 </tbody>
             </table>
@@ -2093,10 +2057,10 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         $measure_members = mysqli_query($link, "SELECT id, full_name, email FROM users WHERE role = 'member' ORDER BY full_name ASC");
                         while ($mm = mysqli_fetch_assoc($measure_members)):
                             ?>
-                                <option value="<?php echo $mm['id']; ?>" style="background: #1a1a2e; color: #fff;">
-                                    <?php echo htmlspecialchars($mm['full_name']); ?>
-                                    (<?php echo htmlspecialchars($mm['email']); ?>)
-                                </option>
+                                    <option value="<?php echo $mm['id']; ?>" style="background: #1a1a2e; color: #fff;">
+                                        <?php echo htmlspecialchars($mm['full_name']); ?>
+                                        (<?php echo htmlspecialchars($mm['email']); ?>)
+                                    </option>
                         <?php endwhile; ?>
                     </select>
                 </div>
@@ -2459,31 +2423,31 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         while ($cm = mysqli_fetch_assoc($chat_members)):
                             $p_img = $cm['profile_image'] ? $cm['profile_image'] : 'https://ui-avatars.com/api/?name=' . urlencode($cm['full_name']);
                             ?>
-                                    <div class="chat-user-item"
-                                        onclick="openChatWith(this, <?php echo $cm['id']; ?>, '<?php echo htmlspecialchars($cm['full_name']); ?>', '<?php echo $p_img; ?>')"
-                                        style="padding:15px 20px; cursor:pointer; display:flex; align-items:center; gap:15px; border-bottom:1px solid rgba(255,255,255,0.05); transition:0.2s;">
-                                        <img src="<?php echo $p_img; ?>"
-                                            style="width:40px; height:40px; border-radius:50%; object-fit:cover;">
-                                        <div>
-                                            <h5 style="margin:0; font-size:0.95rem; color:#fff;" class="chat-user-name">
-                                                <?php echo htmlspecialchars($cm['full_name']); ?>
-                                                <?php
-                                                // Check for unread messages from this member
-                                                $m_id = $cm['id'];
-                                                $unread_check = mysqli_query($link, "SELECT COUNT(*) as cnt FROM messages WHERE sender_id = $m_id AND receiver_id = $user_id AND is_read = 0");
-                                                $unread_data = mysqli_fetch_assoc($unread_check);
-                                                if ($unread_data['cnt'] > 0):
-                                                    ?>
-                                                        <i class="fa-solid fa-circle"
-                                                            style="color: #ceff00; font-size: 8px; margin-left: 8px; vertical-align: middle; box-shadow: 0 0 5px #ceff00;"></i>
-                                                <?php endif; ?>
-                                            </h5>
-                                            <small style="color:#aaa;">Member</small>
-                                        </div>
-                                    </div>
-                            <?php endwhile;
+                                            <div class="chat-user-item"
+                                                onclick="openChatWith(this, <?php echo $cm['id']; ?>, '<?php echo htmlspecialchars($cm['full_name']); ?>', '<?php echo $p_img; ?>')"
+                                                style="padding:15px 20px; cursor:pointer; display:flex; align-items:center; gap:15px; border-bottom:1px solid rgba(255,255,255,0.05); transition:0.2s;">
+                                                <img src="<?php echo $p_img; ?>"
+                                                    style="width:40px; height:40px; border-radius:50%; object-fit:cover;">
+                                                <div>
+                                                    <h5 style="margin:0; font-size:0.95rem; color:#fff;" class="chat-user-name">
+                                                        <?php echo htmlspecialchars($cm['full_name']); ?>
+                                                        <?php
+                                                        // Check for unread messages from this member
+                                                        $m_id = $cm['id'];
+                                                        $unread_check = mysqli_query($link, "SELECT COUNT(*) as cnt FROM messages WHERE sender_id = $m_id AND receiver_id = $user_id AND is_read = 0");
+                                                        $unread_data = mysqli_fetch_assoc($unread_check);
+                                                        if ($unread_data['cnt'] > 0):
+                                                            ?>
+                                                                    <i class="fa-solid fa-circle"
+                                                                        style="color: #ceff00; font-size: 8px; margin-left: 8px; vertical-align: middle; box-shadow: 0 0 5px #ceff00;"></i>
+                                                        <?php endif; ?>
+                                                    </h5>
+                                                    <small style="color:#aaa;">Member</small>
+                                                </div>
+                                            </div>
+                                <?php endwhile;
                     else: ?>
-                            <p style="padding:20px; text-align:center; color:#666;">No members found.</p>
+                                <p style="padding:20px; text-align:center; color:#666;">No members found.</p>
                     <?php endif; ?>
                 </div>
             </div>
@@ -2523,6 +2487,7 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                 </div>
             </div>
         </div>
+    </div>
     </div>
     </div>
 
@@ -3025,12 +2990,12 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                     foreach ($staff_attendance_by_year as $year => $data):
                         $selected = $is_first ? 'selected' : '';
                         ?>
-                            <option value="<?php echo $year; ?>" <?php echo $selected; ?>
-                                style="background:#1a1a2e; color:#fff;">
-                                <?php echo $year; ?>
-                            </option>
-                            <?php
-                            $is_first = false;
+                                <option value="<?php echo $year; ?>" <?php echo $selected; ?>
+                                    style="background:#1a1a2e; color:#fff;">
+                                    <?php echo $year; ?>
+                                </option>
+                                <?php
+                                $is_first = false;
                     endforeach;
                     ?>
                 </select>
@@ -3040,58 +3005,58 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             <div style="padding:25px; overflow-y:auto; flex-grow:1; background:rgba(255,255,255,0.02);">
                 <?php $is_first = true;
                 foreach ($staff_attendance_by_year as $year => $months): ?>
-                        <div id="staff-year-content-<?php echo $year; ?>" class="staff-year-content-group"
-                            style="display:<?php echo $is_first ? 'grid' : 'none'; ?>; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:15px;">
-                            <?php foreach ($months as $m_num => $m_data):
-                                $has_data = $m_data['count'] > 0;
-                                // Check if future month
-                                $is_future_month = ($year == date('Y') && $m_num > date('n')) || ($year > date('Y'));
-                                ?>
-                                    <?php if ($is_future_month): ?>
-                                            <div style="text-decoration:none; display:block; cursor:not-allowed;">
-                                                <div
-                                                    style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:15px; text-align:center; position:relative; overflow:hidden; opacity:0.3;">
-                                                    <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
-                                                        <?php echo $m_data['short']; ?>
-                                                    </h4>
-                                                    <div style="font-size:1.8rem; font-weight:bold; color:#444; margin:5px 0;">
-                                                        -
-                                                    </div>
-                                                    <div
-                                                        style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
-                                                        Future</div>
-                                                </div>
-                                            </div>
-                                    <?php else: ?>
-                                            <a href="staff_attendance_report.php?m=<?php echo $m_num; ?>&y=<?php echo $year; ?>" target="_blank"
-                                                style="text-decoration:none; display:block; cursor:pointer;">
-                                                <div style="background:<?php echo $has_data ? 'rgba(206, 255, 0, 0.05)' : 'rgba(255,255,255,0.02)'; ?>; border:1px solid <?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>; border-radius:12px; padding:15px; text-align:center; transition:0.3s; position:relative; overflow:hidden;"
-                                                    onmouseover="this.style.transform='translateY(-3px)'; this.style.borderColor='var(--primary-color)'; this.style.boxShadow='0 5px 15px rgba(206,255,0,0.2)'"
-                                                    onmouseout="this.style.transform='translateY(0)'; this.style.borderColor='<?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>'; this.style.boxShadow='none'">
-
-                                                    <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
-                                                        <?php echo $m_data['short']; ?>
-                                                    </h4>
-
-                                                    <div
-                                                        style="font-size:1.8rem; font-weight:bold; color:<?php echo $has_data ? 'var(--primary-color)' : '#444'; ?>; margin:5px 0;">
-                                                        <?php echo $m_data['count']; ?>
-                                                    </div>
-                                                    <div
-                                                        style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
-                                                        Days</div>
-
-                                                    <?php if ($has_data): ?>
+                            <div id="staff-year-content-<?php echo $year; ?>" class="staff-year-content-group"
+                                style="display:<?php echo $is_first ? 'grid' : 'none'; ?>; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:15px;">
+                                <?php foreach ($months as $m_num => $m_data):
+                                    $has_data = $m_data['count'] > 0;
+                                    // Check if future month
+                                    $is_future_month = ($year == date('Y') && $m_num > date('n')) || ($year > date('Y'));
+                                    ?>
+                                            <?php if ($is_future_month): ?>
+                                                        <div style="text-decoration:none; display:block; cursor:not-allowed;">
                                                             <div
-                                                                style="position:absolute; top:10px; right:10px; width:8px; height:8px; background:var(--primary-color); border-radius:50%; box-shadow:0 0 5px var(--primary-color);">
+                                                                style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:15px; text-align:center; position:relative; overflow:hidden; opacity:0.3;">
+                                                                <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
+                                                                    <?php echo $m_data['short']; ?>
+                                                                </h4>
+                                                                <div style="font-size:1.8rem; font-weight:bold; color:#444; margin:5px 0;">
+                                                                    -
+                                                                </div>
+                                                                <div
+                                                                    style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
+                                                                    Future</div>
                                                             </div>
-                                                    <?php endif; ?>
-                                                </div>
-                                            </a>
-                                    <?php endif; ?>
-                            <?php endforeach; ?>
-                        </div>
-                        <?php $is_first = false; endforeach; ?>
+                                                        </div>
+                                            <?php else: ?>
+                                                        <a href="staff_attendance_report.php?m=<?php echo $m_num; ?>&y=<?php echo $year; ?>" target="_blank"
+                                                            style="text-decoration:none; display:block; cursor:pointer;">
+                                                            <div style="background:<?php echo $has_data ? 'rgba(206, 255, 0, 0.05)' : 'rgba(255,255,255,0.02)'; ?>; border:1px solid <?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>; border-radius:12px; padding:15px; text-align:center; transition:0.3s; position:relative; overflow:hidden;"
+                                                                onmouseover="this.style.transform='translateY(-3px)'; this.style.borderColor='var(--primary-color)'; this.style.boxShadow='0 5px 15px rgba(206,255,0,0.2)'"
+                                                                onmouseout="this.style.transform='translateY(0)'; this.style.borderColor='<?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>'; this.style.boxShadow='none'">
+
+                                                                <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
+                                                                    <?php echo $m_data['short']; ?>
+                                                                </h4>
+
+                                                                <div
+                                                                    style="font-size:1.8rem; font-weight:bold; color:<?php echo $has_data ? 'var(--primary-color)' : '#444'; ?>; margin:5px 0;">
+                                                                    <?php echo $m_data['count']; ?>
+                                                                </div>
+                                                                <div
+                                                                    style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
+                                                                    Days</div>
+
+                                                                <?php if ($has_data): ?>
+                                                                            <div
+                                                                                style="position:absolute; top:10px; right:10px; width:8px; height:8px; background:var(--primary-color); border-radius:50%; box-shadow:0 0 5px var(--primary-color);">
+                                                                            </div>
+                                                                <?php endif; ?>
+                                                            </div>
+                                                        </a>
+                                            <?php endif; ?>
+                                <?php endforeach; ?>
+                            </div>
+                            <?php $is_first = false; endforeach; ?>
             </div>
         </div>
     </div>

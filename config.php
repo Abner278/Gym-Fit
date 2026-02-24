@@ -5,6 +5,10 @@ define('DB_PASSWORD', '');
 define('DB_NAME', 'gym_management');
 define('GOOGLE_CLIENT_ID', '410622149418-c4qiqdkfk5n192tc1lcsqu73ktpul6i8.apps.googleusercontent.com');
 
+// Razorpay Test Keys
+define('RAZORPAY_KEY_ID', 'rzp_test_SJs8YdsdGg1Jdn');
+define('RAZORPAY_KEY_SECRET', 'rVYe4Kv47guqLZeem1ZD28ax');
+
 /* Attempt to connect to MySQL database */
 try {
     $link = @mysqli_connect(DB_SERVER, DB_USERNAME, DB_PASSWORD);
@@ -205,8 +209,28 @@ mysqli_query($link, $trans_sql);
 $check_trans_status = mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'status'");
 if (mysqli_num_rows($check_trans_status) == 0) {
     mysqli_query($link, "ALTER TABLE transactions ADD status ENUM('completed', 'failed', 'pending') DEFAULT 'completed' AFTER payment_method");
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
+}
+
+// Add token_number column if it doesn't exist
+$check_trans_token = mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'token_number'");
+if (mysqli_num_rows($check_trans_token) == 0) {
+    mysqli_query($link, "ALTER TABLE transactions ADD token_number VARCHAR(20) DEFAULT NULL AFTER status");
+}
+
+// Add token_accepted column if it doesn't exist
+$check_trans_accepted = mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'token_accepted'");
+if (mysqli_num_rows($check_trans_accepted) == 0) {
+    mysqli_query($link, "ALTER TABLE transactions ADD token_accepted TINYINT(1) DEFAULT 0 AFTER token_number");
+}
+
+// Add is_deleted_by_user column if it doesn't exist
+$check_trans_deleted = mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'is_deleted_by_user'");
+if (mysqli_num_rows($check_trans_deleted) == 0) {
+    mysqli_query($link, "ALTER TABLE transactions ADD is_deleted_by_user TINYINT(1) DEFAULT 0 AFTER token_accepted");
+}
+
+// Create user_progress_photos table
+$photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
         id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
         user_id INT NOT NULL,
         photo_path VARCHAR(255) NOT NULL,
@@ -216,8 +240,7 @@ if (mysqli_num_rows($check_trans_status) == 0) {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )";
-    mysqli_query($link, $photos_sql);
-}
+mysqli_query($link, $photos_sql);
 
 // Create completed_workouts table for progress tracking
 $workouts_sql = "CREATE TABLE IF NOT EXISTS completed_workouts (

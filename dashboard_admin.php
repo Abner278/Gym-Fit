@@ -128,6 +128,108 @@ $store_orders_sql = "CREATE TABLE IF NOT EXISTS gym_store_orders (
 )";
 mysqli_query($link, $store_orders_sql);
 
+// Ensure store_categories table exists
+$cat_sql = "CREATE TABLE IF NOT EXISTS store_categories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    image VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)";
+mysqli_query($link, $cat_sql);
+
+// Ensure store_products table exists
+$prod_sql = "CREATE TABLE IF NOT EXISTS store_products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    category_id INT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    image VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (category_id) REFERENCES store_categories(id) ON DELETE CASCADE
+)";
+mysqli_query($link, $prod_sql);
+
+// Seed categories if empty
+$check_cat = mysqli_query($link, "SELECT id FROM store_categories LIMIT 1");
+if (mysqli_num_rows($check_cat) == 0) {
+    $cat_seeds = [
+        ['Proteins', 'Whey, Isolate, Vegan & more.', 'assets/images/protein display.png'],
+        ['Gym Gloves', 'Grip support & protection.', 'assets/images/Gym Glove.png'],
+        ['Shakers', 'Leak-proof & durable bottles.', 'assets/images/Protein Shaker.png'],
+        ['Lifting Belts', 'Support for heavy lifts.', 'assets/images/Lifting Belts.png'],
+        ['Healthy Snacks', 'Clean fuel for your body.', 'assets/images/snacks display.jpg'],
+        ['Fitness Accessories', 'Small tools, big results.', 'assets/images/fitness accesories display.jpg'],
+        ['Hygiene Essentials', 'Stay fresh after every session.', 'assets/images/Hygiene Essentials.png']
+    ];
+    foreach ($cat_seeds as $c) {
+        $n = mysqli_real_escape_string($link, $c[0]);
+        $d = mysqli_real_escape_string($link, $c[1]);
+        $i = mysqli_real_escape_string($link, $c[2]);
+        mysqli_query($link, "INSERT INTO store_categories (name, description, image) VALUES ('$n', '$d', '$i')");
+
+        $cat_id = mysqli_insert_id($link);
+
+        // Seed products for this category
+        if ($n == 'Proteins') {
+            $prods = [
+                ['Gold Standard Whey', 4500, 'assets/images/gold-standard.png'],
+                ['MuscleBlaze Biozyme', 3200, 'assets/images/MuscleBlaze Biozyme.png'],
+                ['Isopure Zero Carb', 6500, 'assets/images/isopure.png'],
+                ['Vegan Plant Protein', 2800, 'assets/images/plant protein.png']
+            ];
+        } elseif ($n == 'Gym Gloves') {
+            $prods = [
+                ['Nivia Basic Gloves', 400, 'assets/images/nivia basic glove.png'],
+                ['Nike Training Gloves', 1200, 'assets/images/nike gym glove.png'],
+                ['Under Armour Grip', 1500, 'assets/images/under armour.png'],
+                ['Wrist Support Gloves', 800, 'assets/images/wrist support.png']
+            ];
+        } elseif ($n == 'Shakers') {
+            $prods = [
+                ['Classic Shaker 500ml', 200, 'assets/images/classic shaker.png'],
+                ['Spider Shaker', 500, 'assets/images/spider shaker.png'],
+                ['Steel Shaker 700ml', 800, 'assets/images/steel shaker.png']
+            ];
+        } elseif ($n == 'Lifting Belts') {
+            $prods = [
+                ['Nylon Weight Belt', 800, 'assets/images/nylon weight.png'],
+                ['Leather Power Belt', 2500, 'assets/images/leather.png'],
+                ['Lever Buckle Belt', 5000, 'assets/images/Lever Buckle Belt.png'],
+                ['Dip Belt with Chain', 1500, 'assets/images/Dip Belt with Chain.png']
+            ];
+        } elseif ($n == 'Healthy Snacks') {
+            $prods = [
+                ['Protein Bar (Pack of 6)', 720, 'assets/images/Protein Bar.png'],
+                ['Peanut Butter 1kg', 450, 'assets/images/Peanut Butter.png'],
+                ['Instant Oats 1kg', 200, 'assets/images/instant oats.png'],
+                ['Energy Bites (Pack of 10)', 350, 'assets/images/Energy Bites.png']
+            ];
+        } elseif ($n == 'Fitness Accessories') {
+            $prods = [
+                ['Wrist Wraps', 400, 'assets/images/Wrist Wraps.png'],
+                ['Knee Sleeves (Pair)', 1500, 'assets/images/Knee Sleeves.png'],
+                ['Resistance Bands Set', 800, 'assets/images/Resistance Bands Set.png'],
+                ['Speed Jump Rope', 300, 'assets/images/Speed Jump Rope.png']
+            ];
+        } elseif ($n == 'Hygiene Essentials') {
+            $prods = [
+                ['Microfiber Gym Towel', 300, 'assets/images/Microfiber Gym Towel.png'],
+                ['Hand Sanitizer 500ml', 150, 'assets/images/Hand Sanitizer.png']
+            ];
+        } else {
+            $prods = [];
+        }
+
+        foreach ($prods as $p) {
+            $pn = mysqli_real_escape_string($link, $p[0]);
+            $pp = (float) $p[1];
+            $pi = mysqli_real_escape_string($link, $p[2]);
+            mysqli_query($link, "INSERT INTO store_products (category_id, name, price, image) VALUES ($cat_id, '$pn', $pp, '$pi')");
+        }
+    }
+}
+
 // HANDLE EQUIPMENT ADDITION
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_equipment'])) {
     $name = mysqli_real_escape_string($link, $_POST['eq_name']);
@@ -223,6 +325,139 @@ if (isset($_GET['delete_equipment'])) {
     exit;
 }
 
+
+// --- STORE CATEGORY HANDLERS ---
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_store_category'])) {
+    $name = mysqli_real_escape_string($link, $_POST['cat_name']);
+    $desc = mysqli_real_escape_string($link, $_POST['cat_desc']);
+    $image_path = "assets/images/default_category.png";
+
+    if (isset($_FILES['cat_image']) && $_FILES['cat_image']['error'] == 0) {
+        $target_dir = "assets/images/store/";
+        if (!file_exists($target_dir))
+            mkdir($target_dir, 0777, true);
+        $file_ext = pathinfo($_FILES["cat_image"]["name"], PATHINFO_EXTENSION);
+        $file_name = "cat_" . time() . "_" . uniqid() . "." . $file_ext;
+        $target_file = $target_dir . $file_name;
+        if (move_uploaded_file($_FILES["cat_image"]["tmp_name"], $target_file)) {
+            $image_path = $target_file;
+        }
+    }
+
+    $sql = "INSERT INTO store_categories (name, description, image) VALUES ('$name', '$desc', '$image_path')";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Category added successfully!";
+        $_SESSION['message_type'] = "success";
+    } else {
+        $_SESSION['message'] = "Error adding category.";
+        $_SESSION['message_type'] = "error";
+    }
+    header("Location: dashboard_admin.php?section=gym-store-mgmt");
+    exit;
+}
+
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_store_category'])) {
+    $id = (int) $_POST['cat_id'];
+    $name = mysqli_real_escape_string($link, $_POST['cat_name']);
+    $desc = mysqli_real_escape_string($link, $_POST['cat_desc']);
+    $image_update = "";
+
+    if (isset($_FILES['cat_image']) && $_FILES['cat_image']['error'] == 0) {
+        $target_dir = "assets/images/store/";
+        if (!file_exists($target_dir))
+            mkdir($target_dir, 0777, true);
+        $file_ext = pathinfo($_FILES["cat_image"]["name"], PATHINFO_EXTENSION);
+        $file_name = "cat_" . time() . "_" . uniqid() . "." . $file_ext;
+        $target_file = $target_dir . $file_name;
+        if (move_uploaded_file($_FILES["cat_image"]["tmp_name"], $target_file)) {
+            $image_update = ", image = '$target_file'";
+        }
+    }
+
+    $sql = "UPDATE store_categories SET name='$name', description='$desc' $image_update WHERE id=$id";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Category updated successfully!";
+        $_SESSION['message_type'] = "success";
+    }
+    header("Location: dashboard_admin.php?section=gym-store-mgmt");
+    exit;
+}
+
+if (isset($_GET['delete_store_category'])) {
+    $id = (int) $_GET['delete_store_category'];
+    if (mysqli_query($link, "DELETE FROM store_categories WHERE id = $id")) {
+        $_SESSION['message'] = "Category deleted successfully!";
+        $_SESSION['message_type'] = "success";
+    }
+    header("Location: dashboard_admin.php?section=gym-store-mgmt");
+    exit;
+}
+
+// --- STORE PRODUCT HANDLERS ---
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_store_product'])) {
+    $cat_id = (int) $_POST['prod_cat_id'];
+    $name = mysqli_real_escape_string($link, $_POST['prod_name']);
+    $price = (float) $_POST['prod_price'];
+    $image_path = "assets/images/default_product.png";
+
+    if (isset($_FILES['prod_image']) && $_FILES['prod_image']['error'] == 0) {
+        $target_dir = "assets/images/store/";
+        if (!file_exists($target_dir))
+            mkdir($target_dir, 0777, true);
+        $file_ext = pathinfo($_FILES["prod_image"]["name"], PATHINFO_EXTENSION);
+        $file_name = "prod_" . time() . "_" . uniqid() . "." . $file_ext;
+        $target_file = $target_dir . $file_name;
+        if (move_uploaded_file($_FILES["prod_image"]["tmp_name"], $target_file)) {
+            $image_path = $target_file;
+        }
+    }
+
+    $sql = "INSERT INTO store_products (category_id, name, price, image) VALUES ($cat_id, '$name', $price, '$image_path')";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Product added successfully!";
+        $_SESSION['message_type'] = "success";
+    }
+    header("Location: dashboard_admin.php?section=gym-store-mgmt");
+    exit;
+}
+
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_store_product'])) {
+    $id = (int) $_POST['prod_id'];
+    $cat_id = (int) $_POST['prod_cat_id'];
+    $name = mysqli_real_escape_string($link, $_POST['prod_name']);
+    $price = (float) $_POST['prod_price'];
+    $image_update = "";
+
+    if (isset($_FILES['prod_image']) && $_FILES['prod_image']['error'] == 0) {
+        $target_dir = "assets/images/store/";
+        if (!file_exists($target_dir))
+            mkdir($target_dir, 0777, true);
+        $file_ext = pathinfo($_FILES["prod_image"]["name"], PATHINFO_EXTENSION);
+        $file_name = "prod_" . time() . "_" . uniqid() . "." . $file_ext;
+        $target_file = $target_dir . $file_name;
+        if (move_uploaded_file($_FILES["prod_image"]["tmp_name"], $target_file)) {
+            $image_update = ", image = '$target_file'";
+        }
+    }
+
+    $sql = "UPDATE store_products SET category_id=$cat_id, name='$name', price=$price $image_update WHERE id=$id";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Product updated successfully!";
+        $_SESSION['message_type'] = "success";
+    }
+    header("Location: dashboard_admin.php?section=gym-store-mgmt");
+    exit;
+}
+
+if (isset($_GET['delete_store_product'])) {
+    $id = (int) $_GET['delete_store_product'];
+    if (mysqli_query($link, "DELETE FROM store_products WHERE id = $id")) {
+        $_SESSION['message'] = "Product deleted successfully!";
+        $_SESSION['message_type'] = "success";
+    }
+    header("Location: dashboard_admin.php?section=gym-store-mgmt");
+    exit;
+}
 
 
 // HANDLE SERVICE ADDITION
@@ -601,7 +836,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_member'])) {
             $_SESSION['message_type'] = "error";
         } else {
             $password = password_hash($password_raw, PASSWORD_DEFAULT);
-            $sql = "INSERT INTO users (full_name, email, password, role) VALUES ('$full_name', '$email', '$password', 'member')";
+            $visible_password = mysqli_real_escape_string($link, $password_raw);
+            $sql = "INSERT INTO users (full_name, email, password, visible_password, role) VALUES ('$full_name', '$email', '$password', '$visible_password', 'member')";
             if (mysqli_query($link, $sql)) {
                 $_SESSION['message'] = "New member added successfully!";
                 $_SESSION['message_type'] = "success";
@@ -642,7 +878,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_member'])) {
             $pass_query = "";
             if (!empty($password_raw)) {
                 $password = password_hash($password_raw, PASSWORD_DEFAULT);
-                $pass_query = ", password='$password'";
+                $visible_password = mysqli_real_escape_string($link, $password_raw);
+                $pass_query = ", password='$password', visible_password='$visible_password'";
             }
 
             $sql = "UPDATE users SET full_name='$full_name', email='$email' $pass_query WHERE id=$id AND role='member'";
@@ -690,10 +927,22 @@ while ($row = mysqli_fetch_assoc($payments_res)) {
     if (!isset($grouped_payments[$uid])) {
         $grouped_payments[$uid] = [
             'user' => $row,
-            'history' => []
+            'history' => [],
+            'plans' => [],
+            'trainers' => [],
+            'store' => []
         ];
     }
     $grouped_payments[$uid]['history'][] = $row;
+
+    $pn = $row['plan_name'];
+    if (strpos($pn, 'Store:') !== false || !empty($row['token_number'])) {
+        $grouped_payments[$uid]['store'][] = $row;
+    } elseif (strpos($pn, 'Trainer Appointment') !== false) {
+        $grouped_payments[$uid]['trainers'][] = $row;
+    } else {
+        $grouped_payments[$uid]['plans'][] = $row;
+    }
 }
 
 
@@ -787,7 +1036,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_shop_staff'])) {
             $_SESSION['message_type'] = "error";
         } else {
             $password = password_hash($password_raw, PASSWORD_DEFAULT);
-            if (mysqli_query($link, "INSERT INTO users (full_name, email, password, role) VALUES ('$name', '$email', '$password', 'shop_staff')")) {
+            $visible_password = mysqli_real_escape_string($link, $password_raw);
+            if (mysqli_query($link, "INSERT INTO users (full_name, email, password, visible_password, role) VALUES ('$name', '$email', '$password', '$visible_password', 'shop_staff')")) {
                 $_SESSION['message'] = "Shop staff account created successfully!";
                 $_SESSION['message_type'] = "success";
             } else {
@@ -813,6 +1063,63 @@ if (isset($_GET['delete_shop_staff'])) {
     header("Location: dashboard_admin.php#shop-staff");
     exit;
 }
+
+// --- ATTENDANCE SYSTEM MIGRATION & LOGIC ---
+// Ensure attendance table exists and has user_type column
+mysqli_query($link, "CREATE TABLE IF NOT EXISTS attendance (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    user_type ENUM('user', 'trainer') DEFAULT 'user',
+    date DATE NOT NULL,
+    status VARCHAR(20) DEFAULT 'present',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)");
+
+$check_att_type = mysqli_query($link, "SHOW COLUMNS FROM attendance LIKE 'user_type'");
+if (mysqli_num_rows($check_att_type) == 0) {
+    mysqli_query($link, "ALTER TABLE attendance ADD COLUMN user_type ENUM('user', 'trainer') DEFAULT 'user' AFTER user_id");
+    @mysqli_query($link, "ALTER TABLE attendance DROP INDEX unique_attendance");
+    mysqli_query($link, "ALTER TABLE attendance ADD UNIQUE KEY unique_attendance (user_id, user_type, date)");
+}
+
+// Handle Mark Attendance from Admin (AJAX)
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['mark_admin_attendance'])) {
+    $target_uid = (int) $_POST['user_id'];
+    $target_type = mysqli_real_escape_string($link, $_POST['user_type']);
+    $target_date = mysqli_real_escape_string($link, $_POST['date']);
+    $new_status = mysqli_real_escape_string($link, $_POST['status']); // present / absent
+
+    $sql = "INSERT INTO attendance (user_id, user_type, date, status) 
+            VALUES ($target_uid, '$target_type', '$target_date', '$new_status')
+            ON DUPLICATE KEY UPDATE status = '$new_status'";
+
+    header('Content-Type: application/json');
+    if (mysqli_query($link, $sql)) {
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['success' => false, 'error' => mysqli_error($link)]);
+    }
+    exit;
+}
+
+// Fetch attendance map for selected date
+$att_date_view = isset($_GET['att_date']) ? $_GET['att_date'] : date('Y-m-d');
+$att_map_res = mysqli_query($link, "SELECT user_id, user_type, status FROM attendance WHERE date = '$att_date_view'");
+$daily_att_map = [];
+while ($row = mysqli_fetch_assoc($att_map_res)) {
+    $key = $row['user_type'] . "_" . $row['user_id'];
+    $daily_att_map[$key] = $row['status'];
+}
+
+// Fetch all staff (trainers + shop_staff) for attendance
+$trainers_att_query = mysqli_query($link, "SELECT id, name as full_name, email, 'trainer' as specific_type FROM trainers ORDER BY name ASC");
+$shop_staff_att_query = mysqli_query($link, "SELECT id, full_name, email, 'shop_staff' as specific_type FROM users WHERE role = 'shop_staff' ORDER BY full_name ASC");
+$trainers_att = [];
+$shop_staff_att = [];
+while ($t = mysqli_fetch_assoc($trainers_att_query))
+    $trainers_att[] = $t;
+while ($s = mysqli_fetch_assoc($shop_staff_att_query))
+    $shop_staff_att[] = $s;
 
 // Handle Add Plan
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_plan'])) {
@@ -930,6 +1237,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_plan'])) {
     exit;
 }
 
+// Mark pickup as done
+if (isset($_GET['mark_pickup_done'])) {
+    $pickup_tid = (int) $_GET['mark_pickup_done'];
+    mysqli_query($link, "UPDATE transactions SET token_accepted = 1 WHERE id = $pickup_tid");
+    $_SESSION['message'] = "Order marked as picked up successfully.";
+    $_SESSION['message_type'] = "success";
+    header("Location: dashboard_admin.php#store-orders");
+    exit;
+}
+
 // Fetch all plans
 $plans_res = mysqli_query($link, "SELECT * FROM membership_plans ORDER BY id ASC");
 
@@ -938,10 +1255,22 @@ $plans_res = mysqli_query($link, "SELECT * FROM membership_plans ORDER BY id ASC
 $total_members_query = mysqli_query($link, "SELECT COUNT(*) as count FROM users WHERE role = 'member'");
 $total_members = mysqli_fetch_assoc($total_members_query)['count'];
 
-// 2. Monthly Revenue
-$current_month = date('Y-m');
-$revenue_query = mysqli_query($link, "SELECT SUM(amount) as total FROM transactions WHERE status = 'completed' AND DATE_FORMAT(created_at, '%Y-%m') = '$current_month'");
+// 2. Monthly Revenue — supports ?rev_month=YYYY-MM (2026+ only)
+$rev_month_param = isset($_GET['rev_month']) ? $_GET['rev_month'] : date('Y-m');
+// Validate format and restrict to 2026+
+if (!preg_match('/^\d{4}-\d{2}$/', $rev_month_param) || substr($rev_month_param, 0, 4) < 2026) {
+    $rev_month_param = date('Y-m');
+}
+$revenue_query = mysqli_query($link, "SELECT SUM(amount) as total FROM transactions WHERE status = 'completed' AND DATE_FORMAT(created_at, '%Y-%m') = '$rev_month_param'");
 $monthly_revenue = mysqli_fetch_assoc($revenue_query)['total'] ?? 0;
+
+// Available months for revenue dropdown — 2026 onwards only
+$rev_months_list = [];
+$start = mktime(0, 0, 0, 1, 1, 2026); // Jan 2026
+$now = mktime(0, 0, 0, date('n'), 1, date('Y'));
+for ($ts = $now; $ts >= $start; $ts = strtotime('-1 month', $ts)) {
+    $rev_months_list[] = date('Y-m', $ts);
+}
 
 // 3. Gym Trainers
 $total_trainers_query = mysqli_query($link, "SELECT COUNT(*) as count FROM trainers");
@@ -955,9 +1284,22 @@ $inventory_stats_query = mysqli_query($link, "SELECT
 $iv_stats = mysqli_fetch_assoc($inventory_stats_query);
 $equipment_status = ($iv_stats['total'] > 0) ? round(($iv_stats['healthy'] / $iv_stats['total']) * 100) : 100;
 
-// 5. Pending Store Pickups
+// 5. Pending Store Pickups — both count AND detailed list
 $pending_pickups_query = mysqli_query($link, "SELECT COUNT(*) as count FROM transactions WHERE token_number IS NOT NULL AND token_accepted = 0");
 $pending_pickups = mysqli_fetch_assoc($pending_pickups_query)['count'];
+
+$pending_pickups_details = mysqli_query($link, "
+    SELECT t.id, t.token_number, t.amount, t.created_at, t.plan_name,
+           u.full_name, u.email
+    FROM transactions t
+    JOIN users u ON t.user_id = u.id
+    WHERE t.token_number IS NOT NULL AND t.token_accepted = 0
+    ORDER BY t.created_at DESC
+");
+
+// 6. Shop Staff
+$total_shop_staff_query = mysqli_query($link, "SELECT COUNT(*) as count FROM users WHERE role = 'shop_staff'");
+$total_shop_staff = mysqli_fetch_assoc($total_shop_staff_query)['count'];
 
 // --- REVENUE CHART DATA ---
 $selected_year = isset($_GET['revenue_year']) ? (int) $_GET['revenue_year'] : date('Y');
@@ -1373,6 +1715,17 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
             border-bottom-color: var(--primary-color);
         }
 
+        .store-tab-content {
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        .data-table-container {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
         .user-tab-content {
             display: none;
             animation: fadeIn 0.4s ease-out;
@@ -1381,32 +1734,112 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
         .user-tab-content.active {
             display: block;
         }
+
+        /* History Category Tabs */
+        .hist-tab {
+            padding: 8px 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            color: var(--text-gray);
+            transition: 0.3s;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .hist-tab:hover {
+            background: rgba(206, 255, 0, 0.1);
+            color: #fff;
+        }
+
+        .hist-tab.active-hist {
+            background: var(--primary-color);
+            color: #000;
+            font-weight: bold;
+            border-color: var(--primary-color);
+        }
+
+        .hist-content,
+        .att-content {
+            display: none;
+        }
+
+        .hist-content.active,
+        .att-content.active {
+            display: block;
+        }
+
+        /* Flatpickr Custom High-Visibility Styles */
+        .flatpickr-calendar {
+            background: #151525 !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6) !important;
+            border-radius: 12px !important;
+        }
+
+        .flatpickr-day.selected,
+        .flatpickr-day.selected:hover,
+        .flatpickr-day.selected:focus {
+            background: var(--primary-color) !important;
+            border-color: var(--primary-color) !important;
+            color: #000 !important;
+            font-weight: bold !important;
+        }
+
+        .flatpickr-day {
+            color: #eee !important;
+            border-radius: 6px !important;
+        }
+
+        .flatpickr-day:hover {
+            background: rgba(206, 255, 0, 0.15) !important;
+            border-color: transparent !important;
+            color: #fff !important;
+        }
+
+        .flatpickr-current-month,
+        .flatpickr-month {
+            color: #fff !important;
+            fill: #fff !important;
+        }
+
+        .flatpickr-weekday {
+            color: var(--primary-color) !important;
+            font-weight: bold !important;
+            font-size: 0.8rem !important;
+        }
+
+        .flatpickr-months .flatpickr-prev-month,
+        .flatpickr-months .flatpickr-next-month {
+            color: var(--primary-color) !important;
+            fill: var(--primary-color) !important;
+        }
     </style>
 </head>
 
 <body>
 
     <?php if (!empty($message)): ?>
-            <div style="position: fixed; top: 20px; right: 20px; background: <?php echo $message_type == 'success' ? '#27ae60' : '#e74c3c'; ?>; color: #fff; padding: 15px 25px; border-radius: 8px; z-index: 10000; box-shadow: 0 5px 15px rgba(0,0,0,0.3); animation: slideIn 0.5s ease-out;"
-                id="admin-toast">
-                <i class="fa-solid <?php echo $message_type == 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'; ?>"
-                    style="margin-right: 10px;"></i>
-                <?php echo $message; ?>
-            </div>
-            <script>setTimeout(() => { document.getElementById('admin-toast').style.opacity = '0'; setTimeout(() => document.getElementById('admin-toast').remove(), 500); }, 3000);</script>
-            <style>
-                @keyframes slideIn {
-                    from {
-                        transform: translateX(100%);
-                        opacity: 0;
-                    }
-
-                    to {
-                        transform: translateX(0);
-                        opacity: 1;
-                    }
+        <div style="position: fixed; top: 20px; right: 20px; background: <?php echo $message_type == 'success' ? '#27ae60' : '#e74c3c'; ?>; color: #fff; padding: 15px 25px; border-radius: 8px; z-index: 10000; box-shadow: 0 5px 15px rgba(0,0,0,0.3); animation: slideIn 0.5s ease-out;"
+            id="admin-toast">
+            <i class="fa-solid <?php echo $message_type == 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'; ?>"
+                style="margin-right: 10px;"></i>
+            <?php echo $message; ?>
+        </div>
+        <script>setTimeout(() => { document.getElementById('admin-toast').style.opacity = '0'; setTimeout(() => document.getElementById('admin-toast').remove(), 500); }, 3000);</script>
+        <style>
+            @keyframes slideIn {
+                from {
+                    transform: translateX(100%);
+                    opacity: 0;
                 }
-            </style>
+
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+        </style>
     <?php endif; ?>
 
     <div class="sidebar">
@@ -1418,6 +1851,8 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
             <li><a href="#" class="active" onclick="showSection('overview')"><i class="fa-solid fa-gauge"></i>
                     Overview</a></li>
             <li><a href="#" onclick="showSection('users')"><i class="fa-solid fa-user-shield"></i>Users</a></li>
+            <li><a href="#" onclick="showSection('attendance')"><i class="fa-solid fa-calendar-check"></i>
+                    Attendance</a></li>
             <li><a href="#" onclick="showSection('plans')"><i class="fa-solid fa-tags"></i> Membership Plans</a></li>
             <li><a href="#" onclick="showSection('queries')"><i class="fa-solid fa-comments"></i> Member Queries</a>
             </li>
@@ -1433,6 +1868,15 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                     Website Showcase</a></li>
             <li><a href="#" onclick="showSection('services-section')"><i class="fa-solid fa-list-check"></i>
                     Website Services</a></li>
+            <li><a href="#" onclick="showSection('gym-store-mgmt')"><i class="fa-solid fa-shop"></i>
+                    Gym Store</a></li>
+            <li><a href="#" onclick="showSection('store-orders')" style="position:relative;">
+                    <i class="fa-solid fa-truck-ramp-box"></i> Pending Pickups
+                    <?php if ($pending_pickups > 0): ?>
+                        <span
+                            style="position:absolute; right:12px; top:50%; transform:translateY(-50%); background:#ff9f00; color:#000; font-size:0.65rem; font-weight:bold; padding:1px 7px; border-radius:20px;"><?php echo $pending_pickups; ?></span>
+                    <?php endif; ?>
+                </a></li>
 
         </ul>
         <div style="margin-top: auto;">
@@ -1451,18 +1895,11 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
         </div>
 
         <div id="overview" class="dashboard-section active">
-            <div class="stats-grid">
+            <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
                 <div class="stat-card">
                     <h4>Total Members</h4>
                     <div class="value"><?php echo number_format($total_members); ?> <i class="fa-solid fa-users"
                             style="color: var(--primary-color);"></i>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <h4>Monthly Revenue</h4>
-                    <div class="value">
-                        ₹<?php echo $monthly_revenue >= 1000 ? number_format($monthly_revenue / 1000, 1) . 'K' : number_format($monthly_revenue); ?>
-                        <i class="fa-solid fa-indian-rupee-sign" style="color: var(--primary-color);"></i>
                     </div>
                 </div>
                 <div class="stat-card">
@@ -1472,15 +1909,72 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                     </div>
                 </div>
                 <div class="stat-card">
+                    <h4>Shop Staff</h4>
+                    <div class="value"><?php echo number_format($total_shop_staff); ?> <i class="fa-solid fa-users-gear"
+                            style="color: var(--primary-color);"></i>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <h4
+                        style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:5px;">
+                        Monthly Revenue
+                        <!-- Custom themed month picker -->
+                        <div class="rev-month-picker" style="position:relative;">
+                            <button onclick="toggleRevPicker(event)" id="rev-picker-btn"
+                                style="background: rgba(206,255,0,0.08); border: 1px solid rgba(206,255,0,0.3); color: #ceff00; padding: 3px 10px 3px 9px; border-radius: 20px; cursor: pointer; font-size: 0.68rem; font-family: 'Roboto', sans-serif; display:flex; align-items:center; gap:5px; white-space:nowrap;">
+                                <span
+                                    id="rev-picker-label"><?php echo date('M Y', strtotime($rev_month_param . '-01')); ?></span>
+                                <i class="fa-solid fa-chevron-down" style="font-size:0.55rem;"></i>
+                            </button>
+                            <div id="rev-picker-dropdown"
+                                style="display:none; position:absolute; right:0; top:calc(100% + 6px); background:#0d0d1a; border:1px solid rgba(206,255,0,0.25); border-radius:10px; min-width:110px; overflow:hidden; z-index:9999; box-shadow: 0 8px 24px rgba(0,0,0,0.6);">
+                                <?php foreach ($rev_months_list as $rm): ?>
+                                    <a href="?rev_month=<?php echo $rm; ?>#overview"
+                                        style="display:block; padding:8px 14px; font-size:0.78rem; color:<?php echo $rm === $rev_month_param ? '#ceff00' : '#aaa'; ?>; background:<?php echo $rm === $rev_month_param ? 'rgba(206,255,0,0.1)' : 'transparent'; ?>; text-decoration:none; transition:0.15s;"
+                                        onmouseenter="this.style.background='rgba(206,255,0,0.12)'; this.style.color='#ceff00';"
+                                        onmouseleave="this.style.background='<?php echo $rm === $rev_month_param ? 'rgba(206,255,0,0.1)' : 'transparent'; ?>'; this.style.color='<?php echo $rm === $rev_month_param ? '#ceff00' : '#aaa'; ?>';">
+                                        <?php echo date('M Y', strtotime($rm . '-01')); ?>
+                                            </a>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    </h4>
+                    <div class="value">
+                        ₹<?php
+                        $rev = (float) $monthly_revenue;
+                        if ($rev >= 10000000)
+                            echo number_format($rev / 10000000, 2) . ' Cr';
+                        elseif ($rev >= 100000)
+                            echo number_format($rev / 100000, 2) . ' L';
+                        elseif ($rev >= 1000)
+                            echo number_format($rev / 1000, 1) . 'K';
+                        else
+                            echo number_format($rev);
+                        ?>
+                        <i class="fa-solid fa-indian-rupee-sign" style="color: var(--primary-color);"></i>
+                    </div>
+                </div>
+                <div class="stat-card">
                     <h4>Equipment Status</h4>
                     <div class="value"><?php echo $equipment_status; ?>% <i class="fa-solid fa-check-double"
                             style="color: var(--primary-color);"></i>
                     </div>
                 </div>
-                <div class="stat-card" style="cursor: pointer;" onclick="showSection('store-orders')">
-                    <h4>Pending Pickups</h4>
+                <div class="stat-card"
+                    style="cursor: pointer; border-left-color: <?php echo $pending_pickups > 0 ? '#ff9f00' : 'var(--primary-color)'; ?>; transition: 0.3s;"
+                    onclick="showSection('store-orders')" onmouseenter="this.style.background='rgba(255,159,0,0.08)'"
+                    onmouseleave="this.style.background=''">
+                    <h4 style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                        Pending Pickups
+                        <?php if ($pending_pickups > 0): ?>
+                                    <span
+                                        style="font-size:0.62rem; color:#ff9f00; background:rgba(255,159,0,0.12); padding:1px 6px; border-radius:10px; border:1px solid rgba(255,159,0,0.3);">Click
+                                        to View</span>
+                        <?php endif; ?>
+                    </h4>
                     <div class="value"><?php echo number_format($pending_pickups); ?> <i
-                            class="fa-solid fa-truck-ramp-box" style="color: var(--primary-color);"></i>
+                            class="fa-solid fa-truck-ramp-box"
+                            style="color: <?php echo $pending_pickups > 0 ? '#ff9f00' : 'var(--primary-color)'; ?>;"></i>
                     </div>
                 </div>
             </div>
@@ -1491,15 +1985,89 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                     <select onchange="location.href='?revenue_year=' + this.value + '#overview'"
                         style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 5px 15px; border-radius: 20px; outline: none; cursor: pointer; font-size: 0.85rem;">
                         <?php foreach ($available_years as $yr): ?>
-                                <option value="<?php echo $yr; ?>" <?php echo $yr == $selected_year ? 'selected' : ''; ?>>Year
-                                    <?php echo $yr; ?>
-                                </option>
+                                    <option value="<?php echo $yr; ?>" <?php echo $yr == $selected_year ? 'selected' : ''; ?>>Year
+                                        <?php echo $yr; ?>
+                                    </option>
                         <?php endforeach; ?>
                     </select>
                 </div>
                 <div class="chart-container">
                     <canvas id="revenueChart"></canvas>
                 </div>
+            </div>
+        </div>
+
+        <!-- Store Orders / Pending Pickups -->
+        <div id="store-orders" class="dashboard-section">
+            <div class="card">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3><i class="fa-solid fa-truck-ramp-box" style="color:#ff9f00; margin-right:8px;"></i>Pending Store
+                        Pickups</h3>
+                    <span style="font-size:0.85rem; color:var(--text-gray);">
+                        <?php echo $pending_pickups; ?> order(s) awaiting pickup
+                    </span>
+                </div>
+
+                <?php if ($pending_pickups == 0): ?>
+                            <div style="text-align:center; padding:60px 30px; color:var(--text-gray);">
+                                <i class="fa-solid fa-circle-check"
+                                    style="font-size:3rem; color:#ceff00; display:block; margin-bottom:15px; opacity:0.5;"></i>
+                                <p style="font-size:1.1rem;">All clear! No pending pickups right now.</p>
+                            </div>
+                <?php else: ?>
+                            <div style="overflow-x:auto;">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Member</th>
+                                            <th>Product / Order</th>
+                                            <th>Token #</th>
+                                            <th>Amount</th>
+                                            <th>Order Date</th>
+                                            <th style="text-align:right;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php while ($pickup = mysqli_fetch_assoc($pending_pickups_details)): ?>
+                                                    <tr>
+                                                        <td>
+                                                            <div style="font-weight:600; color:#fff;">
+                                                                <?php echo htmlspecialchars($pickup['full_name']); ?>
+                                                            </div>
+                                                            <div style="font-size:0.78rem; color:var(--text-gray);">
+                                                                <?php echo htmlspecialchars($pickup['email']); ?>
+                                                            </div>
+                                                        </td>
+                                                        <td style="color:var(--text-gray);">
+                                                            <?php echo htmlspecialchars($pickup['plan_name'] ?? 'Store Item'); ?>
+                                                        </td>
+                                                        <td>
+                                                            <span
+                                                                style="background:rgba(255,159,0,0.15); color:#ff9f00; padding:4px 12px; border-radius:20px; font-size:0.85rem; font-weight:bold; border:1px solid rgba(255,159,0,0.3);">
+                                                                #<?php echo htmlspecialchars($pickup['token_number']); ?>
+                                                            </span>
+                                                        </td>
+                                                        <td style="color:var(--primary-color); font-weight:600;">
+                                                            ₹<?php echo number_format($pickup['amount'], 2); ?></td>
+                                                        <td style="color:var(--text-gray); font-size:0.85rem;">
+                                                            <?php echo date('d M Y, h:i A', strtotime($pickup['created_at'])); ?>
+                                                        </td>
+                                                        <td style="text-align:right;">
+                                                            <a href="?mark_pickup_done=<?php echo $pickup['id']; ?>"
+                                                                onclick="return confirm('Mark token #<?php echo $pickup['token_number']; ?> as picked up?')"
+                                                                title="Mark as Picked Up"
+                                                                style="background:rgba(206,255,0,0.1); color:#ceff00; border:1px solid rgba(206,255,0,0.3); padding:6px 14px; border-radius:20px; font-size:0.8rem; text-decoration:none; transition:0.2s;"
+                                                                onmouseenter="this.style.background='rgba(206,255,0,0.2)'"
+                                                                onmouseleave="this.style.background='rgba(206,255,0,0.1)'">
+                                                                <i class="fa-solid fa-check"></i> Mark Done
+                                                            </a>
+                                                        </td>
+                                                    </tr>
+                                        <?php endwhile; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -1537,31 +2105,31 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                         </thead>
                         <tbody>
                             <?php if (mysqli_num_rows($members_res) > 0): ?>
-                                    <?php while ($member = mysqli_fetch_assoc($members_res)): ?>
-                                            <tr>
-                                                <td><?php echo htmlspecialchars($member['full_name']); ?></td>
-                                                <td><?php echo htmlspecialchars($member['email']); ?></td>
-                                                <td><?php echo date('M d, Y', strtotime($member['created_at'])); ?></td>
-                                                <td>
-                                                    <div style="display: flex; gap: 5px;">
-                                                        <button class="btn-action btn-view"
-                                                            onclick='openEditMemberModal(<?php echo json_encode($member); ?>)'>Edit</button>
-                                                        <form method="POST"
-                                                            onsubmit="return confirm('Remove this member permanently?');"
-                                                            style="margin:0;">
-                                                            <input type="hidden" name="delete_member" value="1">
-                                                            <input type="hidden" name="member_id" value="<?php echo $member['id']; ?>">
-                                                            <button type="submit" class="btn-action btn-delete">Remove</button>
-                                                        </form>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                    <?php endwhile; ?>
+                                        <?php while ($member = mysqli_fetch_assoc($members_res)): ?>
+                                                    <tr>
+                                                        <td><?php echo htmlspecialchars($member['full_name']); ?></td>
+                                                        <td><?php echo htmlspecialchars($member['email']); ?></td>
+                                                        <td><?php echo date('M d, Y', strtotime($member['created_at'])); ?></td>
+                                                        <td>
+                                                            <div style="display: flex; gap: 5px;">
+                                                                <button class="btn-action btn-view"
+                                                                    onclick='openEditMemberModal(<?php echo json_encode($member); ?>)'>Edit</button>
+                                                                <form method="POST"
+                                                                    onsubmit="return confirm('Remove this member permanently?');"
+                                                                    style="margin:0;">
+                                                                    <input type="hidden" name="delete_member" value="1">
+                                                                    <input type="hidden" name="member_id" value="<?php echo $member['id']; ?>">
+                                                                    <button type="submit" class="btn-action btn-delete">Remove</button>
+                                                                </form>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                        <?php endwhile; ?>
                             <?php else: ?>
-                                    <tr>
-                                        <td colspan="4" style="text-align: center; color: var(--text-gray);">No members found.
-                                        </td>
-                                    </tr>
+                                        <tr>
+                                            <td colspan="4" style="text-align: center; color: var(--text-gray);">No members found.
+                                            </td>
+                                        </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -1594,153 +2162,329 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                             </thead>
                             <tbody>
                                 <?php if (count($grouped_payments) > 0): ?>
-                                        <?php foreach ($grouped_payments as $uid => $data):
-                                            $latest = $data['history'][0]; // First item is latest
-                                    
-                                            // Find latest valid Membership Plan (ignoring Trainer Appointments & Store)
-                                            $latest_plan_name = "None";
-                                            foreach ($data['history'] as $h_item) {
-                                                $pn = $h_item['plan_name'];
-                                                // Filter out non-membership transactions
-                                                if (strpos($pn, 'Trainer Appointment') === false && strpos($pn, 'Store:') === false) {
-                                                    $latest_plan_name = $pn;
-                                                    break;
+                                            <?php foreach ($grouped_payments as $uid => $data):
+                                                $latest = $data['history'][0]; // First item is latest
+                                        
+                                                // Find latest valid Membership Plan (ignoring Trainer Appointments & Store)
+                                                $latest_plan_name = "None";
+                                                foreach ($data['history'] as $h_item) {
+                                                    $pn = $h_item['plan_name'];
+                                                    // Filter out non-membership transactions
+                                                    if (strpos($pn, 'Trainer Appointment') === false && strpos($pn, 'Store:') === false) {
+                                                        $latest_plan_name = $pn;
+                                                        break;
+                                                    }
                                                 }
-                                            }
 
-                                            $count = count($data['history']);
-                                            ?>
-                                                <!-- Main User Row -->
-                                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                                    <td>
-                                                        <div style="display: flex; flex-direction: column;">
-                                                            <span
-                                                                style="font-weight: bold; font-size: 1rem; color: #fff;"><?php echo htmlspecialchars($data['user']['full_name']); ?></span>
-                                                            <small
-                                                                style="color: var(--text-gray); font-size: 0.8rem;"><?php echo htmlspecialchars($data['user']['user_email']); ?></small>
-                                                        </div>
-                                                    </td>
-                                                    <td><span
-                                                            style="color: var(--primary-color);"><?php echo htmlspecialchars($latest_plan_name); ?></span>
-                                                    </td>
-                                                    <td>
-                                                        <?php echo date('M d, Y', strtotime($latest['created_at'])); ?>
-                                                        <span
-                                                            class="badge <?php echo $latest['status'] == 'completed' ? 'badge-success' : ($latest['status'] == 'pending' ? 'badge-warning' : ''); ?>"
-                                                            style="margin-left: 5px; font-size: 0.7rem;">
-                                                            <?php echo ucfirst($latest['status']); ?>
-                                                        </span>
-                                                    </td>
-                                                    <td style="text-align: right;">
-                                                        <button onclick="toggleHistory(<?php echo $uid; ?>)" class="btn-action btn-view"
-                                                            style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer; width: auto;">
-                                                            <i class="fa-solid fa-clock-rotate-left"></i> History
-                                                            (<?php echo $count; ?>) <i class="fa-solid fa-chevron-down"
-                                                                id="icon-<?php echo $uid; ?>"></i>
-                                                        </button>
-                                                    </td>
-                                                </tr>
+                                                $count = count($data['history']);
+                                                ?>
+                                                        <!-- Main User Row -->
+                                                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                            <td>
+                                                                <div style="display: flex; flex-direction: column;">
+                                                                    <span
+                                                                        style="font-weight: bold; font-size: 1rem; color: #fff;"><?php echo htmlspecialchars($data['user']['full_name']); ?></span>
+                                                                    <small
+                                                                        style="color: var(--text-gray); font-size: 0.8rem;"><?php echo htmlspecialchars($data['user']['user_email']); ?></small>
+                                                                </div>
+                                                            </td>
+                                                            <td><span
+                                                                    style="color: var(--primary-color);"><?php echo htmlspecialchars($latest_plan_name); ?></span>
+                                                            </td>
+                                                            <td>
+                                                                <?php echo date('M d, Y', strtotime($latest['created_at'])); ?>
+                                                                <span
+                                                                    class="badge <?php echo $latest['status'] == 'completed' ? 'badge-success' : ($latest['status'] == 'pending' ? 'badge-warning' : ''); ?>"
+                                                                    style="margin-left: 5px; font-size: 0.7rem;">
+                                                                    <?php echo ucfirst($latest['status']); ?>
+                                                                </span>
+                                                            </td>
+                                                            <td style="text-align: right;">
+                                                                <button onclick="toggleHistory(<?php echo $uid; ?>)" class="btn-action btn-view"
+                                                                    style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer; width: auto;">
+                                                                    <i class="fa-solid fa-clock-rotate-left"></i> History
+                                                                    (<?php echo $count; ?>) <i class="fa-solid fa-chevron-down"
+                                                                        id="icon-<?php echo $uid; ?>"></i>
+                                                                </button>
+                                                            </td>
+                                                        </tr>
 
-                                                <!-- Hidden History Row -->
-                                                <tr id="history-<?php echo $uid; ?>"
-                                                    style="display: none; background: rgba(0,0,0,0.15);">
-                                                    <td colspan="4" style="padding: 0;">
-                                                        <div
-                                                            style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                                            <div style="margin-bottom: 10px; display: flex; justify-content: flex-end;">
-                                                                <input type="text" placeholder="Search history..."
-                                                                    onkeyup="filterUserHistory(this)"
-                                                                    style="padding: 6px 12px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-size: 0.8rem; outline: none; width: 200px;">
-                                                            </div>
-                                                            <div
-                                                                style="background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden;">
-                                                                <table style="width: 100%; border-collapse: collapse;">
-                                                                    <thead>
-                                                                        <tr style="background: rgba(255,255,255,0.03);">
-                                                                            <th
-                                                                                style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                                Plan</th>
-                                                                            <th
-                                                                                style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                                Amount</th>
-                                                                            <th
-                                                                                style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                                Method</th>
-                                                                            <th
-                                                                                style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                                Date</th>
-                                                                            <th
-                                                                                style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
-                                                                                Status</th>
-                                                                            <th
-                                                                                style="font-size: 0.75rem; padding: 10px; text-align: right; color: var(--text-gray); text-transform: uppercase;">
-                                                                                Action</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        <?php foreach ($data['history'] as $payment): ?>
-                                                                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
-                                                                                    <td style="padding: 10px; font-size: 0.9rem;">
-                                                                                        <?php echo htmlspecialchars($payment['plan_name']); ?>
-                                                                                    </td>
-                                                                                    <td
-                                                                                        style="padding: 10px; font-size: 0.9rem; color: var(--primary-color);">
-                                                                                        ₹<?php echo number_format($payment['amount'], 2); ?>
-                                                                                    </td>
-                                                                                    <td
-                                                                                        style="padding: 10px; font-size: 0.9rem; text-transform: capitalize;">
-                                                                                        <?php echo htmlspecialchars($payment['payment_method']); ?>
-                                                                                    </td>
-                                                                                    <td style="padding: 10px; font-size: 0.9rem; color: #ddd;">
-                                                                                        <?php echo date('M d, Y', strtotime($payment['created_at'])); ?>
-                                                                                    </td>
-                                                                                    <td style="padding: 10px;">
-                                                                                        <span
-                                                                                            class="badge <?php echo $payment['status'] == 'completed' ? 'badge-success' : ($payment['status'] == 'pending' ? 'badge-warning' : ''); ?>"
-                                                                                            style="font-size: 0.65rem;">
-                                                                                            <?php echo ucfirst($payment['status']); ?>
-                                                                                        </span>
-                                                                                    </td>
-                                                                                    <td
-                                                                                        style="padding: 10px; text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 10px;">
-                                                                                        <?php if (!empty($payment['token_number'])): ?>
-                                                                                                <span
-                                                                                                    title="Pickup Token: <?php echo $payment['token_number']; ?>"
-                                                                                                    style="color: var(--text-gray); font-size: 0.75rem;"><i
-                                                                                                        class="fa-solid fa-cart-shopping"></i> Store
-                                                                                                    Item</span>
-                                                                                        <?php endif; ?>
+                                                        <!-- Hidden History Row -->
+                                                        <tr id="history-<?php echo $uid; ?>"
+                                                            style="display: none; background: rgba(0,0,0,0.15);">
+                                                            <td colspan="4" style="padding: 0;">
+                                                                <div
+                                                                    style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                                    <div
+                                                                        style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+                                                                        <div style="display: flex; gap: 10px;">
+                                                                            <div class="hist-tab active-hist"
+                                                                                onclick="switchHistTab(<?php echo $uid; ?>, 'plans', this)">
+                                                                                Plans (<?php echo count($data['plans']); ?>)</div>
+                                                                            <div class="hist-tab"
+                                                                                onclick="switchHistTab(<?php echo $uid; ?>, 'trainers', this)">
+                                                                                Trainers (<?php echo count($data['trainers']); ?>)</div>
+                                                                            <div class="hist-tab"
+                                                                                onclick="switchHistTab(<?php echo $uid; ?>, 'store', this)">
+                                                                                Store (<?php echo count($data['store']); ?>)</div>
+                                                                        </div>
+                                                                        <input type="text" placeholder="Search history..."
+                                                                            onkeyup="filterUserHistory(this)"
+                                                                            style="padding: 6px 12px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-size: 0.8rem; outline: none; width: 200px;">
+                                                                    </div>
 
-                                                                                        <a href="invoice.php?tid=<?php echo $payment['id']; ?>"
-                                                                                            target="_blank"
-                                                                                            style="color: var(--text-gray); font-size: 1rem;"
-                                                                                            title="Download Invoice">
-                                                                                            <i class="fa-solid fa-file-pdf"></i>
-                                                                                        </a>
-                                                                                        <a href="dashboard_admin.php?delete_transaction=<?php echo $payment['id']; ?>"
-                                                                                            onclick="return confirm('Are you sure you want to delete this payment record?');"
-                                                                                            style="color: #ff4d4d; font-size: 1rem;"
-                                                                                            title="Delete Record">
-                                                                                            <i class="fa-solid fa-trash"></i>
-                                                                                        </a>
-                                                                                    </td>
-                                                                                </tr>
-                                                                        <?php endforeach; ?>
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                        <?php endforeach; ?>
+                                                                    <!-- Plans Tab Content -->
+                                                                    <div id="hist-plans-<?php echo $uid; ?>" class="hist-content active">
+                                                                        <div
+                                                                            style="background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden;">
+                                                                            <table style="width: 100%; border-collapse: collapse;">
+                                                                                <thead>
+                                                                                    <tr style="background: rgba(255,255,255,0.03);">
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Plan</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Amount</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Method</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Date</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Status</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: right; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Action</th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody>
+                                                                                    <?php if (empty($data['plans'])): ?>
+                                                                                                <tr>
+                                                                                                    <td colspan="6"
+                                                                                                        style="padding: 20px; text-align: center; color: var(--text-gray);">
+                                                                                                        No plan history</td>
+                                                                                                </tr>
+                                                                                    <?php else: ?>
+                                                                                                <?php foreach ($data['plans'] as $payment): ?>
+                                                                                                            <tr
+                                                                                                                style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                                                                                                                <td style="padding: 10px; font-size: 0.9rem;">
+                                                                                                                    <?php echo htmlspecialchars($payment['plan_name']); ?>
+                                                                                                                </td>
+                                                                                                                <td
+                                                                                                                    style="padding: 10px; font-size: 0.9rem; color: var(--primary-color);">
+                                                                                                                    ₹<?php echo number_format($payment['amount'], 2); ?>
+                                                                                                                </td>
+                                                                                                                <td
+                                                                                                                    style="padding: 10px; font-size: 0.9rem; text-transform: capitalize;">
+                                                                                                                    <?php echo htmlspecialchars($payment['payment_method']); ?>
+                                                                                                                </td>
+                                                                                                                <td
+                                                                                                                    style="padding: 10px; font-size: 0.9rem; color: #ddd;">
+                                                                                                                    <?php echo date('M d, Y', strtotime($payment['created_at'])); ?>
+                                                                                                                </td>
+                                                                                                                <td style="padding: 10px;">
+                                                                                                                    <span
+                                                                                                                        class="badge <?php echo $payment['status'] == 'completed' ? 'badge-success' : 'badge-warning'; ?>"
+                                                                                                                        style="font-size: 0.65rem;"><?php echo ucfirst($payment['status']); ?></span>
+                                                                                                                </td>
+                                                                                                                <td
+                                                                                                                    style="padding: 10px; text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 10px;">
+                                                                                                                    <a href="invoice.php?tid=<?php echo $payment['id']; ?>"
+                                                                                                                        target="_blank"
+                                                                                                                        style="color: var(--text-gray); font-size: 1rem;"
+                                                                                                                        title="Download Invoice"><i
+                                                                                                                            class="fa-solid fa-file-pdf"></i></a>
+                                                                                                                    <a href="dashboard_admin.php?delete_transaction=<?php echo $payment['id']; ?>"
+                                                                                                                        onclick="return confirm('Are you sure you want to delete this payment record?');"
+                                                                                                                        style="color: #ff4d4d; font-size: 1rem;"
+                                                                                                                        title="Delete Record"><i
+                                                                                                                            class="fa-solid fa-trash"></i></a>
+                                                                                                                </td>
+                                                                                                            </tr>
+                                                                                                <?php endforeach; ?>
+                                                                                    <?php endif; ?>
+                                                                                </tbody>
+                                                                            </table>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <!-- Trainers Tab Content -->
+                                                                    <div id="hist-trainers-<?php echo $uid; ?>" class="hist-content">
+                                                                        <div
+                                                                            style="background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden;">
+                                                                            <table style="width: 100%; border-collapse: collapse;">
+                                                                                <thead>
+                                                                                    <tr style="background: rgba(255,255,255,0.03);">
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Trainer Appointment</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Amount</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Method</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Date</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Status</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: right; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Action</th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody>
+                                                                                    <?php if (empty($data['trainers'])): ?>
+                                                                                                <tr>
+                                                                                                    <td colspan="6"
+                                                                                                        style="padding: 20px; text-align: center; color: var(--text-gray);">
+                                                                                                        No trainer appointments</td>
+                                                                                                </tr>
+                                                                                    <?php else: ?>
+                                                                                                <?php foreach ($data['trainers'] as $payment): ?>
+                                                                                                            <tr
+                                                                                                                style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                                                                                                                <td style="padding: 10px; font-size: 0.9rem;">
+                                                                                                                    <?php echo htmlspecialchars($payment['plan_name']); ?>
+                                                                                                                </td>
+                                                                                                                <td
+                                                                                                                    style="padding: 10px; font-size: 0.9rem; color: var(--primary-color);">
+                                                                                                                    ₹<?php echo number_format($payment['amount'], 2); ?>
+                                                                                                                </td>
+                                                                                                                <td
+                                                                                                                    style="padding: 10px; font-size: 0.9rem; text-transform: capitalize;">
+                                                                                                                    <?php echo htmlspecialchars($payment['payment_method']); ?>
+                                                                                                                </td>
+                                                                                                                <td
+                                                                                                                    style="padding: 10px; font-size: 0.9rem; color: #ddd;">
+                                                                                                                    <?php echo date('M d, Y', strtotime($payment['created_at'])); ?>
+                                                                                                                </td>
+                                                                                                                <td style="padding: 10px;">
+                                                                                                                    <span
+                                                                                                                        class="badge <?php echo $payment['status'] == 'completed' ? 'badge-success' : 'badge-warning'; ?>"
+                                                                                                                        style="font-size: 0.65rem;"><?php echo ucfirst($payment['status']); ?></span>
+                                                                                                                </td>
+                                                                                                                <td
+                                                                                                                    style="padding: 10px; text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 10px;">
+                                                                                                                    <a href="invoice.php?tid=<?php echo $payment['id']; ?>"
+                                                                                                                        target="_blank"
+                                                                                                                        style="color: var(--text-gray); font-size: 1rem;"
+                                                                                                                        title="Download Invoice"><i
+                                                                                                                            class="fa-solid fa-file-pdf"></i></a>
+                                                                                                                    <a href="dashboard_admin.php?delete_transaction=<?php echo $payment['id']; ?>"
+                                                                                                                        onclick="return confirm('Are you sure you want to delete this payment record?');"
+                                                                                                                        style="color: #ff4d4d; font-size: 1rem;"
+                                                                                                                        title="Delete Record"><i
+                                                                                                                            class="fa-solid fa-trash"></i></a>
+                                                                                                                </td>
+                                                                                                            </tr>
+                                                                                                <?php endforeach; ?>
+                                                                                    <?php endif; ?>
+                                                                                </tbody>
+                                                                            </table>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <!-- Store Tab Content -->
+                                                                    <div id="hist-store-<?php echo $uid; ?>" class="hist-content">
+                                                                        <div
+                                                                            style="background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden;">
+                                                                            <table style="width: 100%; border-collapse: collapse;">
+                                                                                <thead>
+                                                                                    <tr style="background: rgba(255,255,255,0.03);">
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Product Name</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Amount</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Method</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Date</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: left; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Status</th>
+                                                                                        <th
+                                                                                            style="font-size: 0.75rem; padding: 10px; text-align: right; color: var(--text-gray); text-transform: uppercase;">
+                                                                                            Action</th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody>
+                                                                                    <?php if (empty($data['store'])): ?>
+                                                                                                <tr>
+                                                                                                    <td colspan="6"
+                                                                                                        style="padding: 20px; text-align: center; color: var(--text-gray);">
+                                                                                                        No store purchases</td>
+                                                                                                </tr>
+                                                                                    <?php else: ?>
+                                                                                                <?php foreach ($data['store'] as $payment): ?>
+                                                                                                            <tr
+                                                                                                                style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                                                                                                                <td style="padding: 10px; font-size: 0.9rem;">
+                                                                                                                    <?php echo htmlspecialchars($payment['plan_name']); ?>
+                                                                                                                    <?php if (!empty($payment['token_number'])): ?>
+                                                                                                                                <br><small style="color: var(--text-gray);">Token:
+                                                                                                                                    <?php echo $payment['token_number']; ?></small>
+                                                                                                                    <?php endif; ?>
+                                                                                                                </td>
+                                                                                                                <td
+                                                                                                                    style="padding: 10px; font-size: 0.9rem; color: var(--primary-color);">
+                                                                                                                    ₹<?php echo number_format($payment['amount'], 2); ?>
+                                                                                                                </td>
+                                                                                                                <td
+                                                                                                                    style="padding: 10px; font-size: 0.9rem; text-transform: capitalize;">
+                                                                                                                    <?php echo htmlspecialchars($payment['payment_method']); ?>
+                                                                                                                </td>
+                                                                                                                <td
+                                                                                                                    style="padding: 10px; font-size: 0.9rem; color: #ddd;">
+                                                                                                                    <?php echo date('M d, Y', strtotime($payment['created_at'])); ?>
+                                                                                                                </td>
+                                                                                                                <td style="padding: 10px;">
+                                                                                                                    <span
+                                                                                                                        class="badge <?php echo $payment['status'] == 'completed' ? 'badge-success' : 'badge-warning'; ?>"
+                                                                                                                        style="font-size: 0.65rem;"><?php echo ucfirst($payment['status']); ?></span>
+                                                                                                                </td>
+                                                                                                                <td
+                                                                                                                    style="padding: 10px; text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 10px;">
+                                                                                                                    <a href="invoice.php?tid=<?php echo $payment['id']; ?>"
+                                                                                                                        target="_blank"
+                                                                                                                        style="color: var(--text-gray); font-size: 1rem;"
+                                                                                                                        title="Download Invoice"><i
+                                                                                                                            class="fa-solid fa-file-pdf"></i></a>
+                                                                                                                    <a href="dashboard_admin.php?delete_transaction=<?php echo $payment['id']; ?>"
+                                                                                                                        onclick="return confirm('Are you sure you want to delete this payment record?');"
+                                                                                                                        style="color: #ff4d4d; font-size: 1rem;"
+                                                                                                                        title="Delete Record"><i
+                                                                                                                            class="fa-solid fa-trash"></i></a>
+                                                                                                                </td>
+                                                                                                            </tr>
+                                                                                                <?php endforeach; ?>
+                                                                                    <?php endif; ?>
+                                                                                </tbody>
+                                                                            </table>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                            <?php endforeach; ?>
                                 <?php else: ?>
-                                        <tr>
-                                            <td colspan="4" style="text-align: center; color: var(--text-gray); padding: 30px;">
-                                                <i class="fa-solid fa-receipt"
-                                                    style="font-size: 2rem; display: block; margin-bottom: 10px; opacity: 0.3;"></i>
-                                                No payment records found.
-                                            </td>
-                                        </tr>
+                                            <tr>
+                                                <td colspan="4" style="text-align: center; color: var(--text-gray); padding: 30px;">
+                                                    <i class="fa-solid fa-receipt"
+                                                        style="font-size: 2rem; display: block; margin-bottom: 10px; opacity: 0.3;"></i>
+                                                    No payment records found.
+                                                </td>
+                                            </tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>
@@ -1762,37 +2506,37 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                     mysqli_data_seek($plans_res, 0);
                     while ($plan = mysqli_fetch_assoc($plans_res)):
                         ?>
-                            <div class="stat-card"
-                                style="position: relative; border: 1px solid rgba(255,255,255,0.05); transition: 0.3s;">
-                                <?php if ($plan['is_popular']): ?>
-                                        <span class="badge badge-success"
-                                            style="position: absolute; top: 15px; right: 15px; background: var(--primary-color); color: #000;">Popular</span>
-                                <?php endif; ?>
-                                <h4 style="color: var(--primary-color); font-size: 1.4rem; margin-bottom: 5px;">
-                                    <?php echo htmlspecialchars($plan['name']); ?>
-                                </h4>
-                                <div style="margin: 15px 0; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 10px;">
-                                    <p style="font-size: 1.8rem; font-weight: bold; margin: 0;">
-                                        ₹<?php echo number_format($plan['price_monthly']); ?><span
-                                            style="font-size: 0.9rem; color: var(--text-gray); font-weight: normal;">/mo</span>
-                                    </p>
-                                    <p style="font-size: 1.2rem; color: var(--text-gray); margin-top: 5px;">
-                                        ₹<?php echo number_format($plan['price_yearly']); ?><span
-                                            style="font-size: 0.8rem;">/yr</span></p>
+                                <div class="stat-card"
+                                    style="position: relative; border: 1px solid rgba(255,255,255,0.05); transition: 0.3s;">
+                                    <?php if ($plan['is_popular']): ?>
+                                                <span class="badge badge-success"
+                                                    style="position: absolute; top: 15px; right: 15px; background: var(--primary-color); color: #000;">Popular</span>
+                                    <?php endif; ?>
+                                    <h4 style="color: var(--primary-color); font-size: 1.4rem; margin-bottom: 5px;">
+                                        <?php echo htmlspecialchars($plan['name']); ?>
+                                    </h4>
+                                    <div style="margin: 15px 0; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 10px;">
+                                        <p style="font-size: 1.8rem; font-weight: bold; margin: 0;">
+                                            ₹<?php echo number_format($plan['price_monthly']); ?><span
+                                                style="font-size: 0.9rem; color: var(--text-gray); font-weight: normal;">/mo</span>
+                                        </p>
+                                        <p style="font-size: 1.2rem; color: var(--text-gray); margin-top: 5px;">
+                                            ₹<?php echo number_format($plan['price_yearly']); ?><span
+                                                style="font-size: 0.8rem;">/yr</span></p>
+                                    </div>
+                                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                        <button class="btn-action btn-view"
+                                            style="flex: 1; padding: 12px; font-weight: bold; border-radius: 8px;"
+                                            onclick='openEditPlanModal(<?php echo json_encode($plan); ?>)'>
+                                            <i class="fa-solid fa-pen-to-square"></i> Edit Attributes
+                                        </button>
+                                        <a href="?delete_plan=<?php echo $plan['id']; ?>" class="btn-action btn-delete"
+                                            style="flex: 1; padding: 12px; font-weight: bold; border-radius: 8px; text-align: center; display: inline-block;"
+                                            onclick="return confirm('Are you sure you want to delete this plan?')">
+                                            <i class="fa-solid fa-trash"></i> Delete Plan
+                                        </a>
+                                    </div>
                                 </div>
-                                <div style="display: flex; gap: 10px; margin-top: 10px;">
-                                    <button class="btn-action btn-view"
-                                        style="flex: 1; padding: 12px; font-weight: bold; border-radius: 8px;"
-                                        onclick='openEditPlanModal(<?php echo json_encode($plan); ?>)'>
-                                        <i class="fa-solid fa-pen-to-square"></i> Edit Attributes
-                                    </button>
-                                    <a href="?delete_plan=<?php echo $plan['id']; ?>" class="btn-action btn-delete"
-                                        style="flex: 1; padding: 12px; font-weight: bold; border-radius: 8px; text-align: center; display: inline-block;"
-                                        onclick="return confirm('Are you sure you want to delete this plan?')">
-                                        <i class="fa-solid fa-trash"></i> Delete Plan
-                                    </a>
-                                </div>
-                            </div>
                     <?php endwhile; ?>
                 </div>
             </div>
@@ -1839,38 +2583,267 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                         </thead>
                         <tbody>
                             <?php if (mysqli_num_rows($inventory_query) > 0): ?>
-                                    <?php
-                                    mysqli_data_seek($inventory_query, 0); // Reset pointer
-                                    while ($item = mysqli_fetch_assoc($inventory_query)):
-                                        $status_color = ($item['status'] == 'Functional' || $item['status'] == 'Good') ? '#ceff00' : '#ff4d4d';
-                                        ?>
-                                            <tr>
-                                                <td style="font-weight: bold;"><?php echo htmlspecialchars($item['item_name']); ?>
-                                                </td>
-                                                <td><?php echo $item['quantity']; ?></td>
-                                                <td style="color: <?php echo $status_color; ?>">
-                                                    <?php echo htmlspecialchars($item['status']); ?>
-                                                </td>
-                                                <td><?php echo date('M d, Y', strtotime($item['last_maintenance'])); ?></td>
-                                                <td><?php echo date('M d, Y', strtotime($item['next_service'])); ?></td>
-                                                <td>
-                                                    <button class="btn-action btn-view"
-                                                        onclick='openEditInventoryModal(<?php echo json_encode($item); ?>)'>Edit</button>
-                                                    <a href="?delete_inventory=<?php echo $item['id']; ?>" class="btn-action btn-delete"
-                                                        onclick="return confirm('Are you sure you want to delete this item?')">Delete</a>
-                                                </td>
-                                            </tr>
-                                    <?php endwhile; ?>
+                                        <?php
+                                        mysqli_data_seek($inventory_query, 0); // Reset pointer
+                                        while ($item = mysqli_fetch_assoc($inventory_query)):
+                                            $status_color = ($item['status'] == 'Functional' || $item['status'] == 'Good') ? '#ceff00' : '#ff4d4d';
+                                            ?>
+                                                    <tr>
+                                                        <td style="font-weight: bold;"><?php echo htmlspecialchars($item['item_name']); ?>
+                                                        </td>
+                                                        <td><?php echo $item['quantity']; ?></td>
+                                                        <td style="color: <?php echo $status_color; ?>">
+                                                            <?php echo htmlspecialchars($item['status']); ?>
+                                                        </td>
+                                                        <td><?php echo date('M d, Y', strtotime($item['last_maintenance'])); ?></td>
+                                                        <td><?php echo date('M d, Y', strtotime($item['next_service'])); ?></td>
+                                                        <td>
+                                                            <button class="btn-action btn-view"
+                                                                onclick='openEditInventoryModal(<?php echo json_encode($item); ?>)'>Edit</button>
+                                                            <a href="?delete_inventory=<?php echo $item['id']; ?>" class="btn-action btn-delete"
+                                                                onclick="return confirm('Are you sure you want to delete this item?')">Delete</a>
+                                                        </td>
+                                                    </tr>
+                                        <?php endwhile; ?>
                             <?php else: ?>
-                                    <tr>
-                                        <td colspan="6" style="text-align: center; color: var(--text-gray);">No inventory
-                                            items
-                                            found.</td>
-                                    </tr>
+                                        <tr>
+                                            <td colspan="6" style="text-align: center; color: var(--text-gray);">No inventory
+                                                items
+                                                found.</td>
+                                        </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+
+        <!-- Gym Store Management -->
+        <div id="gym-store-mgmt" class="dashboard-section">
+            <div class="user-tabs">
+                <div class="user-tab active" onclick="switchStoreTab('categories', this)">Categories</div>
+                <div class="user-tab" onclick="switchStoreTab('products', this)">Products</div>
+            </div>
+
+            <!-- Categories Section -->
+            <div id="store-categories-tab" class="store-tab-content active">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Product Categories</h3>
+                        <button class="btn-add"
+                            onclick="document.getElementById('add-cat-modal').style.display='flex'">+ Add
+                            Category</button>
+                    </div>
+                    <div class="data-table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Image</th>
+                                    <th>Name</th>
+                                    <th>Description</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php
+                                $categories = mysqli_query($link, "SELECT * FROM store_categories ORDER BY name ASC");
+                                while ($cat = mysqli_fetch_assoc($categories)):
+                                    ?>
+                                            <tr>
+                                                <td><img src="<?php echo $cat['image']; ?>"
+                                                        style="width:50px; height:50px; border-radius:5px; object-fit:cover;"></td>
+                                                <td><strong><?php echo htmlspecialchars($cat['name']); ?></strong></td>
+                                                <td><?php echo htmlspecialchars($cat['description']); ?></td>
+                                                <td>
+                                                    <button class="btn-action btn-view"
+                                                        onclick='openEditCatModal(<?php echo json_encode($cat); ?>)'>Edit</button>
+                                                    <a href="?delete_store_category=<?php echo $cat['id']; ?>"
+                                                        class="btn-action btn-delete"
+                                                        onclick="return confirm('Deleting a category will also delete its products. Continue?')">Delete</a>
+                                                </td>
+                                            </tr>
+                                <?php endwhile; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Products Section -->
+            <div id="store-products-tab" class="store-tab-content" style="display:none;">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Store Products</h3>
+                        <button class="btn-add"
+                            onclick="document.getElementById('add-prod-modal').style.display='flex'">+ Add
+                            Product</button>
+                    </div>
+                    <div class="data-table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Image</th>
+                                    <th>Category</th>
+                                    <th>Name</th>
+                                    <th>Price</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php
+                                $products = mysqli_query($link, "SELECT p.*, c.name as cat_name FROM store_products p JOIN store_categories c ON p.category_id = c.id ORDER BY cat_name ASC, p.name ASC");
+                                while ($prod = mysqli_fetch_assoc($products)):
+                                    ?>
+                                            <tr>
+                                                <td><img src="<?php echo $prod['image']; ?>"
+                                                        style="width:50px; height:50px; border-radius:5px; object-fit:cover;"></td>
+                                                <td><span
+                                                        class="badge badge-warning"><?php echo htmlspecialchars($prod['cat_name']); ?></span>
+                                                </td>
+                                                <td><strong><?php echo htmlspecialchars($prod['name']); ?></strong></td>
+                                                <td style="color: var(--primary-color);">
+                                                    ₹<?php echo number_format($prod['price'], 2); ?></td>
+                                                <td>
+                                                    <button class="btn-action btn-view"
+                                                        onclick='openEditProdModal(<?php echo json_encode($prod); ?>)'>Edit</button>
+                                                    <a href="?delete_store_product=<?php echo $prod['id']; ?>"
+                                                        class="btn-action btn-delete"
+                                                        onclick="return confirm('Are you sure?')">Delete</a>
+                                                </td>
+                                            </tr>
+                                <?php endwhile; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Store Modals -->
+        <div id="add-cat-modal" class="modal">
+            <div class="modal-content">
+                <div class="card-header">
+                    <h3>Add Category</h3>
+                    <button onclick="closeModal('add-cat-modal')"
+                        style="background:none; border:none; color:#fff; cursor:pointer; font-size:1.5rem;">&times;</button>
+                </div>
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="add_store_category" value="1">
+                    <div class="form-group">
+                        <label>Category Name</label>
+                        <input type="text" name="cat_name" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea name="cat_desc" class="form-control" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Image</label>
+                        <input type="file" name="cat_image" class="form-control" accept="image/*">
+                    </div>
+                    <button type="submit" class="btn-action-modal">Add Category</button>
+                </form>
+            </div>
+        </div>
+
+        <div id="edit-cat-modal" class="modal">
+            <div class="modal-content">
+                <div class="card-header">
+                    <h3>Edit Category</h3>
+                    <button onclick="closeModal('edit-cat-modal')"
+                        style="background:none; border:none; color:#fff; cursor:pointer; font-size:1.5rem;">&times;</button>
+                </div>
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="edit_store_category" value="1">
+                    <input type="hidden" name="cat_id" id="edit-cat-id">
+                    <div class="form-group">
+                        <label>Category Name</label>
+                        <input type="text" name="cat_name" id="edit-cat-name" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea name="cat_desc" id="edit-cat-desc" class="form-control" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Image (Optional)</label>
+                        <input type="file" name="cat_image" class="form-control" accept="image/*">
+                    </div>
+                    <button type="submit" class="btn-action-modal">Update Category</button>
+                </form>
+            </div>
+        </div>
+
+        <div id="add-prod-modal" class="modal">
+            <div class="modal-content">
+                <div class="card-header">
+                    <h3>Add Product</h3>
+                    <button onclick="closeModal('add-prod-modal')"
+                        style="background:none; border:none; color:#fff; cursor:pointer; font-size:1.5rem;">&times;</button>
+                </div>
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="add_store_product" value="1">
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select name="prod_cat_id" class="form-control" required>
+                            <?php
+                            $cats = mysqli_query($link, "SELECT * FROM store_categories ORDER BY name ASC");
+                            while ($c = mysqli_fetch_assoc($cats))
+                                echo "<option value='" . $c['id'] . "'>" . $c['name'] . "</option>";
+                            ?>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Product Name</label>
+                        <input type="text" name="prod_name" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Price (₹)</label>
+                        <input type="number" step="0.01" name="prod_price" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Image</label>
+                        <input type="file" name="prod_image" class="form-control" accept="image/*">
+                    </div>
+                    <button type="submit" class="btn-action-modal">Add Product</button>
+                </form>
+            </div>
+        </div>
+
+        <div id="edit-prod-modal" class="modal">
+            <div class="modal-content">
+                <div class="card-header">
+                    <h3>Edit Product</h3>
+                    <button onclick="closeModal('edit-prod-modal')"
+                        style="background:none; border:none; color:#fff; cursor:pointer; font-size:1.5rem;">&times;</button>
+                </div>
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="edit_store_product" value="1">
+                    <input type="hidden" name="prod_id" id="edit-prod-id">
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select name="prod_cat_id" id="edit-prod-cat" class="form-control" required>
+                            <?php
+                            mysqli_data_seek($cats, 0);
+                            while ($c = mysqli_fetch_assoc($cats))
+                                echo "<option value='" . $c['id'] . "'>" . $c['name'] . "</option>";
+                            ?>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Product Name</label>
+                        <input type="text" name="prod_name" id="edit-prod-name" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Price (₹)</label>
+                        <input type="number" step="0.01" name="prod_price" id="edit-prod-price" class="form-control"
+                            required>
+                    </div>
+                    <div class="form-group">
+                        <label>Image (Optional)</label>
+                        <input type="file" name="prod_image" class="form-control" accept="image/*">
+                    </div>
+                    <button type="submit" class="btn-action-modal">Update Product</button>
+                </form>
             </div>
         </div>
 
@@ -1896,28 +2869,28 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                     </thead>
                     <tbody>
                         <?php if (mysqli_num_rows($trainers_query) > 0): ?>
-                                <?php while ($trainer = mysqli_fetch_assoc($trainers_query)): ?>
-                                        <tr>
-                                            <td>
-                                                <img src="<?php echo $trainer['image'] ? $trainer['image'] : 'https://ui-avatars.com/api/?name=' . urlencode($trainer['name']) . '&background=ceff00&color=1a1a2e'; ?>"
-                                                    style="width: 50px; height: 50px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary-color);">
-                                            </td>
-                                            <td><?php echo htmlspecialchars($trainer['name']); ?></td>
-                                            <td><?php echo date('M d, Y', strtotime($trainer['created_at'])); ?></td>
-                                            <td>
-                                                <button class="btn-action btn-view"
-                                                    onclick='openEditTrainerModal(<?php echo json_encode($trainer); ?>)'>Edit</button>
-                                                <a href="?delete_trainer=<?php echo $trainer['id']; ?>" class="btn-action btn-delete"
-                                                    onclick="return confirm('Are you sure you want to delete this trainer?')">Delete</a>
-                                            </td>
-                                        </tr>
-                                <?php endwhile; ?>
+                                    <?php while ($trainer = mysqli_fetch_assoc($trainers_query)): ?>
+                                                <tr>
+                                                    <td>
+                                                        <img src="<?php echo $trainer['image'] ? $trainer['image'] : 'https://ui-avatars.com/api/?name=' . urlencode($trainer['name']) . '&background=ceff00&color=1a1a2e'; ?>"
+                                                            style="width: 50px; height: 50px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary-color);">
+                                                    </td>
+                                                    <td><?php echo htmlspecialchars($trainer['name']); ?></td>
+                                                    <td><?php echo date('M d, Y', strtotime($trainer['created_at'])); ?></td>
+                                                    <td>
+                                                        <button class="btn-action btn-view"
+                                                            onclick='openEditTrainerModal(<?php echo json_encode($trainer); ?>)'>Edit</button>
+                                                        <a href="?delete_trainer=<?php echo $trainer['id']; ?>" class="btn-action btn-delete"
+                                                            onclick="return confirm('Are you sure you want to delete this trainer?')">Delete</a>
+                                                    </td>
+                                                </tr>
+                                    <?php endwhile; ?>
                         <?php else: ?>
-                                <tr>
-                                    <td colspan="4" style="text-align: center; color: var(--text-gray);">No trainers found.
-                                        Add
-                                        your first trainer!</td>
-                                </tr>
+                                    <tr>
+                                        <td colspan="4" style="text-align: center; color: var(--text-gray);">No trainers found.
+                                            Add
+                                            your first trainer!</td>
+                                    </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -1945,29 +2918,29 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                     </thead>
                     <tbody>
                         <?php if (mysqli_num_rows($equip_query) > 0): ?>
-                                <?php while ($eq = mysqli_fetch_assoc($equip_query)): ?>
-                                        <tr>
-                                            <td>
-                                                <img src="<?php echo $eq['image'] ? $eq['image'] : 'assets/images/placeholder.png'; ?>"
-                                                    style="width: 60px; height: 60px; object-fit: contain; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 5px;">
-                                            </td>
-                                            <td><?php echo htmlspecialchars($eq['name']); ?></td>
-                                            <td><?php echo htmlspecialchars($eq['description']); ?></td>
-                                            <td><?php echo $eq['priority']; ?></td>
-                                            <td>
-                                                <button class="btn-action btn-view"
-                                                    onclick='openEditEquipmentModal(<?php echo htmlspecialchars(json_encode($eq), ENT_QUOTES, "UTF-8"); ?>)'>Edit</button>
-                                                <a href="?delete_equipment=<?php echo $eq['id']; ?>" class="btn-action btn-delete"
-                                                    onclick="return confirm('Are you sure you want to delete this item?')">Delete</a>
-                                            </td>
-                                        </tr>
-                                <?php endwhile; ?>
+                                    <?php while ($eq = mysqli_fetch_assoc($equip_query)): ?>
+                                                <tr>
+                                                    <td>
+                                                        <img src="<?php echo $eq['image'] ? $eq['image'] : 'assets/images/placeholder.png'; ?>"
+                                                            style="width: 60px; height: 60px; object-fit: contain; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 5px;">
+                                                    </td>
+                                                    <td><?php echo htmlspecialchars($eq['name']); ?></td>
+                                                    <td><?php echo htmlspecialchars($eq['description']); ?></td>
+                                                    <td><?php echo $eq['priority']; ?></td>
+                                                    <td>
+                                                        <button class="btn-action btn-view"
+                                                            onclick='openEditEquipmentModal(<?php echo htmlspecialchars(json_encode($eq), ENT_QUOTES, "UTF-8"); ?>)'>Edit</button>
+                                                        <a href="?delete_equipment=<?php echo $eq['id']; ?>" class="btn-action btn-delete"
+                                                            onclick="return confirm('Are you sure you want to delete this item?')">Delete</a>
+                                                    </td>
+                                                </tr>
+                                    <?php endwhile; ?>
                         <?php else: ?>
-                                <tr>
-                                    <td colspan="5" style="text-align: center; color: var(--text-gray);">No showcase items
-                                        found.
-                                    </td>
-                                </tr>
+                                    <tr>
+                                        <td colspan="5" style="text-align: center; color: var(--text-gray);">No showcase items
+                                            found.
+                                        </td>
+                                    </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -1995,28 +2968,28 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                     </thead>
                     <tbody>
                         <?php if (mysqli_num_rows($services_query) > 0): ?>
-                                <?php while ($srv = mysqli_fetch_assoc($services_query)): ?>
-                                        <tr>
-                                            <td>
-                                                <img src="<?php echo $srv['icon'] ? $srv['icon'] : 'assets/icons/muscle_custom.png'; ?>"
-                                                    style="width: 40px; height: 40px; object-fit: contain; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 50%;">
-                                            </td>
-                                            <td><?php echo htmlspecialchars($srv['title']); ?></td>
-                                            <td><?php echo htmlspecialchars(substr($srv['description'], 0, 50)) . '...'; ?></td>
-                                            <td><?php echo $srv['priority']; ?></td>
-                                            <td>
-                                                <button class="btn-action btn-view"
-                                                    onclick='openEditServiceModal(<?php echo htmlspecialchars(json_encode($srv), ENT_QUOTES, "UTF-8"); ?>)'>Edit</button>
-                                                <a href="?delete_service=<?php echo $srv['id']; ?>" class="btn-action btn-delete"
-                                                    onclick="return confirm('Are you sure you want to delete this service?')">Delete</a>
-                                            </td>
-                                        </tr>
-                                <?php endwhile; ?>
+                                    <?php while ($srv = mysqli_fetch_assoc($services_query)): ?>
+                                                <tr>
+                                                    <td>
+                                                        <img src="<?php echo $srv['icon'] ? $srv['icon'] : 'assets/icons/muscle_custom.png'; ?>"
+                                                            style="width: 40px; height: 40px; object-fit: contain; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 50%;">
+                                                    </td>
+                                                    <td><?php echo htmlspecialchars($srv['title']); ?></td>
+                                                    <td><?php echo htmlspecialchars(substr($srv['description'], 0, 50)) . '...'; ?></td>
+                                                    <td><?php echo $srv['priority']; ?></td>
+                                                    <td>
+                                                        <button class="btn-action btn-view"
+                                                            onclick='openEditServiceModal(<?php echo htmlspecialchars(json_encode($srv), ENT_QUOTES, "UTF-8"); ?>)'>Edit</button>
+                                                        <a href="?delete_service=<?php echo $srv['id']; ?>" class="btn-action btn-delete"
+                                                            onclick="return confirm('Are you sure you want to delete this service?')">Delete</a>
+                                                    </td>
+                                                </tr>
+                                    <?php endwhile; ?>
                         <?php else: ?>
-                                <tr>
-                                    <td colspan="5" style="text-align: center; color: var(--text-gray);">No services found.
-                                    </td>
-                                </tr>
+                                    <tr>
+                                        <td colspan="5" style="text-align: center; color: var(--text-gray);">No services found.
+                                        </td>
+                                    </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -2043,27 +3016,27 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                     </thead>
                     <tbody>
                         <?php if (mysqli_num_rows($ann_query) > 0): ?>
-                                <?php while ($ann = mysqli_fetch_assoc($ann_query)): ?>
-                                        <tr>
-                                            <td style="font-weight: bold; color: var(--primary-color);">
-                                                <?php echo htmlspecialchars($ann['title']); ?>
-                                            </td>
-                                            <td><?php echo nl2br(htmlspecialchars($ann['message'])); ?></td>
-                                            <td><?php echo date('M d, Y', strtotime($ann['created_at'])); ?></td>
-                                            <td>
-                                                <button class="btn-action btn-view"
-                                                    onclick='openEditAnnouncementModal(<?php echo htmlspecialchars(json_encode($ann), ENT_QUOTES, "UTF-8"); ?>)'>Edit</button>
-                                                <a href="?delete_announcement=<?php echo $ann['id']; ?>" class="btn-action btn-delete"
-                                                    onclick="return confirm('Delete this announcement?')">Delete</a>
-                                            </td>
-                                        </tr>
-                                <?php endwhile; ?>
+                                    <?php while ($ann = mysqli_fetch_assoc($ann_query)): ?>
+                                                <tr>
+                                                    <td style="font-weight: bold; color: var(--primary-color);">
+                                                        <?php echo htmlspecialchars($ann['title']); ?>
+                                                    </td>
+                                                    <td><?php echo nl2br(htmlspecialchars($ann['message'])); ?></td>
+                                                    <td><?php echo date('M d, Y', strtotime($ann['created_at'])); ?></td>
+                                                    <td>
+                                                        <button class="btn-action btn-view"
+                                                            onclick='openEditAnnouncementModal(<?php echo htmlspecialchars(json_encode($ann), ENT_QUOTES, "UTF-8"); ?>)'>Edit</button>
+                                                        <a href="?delete_announcement=<?php echo $ann['id']; ?>" class="btn-action btn-delete"
+                                                            onclick="return confirm('Delete this announcement?')">Delete</a>
+                                                    </td>
+                                                </tr>
+                                    <?php endwhile; ?>
                         <?php else: ?>
-                                <tr>
-                                    <td colspan="4" style="text-align: center; color: var(--text-gray);">No announcements
-                                        found.
-                                    </td>
-                                </tr>
+                                    <tr>
+                                        <td colspan="4" style="text-align: center; color: var(--text-gray);">No announcements
+                                            found.
+                                        </td>
+                                    </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -2298,30 +3271,30 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                         </thead>
                         <tbody>
                             <?php if (mysqli_num_rows($shop_staff_res) > 0): ?>
-                                    <?php while ($staff = mysqli_fetch_assoc($shop_staff_res)): ?>
-                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                                <td style="font-weight: 500; font-family: 'Oswald'; letter-spacing: 0.5px;">
-                                                    <?php echo htmlspecialchars($staff['full_name']); ?>
-                                                </td>
-                                                <td style="color: var(--text-gray);"><?php echo htmlspecialchars($staff['email']); ?>
-                                                </td>
-                                                <td style="color: var(--text-gray); font-size: 0.9rem;">
-                                                    <?php echo date('M d, Y', strtotime($staff['created_at'])); ?>
-                                                </td>
-                                                <td style="text-align: right;">
-                                                    <a href="dashboard_admin.php?delete_shop_staff=<?php echo $staff['id']; ?>"
-                                                        onclick="return confirm('Delete this shop staff account?');" class="btn-delete"
-                                                        title="Delete">
-                                                        <i class="fa-solid fa-trash-can"></i>
-                                                    </a>
-                                                </td>
-                                            </tr>
-                                    <?php endwhile; ?>
+                                        <?php while ($staff = mysqli_fetch_assoc($shop_staff_res)): ?>
+                                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                        <td style="font-weight: 500; font-family: 'Oswald'; letter-spacing: 0.5px;">
+                                                            <?php echo htmlspecialchars($staff['full_name']); ?>
+                                                        </td>
+                                                        <td style="color: var(--text-gray);"><?php echo htmlspecialchars($staff['email']); ?>
+                                                        </td>
+                                                        <td style="color: var(--text-gray); font-size: 0.9rem;">
+                                                            <?php echo date('M d, Y', strtotime($staff['created_at'])); ?>
+                                                        </td>
+                                                        <td style="text-align: right;">
+                                                            <a href="dashboard_admin.php?delete_shop_staff=<?php echo $staff['id']; ?>"
+                                                                onclick="return confirm('Delete this shop staff account?');" class="btn-delete"
+                                                                title="Delete">
+                                                                <i class="fa-solid fa-trash-can"></i>
+                                                            </a>
+                                                        </td>
+                                                    </tr>
+                                        <?php endwhile; ?>
                             <?php else: ?>
-                                    <tr>
-                                        <td colspan="4" style="text-align: center; padding: 30px; color: var(--text-gray);">No
-                                            shop staff found.</td>
-                                    </tr>
+                                        <tr>
+                                            <td colspan="4" style="text-align: center; padding: 30px; color: var(--text-gray);">No
+                                                shop staff found.</td>
+                                        </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -2361,6 +3334,207 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
             </div>
         </div>
 
+        <!-- Attendance Section -->
+        <div id="attendance" class="dashboard-section">
+            <div class="card">
+                <div class="card-header">
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <i class="fa-solid fa-calendar-check"
+                            style="font-size: 1.5rem; color: var(--primary-color);"></i>
+                        <h3 style="margin: 0;">Daily Attendance Management</h3>
+                    </div>
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <label style="color: var(--text-gray); font-size: 0.9rem;">Date:</label>
+                        <div style="position: relative; width: 180px;">
+                            <input type="text" id="attendance-date-picker" class="date-picker"
+                                value="<?php echo $att_date_view; ?>" placeholder="Select Date"
+                                style="width: 100%; padding: 8px 35px 8px 12px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; outline:none; cursor:pointer;">
+                            <i class="fa-solid fa-calendar-days"
+                                style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--primary-color); pointer-events: none; opacity: 0.8;"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-bottom: 25px; padding: 0 10px;">
+                    <div class="hist-tab active-hist" onclick="switchAttTab('members', this)">Members
+                        (<?php echo mysqli_num_rows($members_res); ?>)</div>
+                    <div class="hist-tab" onclick="switchAttTab('trainers-att', this)">Trainers
+                        (<?php echo count($trainers_att); ?>)</div>
+                    <div class="hist-tab" onclick="switchAttTab('shop-staff-att', this)">Shop Staff
+                        (<?php echo count($shop_staff_att); ?>)</div>
+                </div>
+
+                <!-- Members Attendance -->
+                <div id="att-members" class="att-content active">
+                    <div style="background: rgba(0,0,0,0.2); border-radius: 10px; overflow: hidden;">
+                        <table class="data-table">
+                            <thead>
+                                <tr style="background: rgba(255,255,255,0.03);">
+                                    <th style="padding: 15px;">Member</th>
+                                    <th style="padding: 15px;">Plan</th>
+                                    <th style="padding: 15px;">Status Today</th>
+                                    <th style="padding: 15px; text-align: right;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php
+                                mysqli_data_seek($members_res, 0);
+                                while ($m = mysqli_fetch_assoc($members_res)):
+                                    $key = "user_" . $m['id'];
+                                    $status = isset($daily_att_map[$key]) ? $daily_att_map[$key] : 'absent';
+                                    ?>
+                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                                                <td style="padding: 12px 15px;">
+                                                    <div style="display:flex; align-items:center; gap:12px;">
+                                                        <img src="<?php echo $m['profile_image'] ? $m['profile_image'] : 'https://ui-avatars.com/api/?name=' . urlencode($m['full_name']) . '&background=ceff00&color=1a1a2e'; ?>"
+                                                            style="width:38px; height:38px; border-radius:50%; object-fit:cover; border: 1px solid rgba(255,255,255,0.1);">
+                                                        <div>
+                                                            <div
+                                                                style="font-weight:600; font-family: 'Oswald'; letter-spacing: 0.5px;">
+                                                                <?php echo htmlspecialchars($m['full_name']); ?>
+                                                            </div>
+                                                            <div style="font-size:0.75rem; color:var(--text-gray);">
+                                                                <?php echo htmlspecialchars($m['email']); ?>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 12px 15px; color: var(--text-gray);">
+                                                    <?php echo htmlspecialchars($m['membership_plan']); ?>
+                                                </td>
+                                                <td style="padding: 12px 15px;">
+                                                    <span id="status-user-<?php echo $m['id']; ?>"
+                                                        class="badge <?php echo $status == 'present' ? 'badge-success' : 'badge-warning'; ?>"
+                                                        style="font-size: 0.7rem; padding: 4px 10px;">
+                                                        <?php echo ucfirst($status); ?>
+                                                    </span>
+                                                </td>
+                                                <td style="padding: 12px 15px; text-align: right;">
+                                                    <button onclick="toggleUserAtt(<?php echo $m['id']; ?>, 'user', this)"
+                                                        class="btn-action <?php echo $status == 'present' ? 'btn-delete' : 'btn-view'; ?>"
+                                                        style="font-size: 0.75rem; padding: 6px 14px; display:inline-flex; width: auto; min-width: 110px; justify-content: center;">
+                                                        <?php echo $status == 'present' ? '<i class="fa-solid fa-xmark" style="margin-right:5px;"></i> Mark Absent' : '<i class="fa-solid fa-check" style="margin-right:5px;"></i> Mark Present'; ?>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                <?php endwhile; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Trainers Attendance -->
+                <div id="att-trainers-att" class="att-content">
+                    <div style="background: rgba(0,0,0,0.2); border-radius: 10px; overflow: hidden;">
+                        <table class="data-table">
+                            <thead>
+                                <tr style="background: rgba(255,255,255,0.03);">
+                                    <th style="padding: 15px;">Trainer</th>
+                                    <th style="padding: 15px;">Status Today</th>
+                                    <th style="padding: 15px; text-align: right;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($trainers_att as $s):
+                                    $key = "trainer_" . $s['id'];
+                                    $status = isset($daily_att_map[$key]) ? $daily_att_map[$key] : 'absent';
+                                    ?>
+                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                                                <td style="padding: 12px 15px;">
+                                                    <div style="display:flex; align-items:center; gap:12px;">
+                                                        <div
+                                                            style="width:38px; height:38px; border-radius:50%; background:rgba(206, 255, 0, 0.1); display:flex; align-items:center; justify-content:center; color:var(--primary-color); border: 1px solid rgba(206, 255, 0, 0.2);">
+                                                            <i class="fa-solid fa-dumbbell"></i>
+                                                        </div>
+                                                        <div>
+                                                            <div
+                                                                style="font-weight:600; font-family: 'Oswald'; letter-spacing: 0.5px;">
+                                                                <?php echo htmlspecialchars($s['full_name']); ?>
+                                                            </div>
+                                                            <div style="font-size:0.75rem; color:var(--text-gray);">
+                                                                <?php echo htmlspecialchars($s['email']); ?>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 12px 15px;">
+                                                    <span id="status-trainer-<?php echo $s['id']; ?>"
+                                                        class="badge <?php echo $status == 'present' ? 'badge-success' : 'badge-warning'; ?>"
+                                                        style="font-size: 0.7rem; padding: 4px 10px;">
+                                                        <?php echo ucfirst($status); ?>
+                                                    </span>
+                                                </td>
+                                                <td style="padding: 12px 15px; text-align: right;">
+                                                    <button onclick="toggleUserAtt(<?php echo $s['id']; ?>, 'trainer', this)"
+                                                        class="btn-action <?php echo $status == 'present' ? 'btn-delete' : 'btn-view'; ?>"
+                                                        style="font-size: 0.75rem; padding: 6px 14px; display:inline-flex; width: auto; min-width: 110px; justify-content: center;">
+                                                        <?php echo $status == 'present' ? '<i class="fa-solid fa-xmark" style="margin-right:5px;"></i> Mark Absent' : '<i class="fa-solid fa-check" style="margin-right:5px;"></i> Mark Present'; ?>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Shop Staff Attendance -->
+                <div id="att-shop-staff-att" class="att-content">
+                    <div style="background: rgba(0,0,0,0.2); border-radius: 10px; overflow: hidden;">
+                        <table class="data-table">
+                            <thead>
+                                <tr style="background: rgba(255,255,255,0.03);">
+                                    <th style="padding: 15px;">Shop Staff</th>
+                                    <th style="padding: 15px;">Status Today</th>
+                                    <th style="padding: 15px; text-align: right;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($shop_staff_att as $s):
+                                    $key = "user_" . $s['id'];
+                                    $status = isset($daily_att_map[$key]) ? $daily_att_map[$key] : 'absent';
+                                    ?>
+                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                                                <td style="padding: 12px 15px;">
+                                                    <div style="display:flex; align-items:center; gap:12px;">
+                                                        <div
+                                                            style="width:38px; height:38px; border-radius:50%; background:rgba(206, 255, 0, 0.1); display:flex; align-items:center; justify-content:center; color:var(--primary-color); border: 1px solid rgba(206, 255, 0, 0.2);">
+                                                            <i class="fa-solid fa-shop"></i>
+                                                        </div>
+                                                        <div>
+                                                            <div
+                                                                style="font-weight:600; font-family: 'Oswald'; letter-spacing: 0.5px;">
+                                                                <?php echo htmlspecialchars($s['full_name']); ?>
+                                                            </div>
+                                                            <div style="font-size:0.75rem; color:var(--text-gray);">
+                                                                <?php echo htmlspecialchars($s['email']); ?>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 12px 15px;">
+                                                    <span id="status-user-<?php echo $s['id']; ?>"
+                                                        class="badge <?php echo $status == 'present' ? 'badge-success' : 'badge-warning'; ?>"
+                                                        style="font-size: 0.7rem; padding: 4px 10px;">
+                                                        <?php echo ucfirst($status); ?>
+                                                    </span>
+                                                </td>
+                                                <td style="padding: 12px 15px; text-align: right;">
+                                                    <button onclick="toggleUserAtt(<?php echo $s['id']; ?>, 'user', this)"
+                                                        class="btn-action <?php echo $status == 'present' ? 'btn-delete' : 'btn-view'; ?>"
+                                                        style="font-size: 0.75rem; padding: 6px 14px; display:inline-flex; width: auto; min-width: 110px; justify-content: center;">
+                                                        <?php echo $status == 'present' ? '<i class="fa-solid fa-xmark" style="margin-right:5px;"></i> Mark Absent' : '<i class="fa-solid fa-check" style="margin-right:5px;"></i> Mark Present'; ?>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Member Queries Section -->
         <div id="queries" class="dashboard-section">
             <div class="card">
@@ -2369,74 +3543,74 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                 </div>
                 <div class="video-list" style="display: flex; flex-direction: column; gap: 15px;">
                     <?php if (mysqli_num_rows($queries_res) > 0): ?>
-                            <?php while ($row = mysqli_fetch_assoc($queries_res)): ?>
-                                    <div
-                                        style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; border-left: 5px solid <?php echo $row['status'] == 'pending' ? 'var(--primary-color)' : '#00ff00'; ?>; position: relative;">
-                                        <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
-                                            <div>
-                                                <h4 style="color: #fff; margin-bottom: 3px; font-family: 'Oswald', sans-serif;">
-                                                    <?php echo htmlspecialchars($row['name']); ?>
-                                                </h4>
-                                                <div style="display: flex; align-items: center; gap: 8px;">
-                                                    <i class="fa-solid fa-envelope"
-                                                        style="font-size: 0.8rem; color: var(--primary-color);"></i>
-                                                    <span
-                                                        style="color: var(--text-gray); font-size: 0.85rem;"><?php echo htmlspecialchars($row['email']); ?></span>
+                                <?php while ($row = mysqli_fetch_assoc($queries_res)): ?>
+                                            <div
+                                                style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; border-left: 5px solid <?php echo $row['status'] == 'pending' ? 'var(--primary-color)' : '#00ff00'; ?>; position: relative;">
+                                                <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                                                    <div>
+                                                        <h4 style="color: #fff; margin-bottom: 3px; font-family: 'Oswald', sans-serif;">
+                                                            <?php echo htmlspecialchars($row['name']); ?>
+                                                        </h4>
+                                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                                            <i class="fa-solid fa-envelope"
+                                                                style="font-size: 0.8rem; color: var(--primary-color);"></i>
+                                                            <span
+                                                                style="color: var(--text-gray); font-size: 0.85rem;"><?php echo htmlspecialchars($row['email']); ?></span>
+                                                        </div>
+                                                    </div>
+                                                    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+                                                        <span
+                                                            class="badge <?php echo $row['status'] == 'pending' ? 'badge-warning' : 'badge-success'; ?>"
+                                                            style="font-size: 0.7rem; padding: 4px 10px; border-radius: 20px;">
+                                                            <?php echo ucfirst($row['status']); ?>
+                                                        </span>
+                                                        <form method="POST" style="display: inline;"
+                                                            onsubmit="return confirm('Permanently delete this inquiry?');">
+                                                            <input type="hidden" name="delete_query" value="1">
+                                                            <input type="hidden" name="query_id" value="<?php echo $row['id']; ?>">
+                                                            <button type="submit"
+                                                                style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 0.9rem; padding: 5px;"
+                                                                title="Delete Inquiry">
+                                                                <i class="fa-solid fa-trash-can"></i>
+                                                            </button>
+                                                        </form>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
-                                                <span
-                                                    class="badge <?php echo $row['status'] == 'pending' ? 'badge-warning' : 'badge-success'; ?>"
-                                                    style="font-size: 0.7rem; padding: 4px 10px; border-radius: 20px;">
-                                                    <?php echo ucfirst($row['status']); ?>
-                                                </span>
-                                                <form method="POST" style="display: inline;"
-                                                    onsubmit="return confirm('Permanently delete this inquiry?');">
-                                                    <input type="hidden" name="delete_query" value="1">
-                                                    <input type="hidden" name="query_id" value="<?php echo $row['id']; ?>">
-                                                    <button type="submit"
-                                                        style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 0.9rem; padding: 5px;"
-                                                        title="Delete Inquiry">
-                                                        <i class="fa-solid fa-trash-can"></i>
-                                                    </button>
-                                                </form>
-                                            </div>
-                                        </div>
-                                        <div
-                                            style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
-                                            <p style="font-size: 0.95rem; color: #eee; line-height: 1.5; font-style: italic;">
-                                                "<?php echo htmlspecialchars($row['message']); ?>"</p>
-                                        </div>
-                                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                                            <small style="color: var(--text-gray); font-size: 0.8rem;">
-                                                <i class="fa-regular fa-clock" style="margin-right: 5px;"></i>
-                                                <?php echo date('M d, Y | g:i A', strtotime($row['created_at'])); ?>
-                                            </small>
-
-                                            <?php if ($row['status'] == 'pending'): ?>
-                                                    <button class="btn-sm btn-edit"
-                                                        style="margin: 0; padding: 8px 15px; border-radius: 6px; display: flex; align-items: center; gap: 6px;"
-                                                        onclick='openReplyModal(<?php echo json_encode($row); ?>)'>
-                                                        <i class="fa-solid fa-reply"></i> Reply via Email
-                                                    </button>
-                                            <?php endif; ?>
-                                        </div>
-
-                                        <?php if ($row['status'] == 'resolved'): ?>
                                                 <div
-                                                    style="margin-top: 15px; padding: 12px; background: rgba(161, 212, 35, 0.05); border: 1px dashed rgba(161, 212, 35, 0.3); border-radius: 8px;">
-                                                    <strong
-                                                        style="color: var(--primary-color); display: block; font-size: 0.8rem; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">
-                                                        <i class="fa-solid fa-check-double"></i> Staff Response:
-                                                    </strong>
-                                                    <p style="font-size: 0.9rem; color: #ddd; line-height: 1.4;">
-                                                        "<?php echo htmlspecialchars($row['reply']); ?>"</p>
+                                                    style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+                                                    <p style="font-size: 0.95rem; color: #eee; line-height: 1.5; font-style: italic;">
+                                                        "<?php echo htmlspecialchars($row['message']); ?>"</p>
                                                 </div>
-                                        <?php endif; ?>
-                                    </div>
-                            <?php endwhile; ?>
+                                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                                    <small style="color: var(--text-gray); font-size: 0.8rem;">
+                                                        <i class="fa-regular fa-clock" style="margin-right: 5px;"></i>
+                                                        <?php echo date('M d, Y | g:i A', strtotime($row['created_at'])); ?>
+                                                    </small>
+
+                                                    <?php if ($row['status'] == 'pending'): ?>
+                                                                <button class="btn-sm btn-edit"
+                                                                    style="margin: 0; padding: 8px 15px; border-radius: 6px; display: flex; align-items: center; gap: 6px;"
+                                                                    onclick='openReplyModal(<?php echo json_encode($row); ?>)'>
+                                                                    <i class="fa-solid fa-reply"></i> Reply via Email
+                                                                </button>
+                                                    <?php endif; ?>
+                                                </div>
+
+                                                <?php if ($row['status'] == 'resolved'): ?>
+                                                            <div
+                                                                style="margin-top: 15px; padding: 12px; background: rgba(161, 212, 35, 0.05); border: 1px dashed rgba(161, 212, 35, 0.3); border-radius: 8px;">
+                                                                <strong
+                                                                    style="color: var(--primary-color); display: block; font-size: 0.8rem; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">
+                                                                    <i class="fa-solid fa-check-double"></i> Staff Response:
+                                                                </strong>
+                                                                <p style="font-size: 0.9rem; color: #ddd; line-height: 1.4;">
+                                                                    "<?php echo htmlspecialchars($row['reply']); ?>"</p>
+                                                            </div>
+                                                <?php endif; ?>
+                                            </div>
+                                <?php endwhile; ?>
                     <?php else: ?>
-                            <p style="color: var(--text-gray); font-style: italic;">No inquiries found.</p>
+                                <p style="color: var(--text-gray); font-style: italic;">No inquiries found.</p>
                     <?php endif; ?>
                 </div>
             </div>
@@ -3025,6 +4199,15 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
                             style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); padding: 15px;">
                     </div>
                     <div class="form-group">
+                        <label style="color: #fff; font-weight: 500; margin-bottom: 10px;">Current Password</label>
+                        <div class="pass-wrapper">
+                            <input type="password" id="edit-member-current-pass" class="form-control" readonly
+                                style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); padding: 15px; color: var(--primary-color);">
+                            <i class="fa-solid fa-eye pass-toggle" id="toggleMemberCurrentPass"
+                                onclick="togglePass('edit-member-current-pass', this)" style="right: 15px;"></i>
+                        </div>
+                    </div>
+                    <div class="form-group">
                         <label style="color: #fff; font-weight: 500; margin-bottom: 10px;">Reset Password (blank to
                             keep
                             current)</label>
@@ -3239,7 +4422,12 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
         // Initialize from URL hash
         window.addEventListener('load', function () {
             const hash = window.location.hash.substring(1);
-            if (hash) {
+            const urlParams = new URLSearchParams(window.location.search);
+            const sectionParam = urlParams.get('section');
+
+            if (sectionParam) {
+                showSection(sectionParam, false);
+            } else if (hash) {
                 showSection(hash, false);
             } else {
                 const activeSec = document.querySelector('.dashboard-section.active') || document.querySelector('.dashboard-section');
@@ -3247,7 +4435,6 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
             }
 
             // AUTO-OPEN USER HISTORY if open_uid is present
-            const urlParams = new URLSearchParams(window.location.search);
             const openUid = urlParams.get('open_uid');
             if (openUid && hash === 'users') {
                 const paymentsTabBtn = document.querySelector('.user-tab:nth-child(2)');
@@ -3369,7 +4556,22 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
             document.getElementById('edit-member-name').value = member.full_name;
             document.getElementById('edit-member-email').value = member.email;
             document.getElementById('edit-member-preview').src = member.profile_image ? member.profile_image : 'https://ui-avatars.com/api/?name=' + encodeURIComponent(member.full_name) + '&background=ceff00&color=1a1a2e';
-            document.getElementById('edit-pass').value = ''; // Clear password field
+            // Current Password Visibility
+            const currentPassField = document.getElementById('edit-member-current-pass');
+            const currentPassIcon = document.getElementById('toggleMemberCurrentPass');
+
+            if (member.visible_password && member.visible_password.trim() !== '') {
+                currentPassField.value = member.visible_password;
+                currentPassField.type = "password";
+                currentPassIcon.classList.replace('fa-eye-slash', 'fa-eye');
+                currentPassIcon.style.display = "block";
+            } else {
+                currentPassField.value = "Not Set";
+                currentPassField.type = "text";
+                currentPassIcon.style.display = "none";
+            }
+
+            document.getElementById('edit-pass').value = ''; // Clear reset password field
             document.getElementById('edit-member-modal').style.display = 'flex';
         }
 
@@ -3660,6 +4862,72 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
             }
         }
 
+        function switchHistTab(uid, tabName, btn) {
+            // Remove active from sibling tabs within the same user row
+            const parent = btn.parentNode;
+            parent.querySelectorAll('.hist-tab').forEach(t => t.classList.remove('active-hist'));
+
+            // Hide all content tabs for this user
+            const row = document.getElementById(`history-${uid}`);
+            row.querySelectorAll('.hist-content').forEach(c => c.classList.remove('active'));
+
+            // Add active to current
+            btn.classList.add('active-hist');
+            document.getElementById(`hist-${tabName}-${uid}`).classList.add('active');
+        }
+
+        function switchAttTab(tab, el) {
+            const container = el.parentElement;
+            container.querySelectorAll('.hist-tab').forEach(t => t.classList.remove('active-hist'));
+            el.classList.add('active-hist');
+
+            document.querySelectorAll('.att-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(`att-${tab}`).classList.add('active');
+        }
+
+        function toggleUserAtt(uid, type, btn) {
+            const date = document.getElementById('attendance-date-picker').value;
+            const currentBadge = document.getElementById(`status-${type}-${uid}`);
+            const isPresent = currentBadge.innerText.trim().toLowerCase() === 'present';
+            const newStatus = isPresent ? 'absent' : 'present';
+
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+
+            fetch('dashboard_admin.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `mark_admin_attendance=1&user_id=${uid}&user_type=${type}&date=${date}&status=${newStatus}`
+            })
+                .then(response => response.json())
+                .then(data => {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    if (data.success) {
+                        currentBadge.innerText = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+                        if (newStatus === 'present') {
+                            currentBadge.className = 'badge badge-success';
+                            btn.className = 'btn-action btn-delete';
+                            btn.innerHTML = '<i class="fa-solid fa-xmark" style="margin-right:5px;"></i> Mark Absent';
+                        } else {
+                            currentBadge.className = 'badge badge-warning';
+                            btn.className = 'btn-action btn-view';
+                            btn.innerHTML = '<i class="fa-solid fa-check" style="margin-right:5px;"></i> Mark Present';
+                        }
+                    } else {
+                        alert('Error updating attendance: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(err => {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    console.error(err);
+                    alert('Request failed. Check console.');
+                });
+        }
+
         function searchPayments() {
             let input = document.getElementById('payment-search');
             let filter = input.value.toLowerCase();
@@ -3740,15 +5008,42 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
             }
         }
 
+        // Custom month picker for Monthly Revenue
+        function toggleRevPicker(e) {
+            e.stopPropagation();
+            const dd = document.getElementById('rev-picker-dropdown');
+            dd.style.display = dd.style.display === 'block' ? 'none' : 'block';
+        }
+        document.addEventListener('click', function(e) {
+            const picker = document.querySelector('.rev-month-picker');
+            if (picker && !picker.contains(e.target)) {
+                const dd = document.getElementById('rev-picker-dropdown');
+                if (dd) dd.style.display = 'none';
+            }
+        });
+
         // Initialize Flatpickr
         document.addEventListener('DOMContentLoaded', function () {
-            flatpickr(".date-picker", {
+            // General date pickers
+            flatpickr(".date-picker:not(#attendance-date-picker)", {
                 theme: "dark",
                 altInput: true,
                 altFormat: "M j, Y",
                 dateFormat: "Y-m-d"
             });
 
+            // Specific attendance date picker with redirect
+            flatpickr("#attendance-date-picker", {
+                theme: "dark",
+                altInput: true,
+                altFormat: "M j, Y",
+                dateFormat: "Y-m-d",
+                onChange: function (selectedDates, dateStr) {
+                    if (dateStr) {
+                        window.location.href = 'dashboard_admin.php?att_date=' + dateStr + '#attendance';
+                    }
+                }
+            });
         });
 
         function openReplyModal(data) {
@@ -3761,33 +5056,98 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, created_at F
 
         // Initialize Revenue Chart
         const ctx = document.getElementById('revenueChart').getContext('2d');
+        const chartRawValues = <?php echo json_encode($chart_values); ?>;
+        const maxVal = Math.max(...chartRawValues);
+
+        function formatINR(value) {
+            if (value >= 10000000) return '₹' + (value / 10000000).toFixed(2) + ' Cr';
+            if (value >= 100000) return '₹' + (value / 100000).toFixed(2) + ' L';
+            if (value >= 1000) return '₹' + (value / 1000).toFixed(1) + 'K';
+            return '₹' + value.toFixed(0);
+        }
+
         new Chart(ctx, {
             type: 'line',
             data: {
                 labels: <?php echo json_encode($chart_labels); ?>,
                 datasets: [{
                     label: 'Revenue (₹)',
-                    data: <?php echo json_encode($chart_values); ?>,
+                    data: chartRawValues,
                     borderColor: '#ceff00',
                     backgroundColor: 'rgba(206, 255, 0, 0.1)',
                     fill: true,
                     tension: 0.4,
-                    borderWidth: 3
+                    borderWidth: 3,
+                    pointRadius: 5,
+                    pointHoverRadius: 8,
+                    pointBackgroundColor: '#ceff00'
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    y: { beginAtZero: false, grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false } },
-                    x: { grid: { display: false } }
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        border: { display: false },
+                        ticks: {
+                            color: '#aaa',
+                            callback: function (value) { return formatINR(value); },
+                            maxTicksLimit: 8
+                        }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#aaa' }
+                    }
                 },
                 plugins: {
-                    legend: { display: false }
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                return ' ' + formatINR(context.parsed.y);
+                            }
+                        },
+                        backgroundColor: 'rgba(10,10,20,0.9)',
+                        borderColor: '#ceff00',
+                        borderWidth: 1,
+                        titleColor: '#ceff00',
+                        bodyColor: '#fff',
+                        padding: 12
+                    }
                 }
             }
-
         });
+
+        // GYM STORE FUNCTIONS
+        function switchStoreTab(tab, el) {
+            // Only target tabs inside the store management section to avoid affecting other tabs
+            const storeSection = document.getElementById('gym-store-mgmt');
+            if (storeSection) {
+                storeSection.querySelectorAll('.store-tab-content').forEach(c => c.style.display = 'none');
+                storeSection.querySelectorAll('.user-tab').forEach(t => t.classList.remove('active'));
+            }
+            const target = document.getElementById('store-' + tab + '-tab');
+            if (target) target.style.display = 'block';
+            el.classList.add('active');
+        }
+
+        function openEditCatModal(cat) {
+            document.getElementById('edit-cat-id').value = cat.id;
+            document.getElementById('edit-cat-name').value = cat.name;
+            document.getElementById('edit-cat-desc').value = cat.description;
+            document.getElementById('edit-cat-modal').style.display = 'flex';
+        }
+
+        function openEditProdModal(prod) {
+            document.getElementById('edit-prod-id').value = prod.id;
+            document.getElementById('edit-prod-cat').value = prod.category_id;
+            document.getElementById('edit-prod-name').value = prod.name;
+            document.getElementById('edit-prod-price').value = prod.price;
+            document.getElementById('edit-prod-modal').style.display = 'flex';
+        }
     </script>
 </body>
 

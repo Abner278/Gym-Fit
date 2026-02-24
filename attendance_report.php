@@ -32,7 +32,7 @@ $days_in_month = date('t', mktime(0, 0, 0, $month, 1, $year));
 $start_date = "$year-" . sprintf('%02d', $month) . "-01";
 $end_date = "$year-" . sprintf('%02d', $month) . "-" . $days_in_month;
 
-$sql = "SELECT date, status FROM attendance WHERE user_id = $user_id AND date BETWEEN '$start_date' AND '$end_date' ORDER BY date ASC";
+$sql = "SELECT date, status FROM attendance WHERE user_id = $user_id AND user_type = 'user' AND date BETWEEN '$start_date' AND '$end_date' ORDER BY date ASC";
 $result = mysqli_query($link, $sql);
 
 $attendance_map = [];

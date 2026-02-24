@@ -1,6 +1,6 @@
 <?php
 require_once 'config.php';
-require_once 'dompdf_setup.php'; // We might need a PDF library, but relying on html2pdf front-end or similar is easier. 
+// require_once 'dompdf_setup.php'; // Removed missing file requirement
 // However, the prompt implies "seen by staff as pdf", likely meaning download.
 // Since we used html2pdf in the member report, let's stick to that pattern for consistency if possible, 
 // OR create a print-friendly page. 
@@ -8,7 +8,7 @@ require_once 'dompdf_setup.php'; // We might need a PDF library, but relying on 
 // Actually, let's make a dedicated page for this that can be printed/downloaded via browser print or html2pdf.
 
 session_start();
-if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "staff") {
+if (!isset($_SESSION["loggedin"]) || !in_array($_SESSION["role"], ["staff", "trainer"])) {
     header("location: login.php");
     exit;
 }
@@ -19,7 +19,7 @@ $display_date = date('F d, Y', strtotime($date_filter));
 // Fetch all members to list them, and check their attendance status for the specific date
 $sql = "SELECT u.full_name, u.email, u.id, a.status 
         FROM users u 
-        LEFT JOIN attendance a ON u.id = a.user_id AND a.date = '$date_filter'
+        LEFT JOIN attendance a ON u.id = a.user_id AND a.user_type = 'user' AND a.date = '$date_filter'
         WHERE u.role = 'member' 
         ORDER BY u.full_name ASC";
 
@@ -202,7 +202,7 @@ $attendance_rate = ($total_members > 0) ? round(($present_count / $total_members
             border-radius: 50px;
             font-weight: bold;
             cursor: pointer;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
             display: flex;
             align-items: center;
             gap: 10px;
@@ -215,9 +215,19 @@ $attendance_rate = ($total_members > 0) ? round(($present_count / $total_members
         }
 
         @media print {
-            .no-print { display: none; }
-            body { padding: 0; background: #fff; }
-            .report-box { box-shadow: none; padding: 0; }
+            .no-print {
+                display: none;
+            }
+
+            body {
+                padding: 0;
+                background: #fff;
+            }
+
+            .report-box {
+                box-shadow: none;
+                padding: 0;
+            }
         }
     </style>
 </head>
@@ -277,12 +287,15 @@ $attendance_rate = ($total_members > 0) ? round(($present_count / $total_members
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($members)): ?>
-                    <tr><td colspan="3" style="text-align:center;">No members found.</td></tr>
+                    <tr>
+                        <td colspan="3" style="text-align:center;">No members found.</td>
+                    </tr>
                 <?php endif; ?>
             </tbody>
         </table>
 
-        <div style="margin-top: 40px; text-align: center; color: #999; font-size: 0.8rem; border-top: 1px solid #eee; padding-top: 20px;">
+        <div
+            style="margin-top: 40px; text-align: center; color: #999; font-size: 0.8rem; border-top: 1px solid #eee; padding-top: 20px;">
             <p>GymFit Staff Report • Generated on <?php echo date('Y-m-d H:i:s'); ?></p>
         </div>
     </div>
@@ -311,4 +324,5 @@ $attendance_rate = ($total_members > 0) ? round(($present_count / $total_members
         }
     </script>
 </body>
+
 </html>

@@ -3,7 +3,7 @@ require_once 'config.php';
 session_start();
 
 // Ensure only staff can access this
-if (!isset($_SESSION["loggedin"]) || $_SESSION["role"] !== "staff") {
+if (!isset($_SESSION["loggedin"]) || !in_array($_SESSION["role"], ["staff", "trainer"])) {
     header("location: login.php");
     exit;
 }
@@ -44,7 +44,7 @@ $days_in_month = date('t', mktime(0, 0, 0, $month, 1, $year));
 $start_date = "$year-" . sprintf('%02d', $month) . "-01";
 $end_date = "$year-" . sprintf('%02d', $month) . "-" . $days_in_month;
 
-$sql = "SELECT date, status FROM attendance WHERE user_id = $target_user_id AND date BETWEEN '$start_date' AND '$end_date' ORDER BY date ASC";
+$sql = "SELECT date, status FROM attendance WHERE user_id = $target_user_id AND user_type = 'user' AND date BETWEEN '$start_date' AND '$end_date' ORDER BY date ASC";
 $result = mysqli_query($link, $sql);
 
 // Handle Attendance Toggle
@@ -54,14 +54,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['toggle_attendance'])) 
 
     if ($action == 'add') {
         // Insert or update to 'present'
-        $sql = "INSERT INTO attendance (user_id, date, status) 
-                VALUES ($target_user_id, '$date_toggle', 'present')
+        $sql = "INSERT INTO attendance (user_id, user_type, date, status) 
+                VALUES ($target_user_id, 'user', '$date_toggle', 'present')
                 ON DUPLICATE KEY UPDATE status = 'present'";
         mysqli_query($link, $sql);
     } elseif ($action == 'remove') {
         // Update to 'absent' instead of deleting
-        $sql = "INSERT INTO attendance (user_id, date, status) 
-                VALUES ($target_user_id, '$date_toggle', 'absent')
+        $sql = "INSERT INTO attendance (user_id, user_type, date, status) 
+                VALUES ($target_user_id, 'user', '$date_toggle', 'absent')
                 ON DUPLICATE KEY UPDATE status = 'absent'";
         mysqli_query($link, $sql);
     }

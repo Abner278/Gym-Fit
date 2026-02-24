@@ -31,8 +31,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
             if (mysqli_stmt_execute($stmt)) {
 
-                // ALSO UPDATE USER MEMBERSHIP STATUS - ONLY IF NOT A STORE PURCHASE
-                if (stripos($plan_name, 'Store:') === false) {
+                // ALSO UPDATE USER MEMBERSHIP STATUS - ONLY IF NOT A STORE PURCHASE AND NOT AN APPOINTMENT
+                if (stripos($plan_name, 'Store:') === false && stripos($plan_name, 'Appointment') === false) {
                     // Since they paid, we should update their membership plan and expiry
                     // Calculate new expiry (assuming 1 month for Monthly, 12 for Yearly etc, or standard logic)
                     // For simplicity, just add 30 days if it's Monthly, 365 if Yearly, else 30 days default
