@@ -68,32 +68,51 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_profile'])) {
         $target_file = $target_dir . $new_filename;
 
         if (move_uploaded_file($_FILES["profile_image_file"]["tmp_name"], $target_file)) {
-            mysqli_query($link, "UPDATE users SET profile_image = '$target_file' WHERE id = $user_id");
+            $table = ($_SESSION["role"] === "trainer") ? "trainers" : "users";
+            $col = ($_SESSION["role"] === "trainer") ? "image" : "profile_image";
+            mysqli_query($link, "UPDATE $table SET $col = '$target_file' WHERE id = $user_id");
             $profile_image = $target_file;
         }
     }
 
     // Handle Password
-    $pass_query = "";
+    $pass_sql = "";
     if (!empty($_POST['new_password'])) {
         $new_pass = password_hash($_POST['new_password'], PASSWORD_DEFAULT);
-        $pass_query = ", password = '$new_pass'";
+        $pass_sql = ", password = ?";
     }
 
-    // Check if email is already taken by another user
-    $check_email_sql = "SELECT id FROM users WHERE email = '$email' AND id != $user_id";
-    $email_result = mysqli_query($link, $check_email_sql);
+    // Check if email is already taken by another user (only relevant for 'users' table, trainers might share email or be different logic)
+    $email_taken = false;
+    if ($_SESSION["role"] !== "trainer") {
+        $stmt_check = mysqli_prepare($link, "SELECT id FROM users WHERE email = ? AND id != ?");
+        mysqli_stmt_bind_param($stmt_check, "si", $email, $user_id);
+        mysqli_stmt_execute($stmt_check);
+        if (mysqli_stmt_get_result($stmt_check)->num_rows > 0)
+            $email_taken = true;
+    }
 
-    if (mysqli_num_rows($email_result) > 0) {
+    if ($email_taken) {
         $msg = "Error: This email address is already registered to another account.";
     } else {
-        $update_sql = "UPDATE users SET full_name = '$full_name', email = '$email' $pass_query WHERE id = $user_id";
-        if (mysqli_query($link, $update_sql)) {
-            $_SESSION["full_name"] = $full_name;
-            $_SESSION["email"] = $email;
-            $msg = "Profile updated successfully!";
-        } else {
-            $msg = "Error: Failed to update profile. Please try again.";
+        $table = ($_SESSION["role"] === "trainer") ? "trainers" : "users";
+        $name_col = ($_SESSION["role"] === "trainer") ? "name" : "full_name";
+
+        $update_sql = "UPDATE $table SET $name_col = ?, email = ? $pass_sql WHERE id = ?";
+        if ($stmt_upd = mysqli_prepare($link, $update_sql)) {
+            if (!empty($_POST['new_password'])) {
+                mysqli_stmt_bind_param($stmt_upd, "sssi", $full_name, $email, $new_pass, $user_id);
+            } else {
+                mysqli_stmt_bind_param($stmt_upd, "ssi", $full_name, $email, $user_id);
+            }
+
+            if (mysqli_stmt_execute($stmt_upd)) {
+                $_SESSION["full_name"] = $full_name;
+                $_SESSION["email"] = $email;
+                $msg = "Profile updated successfully!";
+            } else {
+                $msg = "Error: Failed to update profile. " . mysqli_error($link);
+            }
         }
     }
 }
@@ -797,6 +816,8 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
 
         .sidebar-footer {
             margin-top: auto;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .btn-logout {
@@ -804,8 +825,16 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             text-decoration: none;
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 12px 15px;
+            gap: 12px;
+            padding: 15px;
+            border-radius: 8px;
+            transition: 0.3s;
+            opacity: 0.8;
+        }
+
+        .btn-logout:hover {
+            opacity: 1;
+            background: rgba(255, 77, 77, 0.1);
         }
 
         /* Main Content */
@@ -1427,14 +1456,14 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         <?php echo $msg; ?>
                     </p>
                     <script>
-                                                                                                                                                    setT                                       imeout(() => {
-                                                                                                                                                        const msgBox = document.getElementById("staff-msg");
-                                                                                                                                                        if (msgBox) {
-                                                                                                                                                            msgBox.style.transition = "opacity 0.5s";
-                                                                                                                                                            msgBox.style.opacity = "0";
-                                                                                                                                                            setTimeout(() => msgBox.remove(), 500);
-                                                                                                                                                        }
-                                                                                                                                                    }, 4000);
+                                                                                                                                                            setT                                       imeout(() => {
+                                                                                                                                                                const msgBox = document.getElementById("staff-msg");
+                                                                                                                                                                if (msgBox) {
+                                                                                                                                                                    msgBox.style.transition = "opacity 0.5s";
+                                                                                                                                                                    msgBox.style.opacity = "0";
+                                                                                                                                                                    setTimeout(() => msgBox.remove(), 500);
+                                                                                                                                                                }
+                                                                                                                                                            }, 4000);
                     </script>
                 <?php endif; ?>
 
@@ -1921,573 +1950,574 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
 
 
 
-    <!-- Member Reports Section -->
-    <div id="reports" class="dashboard-section">
-        <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Member Attendance</h2>
+        <!-- Member Reports Section -->
+        <div id="reports" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Member Attendance</h2>
 
-        <?php
-        // Calculate statistics
-        $total_members_res = mysqli_query($link, "SELECT COUNT(*) as total FROM users WHERE role = 'member'");
-        $total_members = mysqli_fetch_assoc($total_members_res)['total'];
-        ?>
+            <?php
+            // Calculate statistics
+            $total_members_res = mysqli_query($link, "SELECT COUNT(*) as total FROM users WHERE role = 'member'");
+            $total_members = mysqli_fetch_assoc($total_members_res)['total'];
+            ?>
 
-        <!-- Statistics Boxes -->
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 25px;">
-            <div
-                style="background: linear-gradient(135deg, rgba(206, 255, 0, 0.1), rgba(206, 255, 0, 0.05)); border: 1px solid rgba(206, 255, 0, 0.2); border-radius: 12px; padding: 25px; display: flex; align-items: center; gap: 15px;">
+            <!-- Statistics Boxes -->
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 25px;">
                 <div
-                    style="background: rgba(206, 255, 0, 0.2); width: 50px; height: 50px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                    <i class="fa-solid fa-users" style="color: var(--primary-color); font-size: 1.5rem;"></i>
-                </div>
-                <div>
+                    style="background: linear-gradient(135deg, rgba(206, 255, 0, 0.1), rgba(206, 255, 0, 0.05)); border: 1px solid rgba(206, 255, 0, 0.2); border-radius: 12px; padding: 25px; display: flex; align-items: center; gap: 15px;">
                     <div
-                        style="font-size: 0.75rem; color: var(--text-gray); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">
-                        Total Members</div>
-                    <div
-                        style="font-size: 1.8rem; font-weight: bold; color: var(--primary-color); font-family: 'Oswald', sans-serif;">
-                        <?php echo $total_members; ?>
+                        style="background: rgba(206, 255, 0, 0.2); width: 50px; height: 50px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                        <i class="fa-solid fa-users" style="color: var(--primary-color); font-size: 1.5rem;"></i>
+                    </div>
+                    <div>
+                        <div
+                            style="font-size: 0.75rem; color: var(--text-gray); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">
+                            Total Members</div>
+                        <div
+                            style="font-size: 1.8rem; font-weight: bold; color: var(--primary-color); font-family: 'Oswald', sans-serif;">
+                            <?php echo $total_members; ?>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
-            <div style="position: relative; width: 300px;">
-                <i class="fa-solid fa-magnifying-glass"
-                    style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
-                <input type="text" id="report-search" onkeyup="searchReports()" placeholder="Search members"
-                    style="width: 100%; padding: 10px 15px 10px 40px; border-radius: 30px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+                <div style="position: relative; width: 300px;">
+                    <i class="fa-solid fa-magnifying-glass"
+                        style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-gray); font-size: 0.9rem;"></i>
+                    <input type="text" id="report-search" onkeyup="searchReports()" placeholder="Search members"
+                        style="width: 100%; padding: 10px 15px 10px 40px; border-radius: 30px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 0.9rem; outline: none; transition: 0.3s;">
+                </div>
             </div>
-        </div>
 
-        <div
-            style="background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;max-height: 600px; overflow-y: auto;">
-            <style>
-                /* Custom scrollbar styling */
-                #reports .dashboard-section>div:last-of-type::-webkit-scrollbar {
-                    width: 8px;
-                }
-
-                #reports .dashboard-section>div:last-of-type::-webkit-scrollbar-track {
-                    background: rgba(0, 0, 0, 0.2);
-                    border-radius: 4px;
-                }
-
-                #reports .dashboard-section>div:last-of-type::-webkit-scrollbar-thumb {
-                    background: var(--primary-color);
-                    border-radius: 4px;
-                }
-
-                #reports .dashboard-section>div:last-of-type::-webkit-scrollbar-thumb:hover {
-                    background: rgba(206, 255, 0, 0.8);
-                }
-            </style>
-            <table style="width: 100%; border-collapse: collapse;">
-                <thead style="position: sticky; top: 0; z-index: 10; background: rgba(0,0,0,0.9);">
-                    <tr style="background: rgba(0,0,0,0.2); text-align: left;">
-                        <th
-                            style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
-                            Member Name</th>
-                        <th
-                            style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
-                            Email</th>
-                        <th
-                            style="padding: 15px 20px; text-align: right; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
-                            Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php
-                    // Fetch ALL members for attendance management
-                    $report_members_res = mysqli_query($link, "SELECT * FROM users WHERE role = 'member' ORDER BY full_name ASC");
-
-                    if (mysqli_num_rows($report_members_res) > 0):
-                        while ($m = mysqli_fetch_assoc($report_members_res)):
-                            // Check if present today
-                            $today_chk = date('Y-m-d');
-                            $chk_res = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = " . $m['id'] . " AND date = '$today_chk'");
-                            $is_already_present = mysqli_num_rows($chk_res) > 0;
-                            ?>
-                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                                <td style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
-                                                    <?php echo htmlspecialchars($m['full_name']); ?>
-                                                </td>
-                                                <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
-                                                    <?php echo htmlspecialchars($m['email']); ?>
-                                                </td>
-                                                <td style="padding: 15px 20px; text-align: right;">
-                                                    <button
-                                                        onclick="openAttendanceModal(<?php echo $m['id']; ?>, '<?php echo htmlspecialchars(addslashes($m['full_name'])); ?>')"
-                                                        class="btn-sm"
-                                                        style="background: var(--primary-color); color: var(--secondary-color); font-weight: bold; padding: 8px 15px; font-size: 0.85rem; border:none; border-radius:4px; cursor:pointer;">
-                                                        <i class="fa-solid fa-calendar-days"></i> Attendance
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                            <?php
-                        endwhile;
-                    else:
-                        ?>
-                                <tr>
-                                    <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
-                                        No members found.
-                                    </td>
-                                </tr>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-
-    <!-- Client Measurements Section -->
-    <div id="client_measurements" class="dashboard-section">
-        <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Client Measurements</h2>
-        <div class="dashboard-card" style="max-width: 800px;">
-            <form id="client-measurements-form" onsubmit="event.preventDefault(); saveMeasurements();">
-                <input type="hidden" name="ajax_action" value="save_measurement">
-
-                <div class="form-group">
-                    <label>Select Member</label>
-                    <select name="user_id" id="cm_user_id" class="form-control" required
-                        onchange="loadMeasurementHistory(this.value)">
-                        <option value="">-- Choose a Member --</option>
-                        <?php
-                        // Fetch all members for the dropdown
-                        $measure_members = mysqli_query($link, "SELECT id, full_name, email FROM users WHERE role = 'member' ORDER BY full_name ASC");
-                        while ($mm = mysqli_fetch_assoc($measure_members)):
-                            ?>
-                                    <option value="<?php echo $mm['id']; ?>" style="background: #1a1a2e; color: #fff;">
-                                        <?php echo htmlspecialchars($mm['full_name']); ?>
-                                        (<?php echo htmlspecialchars($mm['email']); ?>)
-                                    </option>
-                        <?php endwhile; ?>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label>Date Recorded</label>
-                    <input type="text" name="date" id="cm_recorded_date" class="form-control"
-                        value="<?php echo date('Y-m-d'); ?>" required placeholder="Select Date">
-                </div>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-                    <div class="form-group">
-                        <label>Weight (kg)</label>
-                        <input type="number" step="0.1" name="weight" id="cm_weight" class="form-control"
-                            placeholder="0.0" min="20" max="600">
-                    </div>
-                    <div class="form-group">
-                        <label>Height (cm)</label>
-                        <input type="number" step="0.1" name="height" id="cm_height" class="form-control"
-                            placeholder="0.0" min="50" max="300">
-                    </div>
-                </div>
-
-                <h4
-                    style="color:var(--primary-color); border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px; margin-bottom:20px;">
-                    Body Part Measurements (inches)</h4>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-                    <div class="form-group">
-                        <label>Chest</label>
-                        <input type="number" step="0.1" name="chest" id="cm_chest" class="form-control"
-                            placeholder="0.0" min="10" max="150">
-                    </div>
-                    <div class="form-group">
-                        <label>Waist</label>
-                        <input type="number" step="0.1" name="waist" id="cm_waist" class="form-control"
-                            placeholder="0.0" min="10" max="150">
-                    </div>
-                    <div class="form-group">
-                        <label>Arms</label>
-                        <input type="number" step="0.1" name="arms" id="cm_arms" class="form-control" placeholder="0.0"
-                            min="5" max="60">
-                    </div>
-                    <div class="form-group">
-                        <label>Thighs</label>
-                        <input type="number" step="0.1" name="thighs" id="cm_thighs" class="form-control"
-                            placeholder="0.0" min="5" max="60">
-                    </div>
-                </div>
-
-                <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-                <script>
-                    document.addEventListener('DOMContentLoaded', function () {
-                        flatpickr("#cm_recorded_date", {
-                            dateFormat: "Y-m-d",
-                            defaultDate: "today",
-                            theme: "dark"
-                        });
-                    });
-
-                    function saveMeasurements() {
-                        if (!validateClientMeasurements()) return;
-
-                        const form = document.getElementById('client-measurements-form');
-                        const formData = new FormData(form);
-
-                        fetch('dashboard_staff.php', {
-                            method: 'POST',
-                            body: formData
-                        })
-                            .then(response => response.json())
-                            .then(data => {
-                                if (data.success) {
-                                    alert('Measurements saved successfully!');
-                                    // Reload history for the current user
-                                    const userId = document.getElementById('cm_user_id').value;
-                                    if (userId) {
-                                        loadMeasurementHistory(userId);
-                                    }
-                                    // Optional: Clear inputs but keep user selected
-                                    // form.reset(); // This would clear the user selection too, which is annoying
-                                    // Better to clear only measurement fields:
-                                    ['cm_weight', 'cm_height', 'cm_chest', 'cm_waist', 'cm_arms', 'cm_thighs'].forEach(id => {
-                                        document.getElementById(id).value = '';
-                                    });
-                                } else {
-                                    alert('Error saving: ' + (data.message || 'Unknown error'));
-                                }
-                            })
-                            .catch(err => {
-                                console.error(err);
-                                alert('Request failed.');
-                            });
+            <div
+                style="background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;max-height: 600px; overflow-y: auto;">
+                <style>
+                    /* Custom scrollbar styling */
+                    #reports .dashboard-section>div:last-of-type::-webkit-scrollbar {
+                        width: 8px;
                     }
 
-                    function loadMeasurementHistory(userId) {
-                        const container = document.getElementById('measurement-history-body');
-                        if (!userId) {
-                            container.innerHTML = '<tr><td colspan="7" style="padding:20px; text-align:center; color:var(--text-gray);">Select a user to view history.</td></tr>';
-                            return;
-                        }
-
-                        const formData = new FormData();
-                        formData.append('ajax_action', 'fetch_client_measurements');
-                        formData.append('user_id', userId);
-
-                        fetch('dashboard_staff.php', {
-                            method: 'POST',
-                            body: formData
-                        })
-                            .then(response => response.text())
-                            .then(html => {
-                                container.innerHTML = html;
-                                applyPagination();
-                            })
-                            .catch(err => console.error(err));
+                    #reports .dashboard-section>div:last-of-type::-webkit-scrollbar-track {
+                        background: rgba(0, 0, 0, 0.2);
+                        border-radius: 4px;
                     }
 
-                    function deleteMeasurement(id) {
-                        if (!confirm('Are you sure you want to delete this measurement?')) return;
-
-                        const formData = new FormData();
-                        formData.append('ajax_action', 'delete_measurement');
-                        formData.append('measurement_id', id);
-
-                        fetch('dashboard_staff.php', { method: 'POST', body: formData })
-                            .then(res => res.json())
-                            .then(data => {
-                                if (data.success) {
-                                    // Reload history
-                                    const userId = document.getElementById('cm_user_id').value;
-                                    loadMeasurementHistory(userId);
-                                } else {
-                                    alert('Error deleting: ' + (data.message || 'Unknown error'));
-                                }
-                            });
+                    #reports .dashboard-section>div:last-of-type::-webkit-scrollbar-thumb {
+                        background: var(--primary-color);
+                        border-radius: 4px;
                     }
 
-                    // Simple client-side pagination
-                    let currentPage = 1;
-                    const recordsPerPage = 5;
-
-                    function applyPagination() {
-                        const rows = document.querySelectorAll('#measurement-history-body tr');
-                        const totalRows = rows.length;
-
-                        // If no data or just the empty message
-                        if (totalRows === 1 && rows[0].innerText.includes('No measurements')) {
-                            document.getElementById('history-pagination').style.display = 'none';
-                            return;
-                        }
-
-                        const totalPages = Math.ceil(totalRows / recordsPerPage);
-
-                        if (totalPages <= 1) {
-                            document.getElementById('history-pagination').style.display = 'none';
-                            rows.forEach(r => r.style.display = '');
-                            return;
-                        }
-
-                        document.getElementById('history-pagination').style.display = 'flex';
-
-                        // Adjust currentPage if out of bounds
-                        if (currentPage > totalPages) currentPage = totalPages;
-                        if (currentPage < 1) currentPage = 1;
-
-                        const start = (currentPage - 1) * recordsPerPage;
-                        const end = start + recordsPerPage;
-
-                        rows.forEach((row, index) => {
-                            if (index >= start && index < end) {
-                                row.style.display = '';
-                            } else {
-                                row.style.display = 'none';
-                            }
-                        });
-
-                        document.getElementById('page-indicator').innerText = `Page ${currentPage} of ${totalPages}`;
-
-                        document.getElementById('prev-btn').disabled = currentPage === 1;
-                        document.getElementById('next-btn').disabled = currentPage === totalPages;
-                        document.getElementById('prev-btn').style.opacity = currentPage === 1 ? '0.5' : '1';
-                        document.getElementById('next-btn').style.opacity = currentPage === totalPages ? '0.5' : '1';
+                    #reports .dashboard-section>div:last-of-type::-webkit-scrollbar-thumb:hover {
+                        background: rgba(206, 255, 0, 0.8);
                     }
-
-                    function changePage(delta) {
-                        currentPage += delta;
-                        applyPagination();
-                    }
-
-                    function validateClientMeasurements() {
-                        const weight = parseFloat(document.getElementById('cm_weight').value);
-                        const height = parseFloat(document.getElementById('cm_height').value);
-                        const chest = parseFloat(document.getElementById('cm_chest').value);
-                        const waist = parseFloat(document.getElementById('cm_waist').value);
-                        const arms = parseFloat(document.getElementById('cm_arms').value);
-                        const thighs = parseFloat(document.getElementById('cm_thighs').value);
-
-                        if (!isNaN(weight) && (weight < 20 || weight > 600)) {
-                            alert("Weight must be between 20 and 600 kg");
-                            return false;
-                        }
-                        if (!isNaN(height) && (height < 50 || height > 300)) {
-                            alert("Height must be between 50 and 300 cm");
-                            return false;
-                        }
-                        if (!isNaN(chest) && (chest < 10 || chest > 150)) {
-                            alert("Chest measurement must be between 10 and 150 inches");
-                            return false;
-                        }
-                        if (!isNaN(waist) && (waist < 10 || waist > 150)) {
-                            alert("Waist measurement must be between 10 and 150 inches");
-                            return false;
-                        }
-                        if (!isNaN(arms) && (arms < 5 || arms > 60)) {
-                            alert("Arm measurement must be between 5 and 60 inches");
-                            return false;
-                        }
-                        if (!isNaN(thighs) && (thighs < 5 || thighs > 60)) {
-                            alert("Thigh measurement must be between 5 and 60 inches");
-                            return false;
-                        }
-                        return true;
-                    }
-                </script>
-
-                <button type="submit" class="btn-action">
-                    <i class="fa-solid fa-save"></i> Save Measurements
-                </button>
-            </form>
-        </div>
-
-        <!-- History Section -->
-        <h3 style="font-family: 'Oswald', sans-serif; margin: 30px 0 20px 0;">Measurement History</h3>
-        <div class="dashboard-card">
-            <div style="overflow-x: auto;">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Weight</th>
-                            <th>Height</th>
-                            <th>Chest</th>
-                            <th>Waist</th>
-                            <th>Arms</th>
-                            <th>Thighs</th>
-                            <th style="text-align: right;">Action</th>
+                </style>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead style="position: sticky; top: 0; z-index: 10; background: rgba(0,0,0,0.9);">
+                        <tr style="background: rgba(0,0,0,0.2); text-align: left;">
+                            <th
+                                style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
+                                Member Name</th>
+                            <th
+                                style="padding: 15px 20px; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
+                                Email</th>
+                            <th
+                                style="padding: 15px 20px; text-align: right; color: var(--text-gray); font-size: 0.85rem; text-transform: uppercase;">
+                                Action</th>
                         </tr>
                     </thead>
-                    <tbody id="measurement-history-body">
-                        <tr>
-                            <td colspan="8" style="padding: 20px; text-align: center; color: var(--text-gray);">
-                                Select a member to view their history.
-                            </td>
-                        </tr>
+                    <tbody>
+                        <?php
+                        // Fetch ALL members for attendance management
+                        $report_members_res = mysqli_query($link, "SELECT * FROM users WHERE role = 'member' ORDER BY full_name ASC");
+
+                        if (mysqli_num_rows($report_members_res) > 0):
+                            while ($m = mysqli_fetch_assoc($report_members_res)):
+                                // Check if present today
+                                $today_chk = date('Y-m-d');
+                                $chk_res = mysqli_query($link, "SELECT id FROM attendance WHERE user_id = " . $m['id'] . " AND date = '$today_chk'");
+                                $is_already_present = mysqli_num_rows($chk_res) > 0;
+                                ?>
+                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                    <td style="padding: 15px 20px; font-family: 'Oswald', sans-serif; letter-spacing: 0.5px;">
+                                        <?php echo htmlspecialchars($m['full_name']); ?>
+                                    </td>
+                                    <td style="padding: 15px 20px; color: var(--text-gray); font-size: 0.9rem;">
+                                        <?php echo htmlspecialchars($m['email']); ?>
+                                    </td>
+                                    <td style="padding: 15px 20px; text-align: right;">
+                                        <button
+                                            onclick="openAttendanceModal(<?php echo $m['id']; ?>, '<?php echo htmlspecialchars(addslashes($m['full_name'])); ?>')"
+                                            class="btn-sm"
+                                            style="background: var(--primary-color); color: var(--secondary-color); font-weight: bold; padding: 8px 15px; font-size: 0.85rem; border:none; border-radius:4px; cursor:pointer;">
+                                            <i class="fa-solid fa-calendar-days"></i> Attendance
+                                        </button>
+                                    </td>
+                                </tr>
+                                <?php
+                            endwhile;
+                        else:
+                            ?>
+                            <tr>
+                                <td colspan="3" style="padding: 30px; text-align: center; color: var(--text-gray);">
+                                    No members found.
+                                </td>
+                            </tr>
+                        <?php endif; ?>
                     </tbody>
                 </table>
             </div>
+        </div>
 
-            <!-- Pagination Controls -->
-            <div id="history-pagination"
-                style="display:none; justify-content:center; align-items:center; gap:15px; padding:20px 15px; border-top:1px solid rgba(255,255,255,0.05);">
-                <button id="prev-btn" onclick="changePage(-1)" class="btn-sm btn-edit"
-                    style="padding: 8px 20px; font-family: 'Oswald'; text-transform: uppercase; letter-spacing: 1px;">&lt;
-                    Prev</button>
-                <span id="page-indicator"
-                    style="color:var(--primary-color); font-family: 'Oswald'; font-size: 0.9rem; letter-spacing: 1px;">Page
-                    1 of 1</span>
-                <button id="next-btn" onclick="changePage(1)" class="btn-sm btn-edit"
-                    style="padding: 8px 20px; font-family: 'Oswald'; text-transform: uppercase; letter-spacing: 1px;">Next
-                    &gt;</button>
+
+        <!-- Client Measurements Section -->
+        <div id="client_measurements" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Client Measurements</h2>
+            <div class="dashboard-card" style="max-width: 800px;">
+                <form id="client-measurements-form" onsubmit="event.preventDefault(); saveMeasurements();">
+                    <input type="hidden" name="ajax_action" value="save_measurement">
+
+                    <div class="form-group">
+                        <label>Select Member</label>
+                        <select name="user_id" id="cm_user_id" class="form-control" required
+                            onchange="loadMeasurementHistory(this.value)">
+                            <option value="">-- Choose a Member --</option>
+                            <?php
+                            // Fetch all members for the dropdown
+                            $measure_members = mysqli_query($link, "SELECT id, full_name, email FROM users WHERE role = 'member' ORDER BY full_name ASC");
+                            while ($mm = mysqli_fetch_assoc($measure_members)):
+                                ?>
+                                <option value="<?php echo $mm['id']; ?>" style="background: #1a1a2e; color: #fff;">
+                                    <?php echo htmlspecialchars($mm['full_name']); ?>
+                                    (<?php echo htmlspecialchars($mm['email']); ?>)
+                                </option>
+                            <?php endwhile; ?>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Date Recorded</label>
+                        <input type="text" name="date" id="cm_recorded_date" class="form-control"
+                            value="<?php echo date('Y-m-d'); ?>" required placeholder="Select Date">
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label>Weight (kg)</label>
+                            <input type="number" step="0.1" name="weight" id="cm_weight" class="form-control"
+                                placeholder="0.0" min="20" max="600">
+                        </div>
+                        <div class="form-group">
+                            <label>Height (cm)</label>
+                            <input type="number" step="0.1" name="height" id="cm_height" class="form-control"
+                                placeholder="0.0" min="50" max="300">
+                        </div>
+                    </div>
+
+                    <h4
+                        style="color:var(--primary-color); border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px; margin-bottom:20px;">
+                        Body Part Measurements (inches)</h4>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label>Chest</label>
+                            <input type="number" step="0.1" name="chest" id="cm_chest" class="form-control"
+                                placeholder="0.0" min="10" max="150">
+                        </div>
+                        <div class="form-group">
+                            <label>Waist</label>
+                            <input type="number" step="0.1" name="waist" id="cm_waist" class="form-control"
+                                placeholder="0.0" min="10" max="150">
+                        </div>
+                        <div class="form-group">
+                            <label>Arms</label>
+                            <input type="number" step="0.1" name="arms" id="cm_arms" class="form-control"
+                                placeholder="0.0" min="5" max="60">
+                        </div>
+                        <div class="form-group">
+                            <label>Thighs</label>
+                            <input type="number" step="0.1" name="thighs" id="cm_thighs" class="form-control"
+                                placeholder="0.0" min="5" max="60">
+                        </div>
+                    </div>
+
+                    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+                    <script>
+                        document.addEventListener('DOMContentLoaded', function () {
+                            flatpickr("#cm_recorded_date", {
+                                dateFormat: "Y-m-d",
+                                defaultDate: "today",
+                                theme: "dark"
+                            });
+                        });
+
+                        function saveMeasurements() {
+                            if (!validateClientMeasurements()) return;
+
+                            const form = document.getElementById('client-measurements-form');
+                            const formData = new FormData(form);
+
+                            fetch('dashboard_staff.php', {
+                                method: 'POST',
+                                body: formData
+                            })
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.success) {
+                                        alert('Measurements saved successfully!');
+                                        // Reload history for the current user
+                                        const userId = document.getElementById('cm_user_id').value;
+                                        if (userId) {
+                                            loadMeasurementHistory(userId);
+                                        }
+                                        // Optional: Clear inputs but keep user selected
+                                        // form.reset(); // This would clear the user selection too, which is annoying
+                                        // Better to clear only measurement fields:
+                                        ['cm_weight', 'cm_height', 'cm_chest', 'cm_waist', 'cm_arms', 'cm_thighs'].forEach(id => {
+                                            document.getElementById(id).value = '';
+                                        });
+                                    } else {
+                                        alert('Error saving: ' + (data.message || 'Unknown error'));
+                                    }
+                                })
+                                .catch(err => {
+                                    console.error(err);
+                                    alert('Request failed.');
+                                });
+                        }
+
+                        function loadMeasurementHistory(userId) {
+                            const container = document.getElementById('measurement-history-body');
+                            if (!userId) {
+                                container.innerHTML = '<tr><td colspan="7" style="padding:20px; text-align:center; color:var(--text-gray);">Select a user to view history.</td></tr>';
+                                return;
+                            }
+
+                            const formData = new FormData();
+                            formData.append('ajax_action', 'fetch_client_measurements');
+                            formData.append('user_id', userId);
+
+                            fetch('dashboard_staff.php', {
+                                method: 'POST',
+                                body: formData
+                            })
+                                .then(response => response.text())
+                                .then(html => {
+                                    container.innerHTML = html;
+                                    applyPagination();
+                                })
+                                .catch(err => console.error(err));
+                        }
+
+                        function deleteMeasurement(id) {
+                            if (!confirm('Are you sure you want to delete this measurement?')) return;
+
+                            const formData = new FormData();
+                            formData.append('ajax_action', 'delete_measurement');
+                            formData.append('measurement_id', id);
+
+                            fetch('dashboard_staff.php', { method: 'POST', body: formData })
+                                .then(res => res.json())
+                                .then(data => {
+                                    if (data.success) {
+                                        // Reload history
+                                        const userId = document.getElementById('cm_user_id').value;
+                                        loadMeasurementHistory(userId);
+                                    } else {
+                                        alert('Error deleting: ' + (data.message || 'Unknown error'));
+                                    }
+                                });
+                        }
+
+                        // Simple client-side pagination
+                        let currentPage = 1;
+                        const recordsPerPage = 5;
+
+                        function applyPagination() {
+                            const rows = document.querySelectorAll('#measurement-history-body tr');
+                            const totalRows = rows.length;
+
+                            // If no data or just the empty message
+                            if (totalRows === 1 && rows[0].innerText.includes('No measurements')) {
+                                document.getElementById('history-pagination').style.display = 'none';
+                                return;
+                            }
+
+                            const totalPages = Math.ceil(totalRows / recordsPerPage);
+
+                            if (totalPages <= 1) {
+                                document.getElementById('history-pagination').style.display = 'none';
+                                rows.forEach(r => r.style.display = '');
+                                return;
+                            }
+
+                            document.getElementById('history-pagination').style.display = 'flex';
+
+                            // Adjust currentPage if out of bounds
+                            if (currentPage > totalPages) currentPage = totalPages;
+                            if (currentPage < 1) currentPage = 1;
+
+                            const start = (currentPage - 1) * recordsPerPage;
+                            const end = start + recordsPerPage;
+
+                            rows.forEach((row, index) => {
+                                if (index >= start && index < end) {
+                                    row.style.display = '';
+                                } else {
+                                    row.style.display = 'none';
+                                }
+                            });
+
+                            document.getElementById('page-indicator').innerText = `Page ${currentPage} of ${totalPages}`;
+
+                            document.getElementById('prev-btn').disabled = currentPage === 1;
+                            document.getElementById('next-btn').disabled = currentPage === totalPages;
+                            document.getElementById('prev-btn').style.opacity = currentPage === 1 ? '0.5' : '1';
+                            document.getElementById('next-btn').style.opacity = currentPage === totalPages ? '0.5' : '1';
+                        }
+
+                        function changePage(delta) {
+                            currentPage += delta;
+                            applyPagination();
+                        }
+
+                        function validateClientMeasurements() {
+                            const weight = parseFloat(document.getElementById('cm_weight').value);
+                            const height = parseFloat(document.getElementById('cm_height').value);
+                            const chest = parseFloat(document.getElementById('cm_chest').value);
+                            const waist = parseFloat(document.getElementById('cm_waist').value);
+                            const arms = parseFloat(document.getElementById('cm_arms').value);
+                            const thighs = parseFloat(document.getElementById('cm_thighs').value);
+
+                            if (!isNaN(weight) && (weight < 20 || weight > 600)) {
+                                alert("Weight must be between 20 and 600 kg");
+                                return false;
+                            }
+                            if (!isNaN(height) && (height < 50 || height > 300)) {
+                                alert("Height must be between 50 and 300 cm");
+                                return false;
+                            }
+                            if (!isNaN(chest) && (chest < 10 || chest > 150)) {
+                                alert("Chest measurement must be between 10 and 150 inches");
+                                return false;
+                            }
+                            if (!isNaN(waist) && (waist < 10 || waist > 150)) {
+                                alert("Waist measurement must be between 10 and 150 inches");
+                                return false;
+                            }
+                            if (!isNaN(arms) && (arms < 5 || arms > 60)) {
+                                alert("Arm measurement must be between 5 and 60 inches");
+                                return false;
+                            }
+                            if (!isNaN(thighs) && (thighs < 5 || thighs > 60)) {
+                                alert("Thigh measurement must be between 5 and 60 inches");
+                                return false;
+                            }
+                            return true;
+                        }
+                    </script>
+
+                    <button type="submit" class="btn-action">
+                        <i class="fa-solid fa-save"></i> Save Measurements
+                    </button>
+                </form>
+            </div>
+
+            <!-- History Section -->
+            <h3 style="font-family: 'Oswald', sans-serif; margin: 30px 0 20px 0;">Measurement History</h3>
+            <div class="dashboard-card">
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Weight</th>
+                                <th>Height</th>
+                                <th>Chest</th>
+                                <th>Waist</th>
+                                <th>Arms</th>
+                                <th>Thighs</th>
+                                <th style="text-align: right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="measurement-history-body">
+                            <tr>
+                                <td colspan="8" style="padding: 20px; text-align: center; color: var(--text-gray);">
+                                    Select a member to view their history.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination Controls -->
+                <div id="history-pagination"
+                    style="display:none; justify-content:center; align-items:center; gap:15px; padding:20px 15px; border-top:1px solid rgba(255,255,255,0.05);">
+                    <button id="prev-btn" onclick="changePage(-1)" class="btn-sm btn-edit"
+                        style="padding: 8px 20px; font-family: 'Oswald'; text-transform: uppercase; letter-spacing: 1px;">&lt;
+                        Prev</button>
+                    <span id="page-indicator"
+                        style="color:var(--primary-color); font-family: 'Oswald'; font-size: 0.9rem; letter-spacing: 1px;">Page
+                        1 of 1</span>
+                    <button id="next-btn" onclick="changePage(1)" class="btn-sm btn-edit"
+                        style="padding: 8px 20px; font-family: 'Oswald'; text-transform: uppercase; letter-spacing: 1px;">Next
+                        &gt;</button>
+                </div>
             </div>
         </div>
-    </div>
 
-    <!-- Profile Section -->
-    <div id="profile" class="dashboard-section">
-        <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Profile Settings</h2>
-        <div class="dashboard-card" style="max-width: 650px;">
-            <form method="POST" enctype="multipart/form-data" id="profile-form">
-                <div class="profile-img-container">
-                    <img id="profile-preview"
-                        src="<?php echo $profile_image ? $profile_image : 'https://ui-avatars.com/api/?name=' . urlencode($_SESSION["full_name"]) . '&background=ceff00&color=1a1a2e'; ?>">
-                    <label for="profile_image_file" class="upload-overlay">
-                        <i class="fa-solid fa-camera"></i>
-                    </label>
-                    <input type="file" id="profile_image_file" name="profile_image_file" accept="image/*"
-                        style="display:none;" onchange="previewImage(this)">
-                </div>
+        <!-- Profile Section -->
+        <div id="profile" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Profile Settings</h2>
+            <div class="dashboard-card" style="max-width: 650px;">
+                <form method="POST" enctype="multipart/form-data" id="profile-form">
+                    <div class="profile-img-container">
+                        <img id="profile-preview"
+                            src="<?php echo $profile_image ? $profile_image : 'https://ui-avatars.com/api/?name=' . urlencode($_SESSION["full_name"]) . '&background=ceff00&color=1a1a2e'; ?>">
+                        <label for="profile_image_file" class="upload-overlay">
+                            <i class="fa-solid fa-camera"></i>
+                        </label>
+                        <input type="file" id="profile_image_file" name="profile_image_file" accept="image/*"
+                            style="display:none;" onchange="previewImage(this)">
+                    </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px;">
-                    <div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px;">
+                        <div>
+                            <label
+                                style="display: block; font-size: 0.85rem; color: var(--text-gray); margin-bottom: 8px;">Full
+                                Name</label>
+                            <input type="text" name="full_name"
+                                value="<?php echo htmlspecialchars($user_data["full_name"]); ?>" required
+                                style="width: 100%; padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #333;">
+                        </div>
+                        <div>
+                            <label
+                                style="display: block; font-size: 0.85rem; color: var(--text-gray); margin-bottom: 8px;">Email
+                                Address</label>
+                            <input type="email" name="email"
+                                value="<?php echo htmlspecialchars($user_data["email"]); ?>" required
+                                style="width: 100%; padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #333; opacity: 0.8;">
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 25px;">
                         <label
-                            style="display: block; font-size: 0.85rem; color: var(--text-gray); margin-bottom: 8px;">Full
-                            Name</label>
-                        <input type="text" name="full_name"
-                            value="<?php echo htmlspecialchars($user_data["full_name"]); ?>" required
-                            style="width: 100%; padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #333;">
+                            style="display: block; font-size: 0.85rem; color: var(--text-gray); margin-bottom: 8px;">Change
+                            Password (leave blank to keep current)</label>
+                        <div style="position: relative;">
+                            <input type="password" name="new_password" id="new_password_input"
+                                placeholder="Enter new password"
+                                style="width: 100%; padding: 12px; padding-right: 40px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #333;">
+                            <i class="fa-solid fa-eye" id="toggle-password-staff"
+                                style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #aaa;"></i>
+                        </div>
                     </div>
-                    <div>
-                        <label
-                            style="display: block; font-size: 0.85rem; color: var(--text-gray); margin-bottom: 8px;">Email
-                            Address</label>
-                        <input type="email" name="email" value="<?php echo htmlspecialchars($user_data["email"]); ?>"
-                            required
-                            style="width: 100%; padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #333; opacity: 0.8;">
-                    </div>
-                </div>
 
-                <div style="margin-bottom: 25px;">
-                    <label
-                        style="display: block; font-size: 0.85rem; color: var(--text-gray); margin-bottom: 8px;">Change
-                        Password (leave blank to keep current)</label>
-                    <div style="position: relative;">
-                        <input type="password" name="new_password" id="new_password_input"
-                            placeholder="Enter new password"
-                            style="width: 100%; padding: 12px; padding-right: 40px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #333;">
-                        <i class="fa-solid fa-eye" id="toggle-password-staff"
-                            style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #aaa;"></i>
-                    </div>
-                </div>
-
-                <button type="submit" name="update_profile" class="btn-action">
-                    <i class="fa-solid fa-floppy-disk"></i> Update Profile Details
-                </button>
-                <p style="text-align: center; font-size: 0.8rem; color: var(--text-gray); margin-top: 15px;">
-                    Changes
-                    will be saved permanently to your account.</p>
-            </form>
+                    <button type="submit" name="update_profile" class="btn-action">
+                        <i class="fa-solid fa-floppy-disk"></i> Update Profile Details
+                    </button>
+                    <p style="text-align: center; font-size: 0.8rem; color: var(--text-gray); margin-top: 15px;">
+                        Changes
+                        will be saved permanently to your account.</p>
+                </form>
+            </div>
         </div>
-    </div>
-    <!-- Chat Section for Staff -->
-    <div id="chat" class="dashboard-section">
-        <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Messages</h2>
-        <div class="dashboard-grid" style="grid-template-columns: 300px 1fr; min-height: 500px; gap: 0;">
-            <!-- Chat Sidebar (Members List) -->
-            <div class="dashboard-card"
-                style="padding: 0; overflow: hidden; display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,0.05); border-radius: 15px 0 0 15px;">
-                <div
-                    style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2);">
-                    <h4 style="margin:0; color:var(--primary-color);">Members</h4>
-                </div>
-                <div style="padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                    <input type="text" id="chat-search-staff" onkeyup="searchChatMembers(this.value)"
-                        placeholder="Search Member..."
-                        style="width: 100%; padding: 8px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-size: 0.9rem;">
-                </div>
-                <div id="chat-members-list" style="flex:1; overflow-y: auto;">
-                    <?php
-                    // Fetch members who have started a chat or all members
-                    // Filter to show only members who have a message history with the current staff
-                    $chat_members = mysqli_query($link, "
+        <!-- Chat Section for Staff -->
+        <div id="chat" class="dashboard-section">
+            <h2 style="font-family: 'Oswald', sans-serif; margin-bottom: 20px;">Messages</h2>
+            <div class="dashboard-grid" style="grid-template-columns: 300px 1fr; min-height: 500px; gap: 0;">
+                <!-- Chat Sidebar (Members List) -->
+                <div class="dashboard-card"
+                    style="padding: 0; overflow: hidden; display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,0.05); border-radius: 15px 0 0 15px;">
+                    <div
+                        style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2);">
+                        <h4 style="margin:0; color:var(--primary-color);">Members</h4>
+                    </div>
+                    <div style="padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <input type="text" id="chat-search-staff" onkeyup="searchChatMembers(this.value)"
+                            placeholder="Search Member..."
+                            style="width: 100%; padding: 8px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-size: 0.9rem;">
+                    </div>
+                    <div id="chat-members-list" style="flex:1; overflow-y: auto;">
+                        <?php
+                        // Fetch members who have started a chat or all members
+                        // Filter to show only members who have a message history with the current staff
+                        $chat_members = mysqli_query($link, "
                             SELECT DISTINCT u.id, u.full_name, u.profile_image 
                             FROM users u 
                             JOIN messages m ON (u.id = m.sender_id OR u.id = m.receiver_id) 
                             WHERE u.role = 'member' 
                             AND (m.sender_id = $user_id OR m.receiver_id = $user_id)
                         ");
-                    if (mysqli_num_rows($chat_members) > 0):
-                        while ($cm = mysqli_fetch_assoc($chat_members)):
-                            $p_img = $cm['profile_image'] ? $cm['profile_image'] : 'https://ui-avatars.com/api/?name=' . urlencode($cm['full_name']);
-                            ?>
-                                            <div class="chat-user-item"
-                                                onclick="openChatWith(this, <?php echo $cm['id']; ?>, '<?php echo htmlspecialchars($cm['full_name']); ?>', '<?php echo $p_img; ?>')"
-                                                style="padding:15px 20px; cursor:pointer; display:flex; align-items:center; gap:15px; border-bottom:1px solid rgba(255,255,255,0.05); transition:0.2s;">
-                                                <img src="<?php echo $p_img; ?>"
-                                                    style="width:40px; height:40px; border-radius:50%; object-fit:cover;">
-                                                <div>
-                                                    <h5 style="margin:0; font-size:0.95rem; color:#fff;" class="chat-user-name">
-                                                        <?php echo htmlspecialchars($cm['full_name']); ?>
-                                                        <?php
-                                                        // Check for unread messages from this member
-                                                        $m_id = $cm['id'];
-                                                        $unread_check = mysqli_query($link, "SELECT COUNT(*) as cnt FROM messages WHERE sender_id = $m_id AND receiver_id = $user_id AND is_read = 0");
-                                                        $unread_data = mysqli_fetch_assoc($unread_check);
-                                                        if ($unread_data['cnt'] > 0):
-                                                            ?>
-                                                                    <i class="fa-solid fa-circle"
-                                                                        style="color: #ceff00; font-size: 8px; margin-left: 8px; vertical-align: middle; box-shadow: 0 0 5px #ceff00;"></i>
-                                                        <?php endif; ?>
-                                                    </h5>
-                                                    <small style="color:#aaa;">Member</small>
-                                                </div>
-                                            </div>
-                                <?php endwhile;
-                    else: ?>
-                                <p style="padding:20px; text-align:center; color:#666;">No members found.</p>
-                    <?php endif; ?>
+                        if (mysqli_num_rows($chat_members) > 0):
+                            while ($cm = mysqli_fetch_assoc($chat_members)):
+                                $p_img = $cm['profile_image'] ? $cm['profile_image'] : 'https://ui-avatars.com/api/?name=' . urlencode($cm['full_name']);
+                                ?>
+                                <div class="chat-user-item"
+                                    onclick="openChatWith(this, <?php echo $cm['id']; ?>, '<?php echo htmlspecialchars($cm['full_name']); ?>', '<?php echo $p_img; ?>')"
+                                    style="padding:15px 20px; cursor:pointer; display:flex; align-items:center; gap:15px; border-bottom:1px solid rgba(255,255,255,0.05); transition:0.2s;">
+                                    <img src="<?php echo $p_img; ?>"
+                                        style="width:40px; height:40px; border-radius:50%; object-fit:cover;">
+                                    <div>
+                                        <h5 style="margin:0; font-size:0.95rem; color:#fff;" class="chat-user-name">
+                                            <?php echo htmlspecialchars($cm['full_name']); ?>
+                                            <?php
+                                            // Check for unread messages from this member
+                                            $m_id = $cm['id'];
+                                            $unread_check = mysqli_query($link, "SELECT COUNT(*) as cnt FROM messages WHERE sender_id = $m_id AND receiver_id = $user_id AND is_read = 0");
+                                            $unread_data = mysqli_fetch_assoc($unread_check);
+                                            if ($unread_data['cnt'] > 0):
+                                                ?>
+                                                <i class="fa-solid fa-circle"
+                                                    style="color: #ceff00; font-size: 8px; margin-left: 8px; vertical-align: middle; box-shadow: 0 0 5px #ceff00;"></i>
+                                            <?php endif; ?>
+                                        </h5>
+                                        <small style="color:#aaa;">Member</small>
+                                    </div>
+                                </div>
+                            <?php endwhile;
+                        else: ?>
+                            <p style="padding:20px; text-align:center; color:#666;">No members found.</p>
+                        <?php endif; ?>
+                    </div>
                 </div>
-            </div>
 
-            <!-- Chat Window -->
-            <div class="dashboard-card"
-                style="padding: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 0 15px 15px 0;">
-                <div id="chat-header"
-                    style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2); display:none;">
-                    <div style="display:flex; align-items:center; gap:15px;">
-                        <img id="chat-partner-img" src=""
-                            style="width:40px; height:40px; border-radius:50%; object-fit:cover;">
-                        <div>
-                            <h4 id="chat-partner-name" style="margin:0; font-family:'Oswald';">Member Name</h4>
+                <!-- Chat Window -->
+                <div class="dashboard-card"
+                    style="padding: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 0 15px 15px 0;">
+                    <div id="chat-header"
+                        style="padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2); display:none;">
+                        <div style="display:flex; align-items:center; gap:15px;">
+                            <img id="chat-partner-img" src=""
+                                style="width:40px; height:40px; border-radius:50%; object-fit:cover;">
+                            <div>
+                                <h4 id="chat-partner-name" style="margin:0; font-family:'Oswald';">Member Name</h4>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <div id="chat-messages"
-                    style="flex:1; padding: 20px; overflow-y: auto; display:flex; flex-direction:column; gap:10px; background: rgba(0,0,0,0.2);">
-                    <div style="text-align:center; color:#666; margin-top:50px;">
-                        <i class="fa-regular fa-comments" style="font-size:3rem; margin-bottom:15px; opacity:0.5;"></i>
-                        <p>Select a member to view messages</p>
+                    <div id="chat-messages"
+                        style="flex:1; padding: 20px; overflow-y: auto; display:flex; flex-direction:column; gap:10px; background: rgba(0,0,0,0.2);">
+                        <div style="text-align:center; color:#666; margin-top:50px;">
+                            <i class="fa-regular fa-comments"
+                                style="font-size:3rem; margin-bottom:15px; opacity:0.5;"></i>
+                            <p>Select a member to view messages</p>
+                        </div>
                     </div>
-                </div>
 
-                <div id="chat-input-area"
-                    style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2); display:none;">
-                    <form onsubmit="event.preventDefault(); sendChatMessage();" style="display:flex; gap:15px;">
-                        <input type="text" id="chat-input" placeholder="Type a message..."
-                            style="flex:1; padding:12px 20px; border-radius:30px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:#fff; outline:none;">
-                        <button type="submit"
-                            style="width:45px; height:45px; border-radius:50%; border:none; background:var(--primary-color); color:#000; font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:0.3s;">
-                            <i class="fa-solid fa-paper-plane"></i>
-                        </button>
-                    </form>
+                    <div id="chat-input-area"
+                        style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2); display:none;">
+                        <form onsubmit="event.preventDefault(); sendChatMessage();" style="display:flex; gap:15px;">
+                            <input type="text" id="chat-input" placeholder="Type a message..."
+                                style="flex:1; padding:12px 20px; border-radius:30px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:#fff; outline:none;">
+                            <button type="submit"
+                                style="width:45px; height:45px; border-radius:50%; border:none; background:var(--primary-color); color:#000; font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:0.3s;">
+                                <i class="fa-solid fa-paper-plane"></i>
+                            </button>
+                        </form>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
     </div>
     </div>
 
@@ -2990,12 +3020,12 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                     foreach ($staff_attendance_by_year as $year => $data):
                         $selected = $is_first ? 'selected' : '';
                         ?>
-                                <option value="<?php echo $year; ?>" <?php echo $selected; ?>
-                                    style="background:#1a1a2e; color:#fff;">
-                                    <?php echo $year; ?>
-                                </option>
-                                <?php
-                                $is_first = false;
+                        <option value="<?php echo $year; ?>" <?php echo $selected; ?>
+                            style="background:#1a1a2e; color:#fff;">
+                            <?php echo $year; ?>
+                        </option>
+                        <?php
+                        $is_first = false;
                     endforeach;
                     ?>
                 </select>
@@ -3005,58 +3035,58 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
             <div style="padding:25px; overflow-y:auto; flex-grow:1; background:rgba(255,255,255,0.02);">
                 <?php $is_first = true;
                 foreach ($staff_attendance_by_year as $year => $months): ?>
-                            <div id="staff-year-content-<?php echo $year; ?>" class="staff-year-content-group"
-                                style="display:<?php echo $is_first ? 'grid' : 'none'; ?>; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:15px;">
-                                <?php foreach ($months as $m_num => $m_data):
-                                    $has_data = $m_data['count'] > 0;
-                                    // Check if future month
-                                    $is_future_month = ($year == date('Y') && $m_num > date('n')) || ($year > date('Y'));
-                                    ?>
-                                            <?php if ($is_future_month): ?>
-                                                        <div style="text-decoration:none; display:block; cursor:not-allowed;">
-                                                            <div
-                                                                style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:15px; text-align:center; position:relative; overflow:hidden; opacity:0.3;">
-                                                                <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
-                                                                    <?php echo $m_data['short']; ?>
-                                                                </h4>
-                                                                <div style="font-size:1.8rem; font-weight:bold; color:#444; margin:5px 0;">
-                                                                    -
-                                                                </div>
-                                                                <div
-                                                                    style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
-                                                                    Future</div>
-                                                            </div>
-                                                        </div>
-                                            <?php else: ?>
-                                                        <a href="staff_attendance_report.php?m=<?php echo $m_num; ?>&y=<?php echo $year; ?>" target="_blank"
-                                                            style="text-decoration:none; display:block; cursor:pointer;">
-                                                            <div style="background:<?php echo $has_data ? 'rgba(206, 255, 0, 0.05)' : 'rgba(255,255,255,0.02)'; ?>; border:1px solid <?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>; border-radius:12px; padding:15px; text-align:center; transition:0.3s; position:relative; overflow:hidden;"
-                                                                onmouseover="this.style.transform='translateY(-3px)'; this.style.borderColor='var(--primary-color)'; this.style.boxShadow='0 5px 15px rgba(206,255,0,0.2)'"
-                                                                onmouseout="this.style.transform='translateY(0)'; this.style.borderColor='<?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>'; this.style.boxShadow='none'">
+                    <div id="staff-year-content-<?php echo $year; ?>" class="staff-year-content-group"
+                        style="display:<?php echo $is_first ? 'grid' : 'none'; ?>; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:15px;">
+                        <?php foreach ($months as $m_num => $m_data):
+                            $has_data = $m_data['count'] > 0;
+                            // Check if future month
+                            $is_future_month = ($year == date('Y') && $m_num > date('n')) || ($year > date('Y'));
+                            ?>
+                            <?php if ($is_future_month): ?>
+                                <div style="text-decoration:none; display:block; cursor:not-allowed;">
+                                    <div
+                                        style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:15px; text-align:center; position:relative; overflow:hidden; opacity:0.3;">
+                                        <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
+                                            <?php echo $m_data['short']; ?>
+                                        </h4>
+                                        <div style="font-size:1.8rem; font-weight:bold; color:#444; margin:5px 0;">
+                                            -
+                                        </div>
+                                        <div
+                                            style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
+                                            Future</div>
+                                    </div>
+                                </div>
+                            <?php else: ?>
+                                <a href="staff_attendance_report.php?m=<?php echo $m_num; ?>&y=<?php echo $year; ?>" target="_blank"
+                                    style="text-decoration:none; display:block; cursor:pointer;">
+                                    <div style="background:<?php echo $has_data ? 'rgba(206, 255, 0, 0.05)' : 'rgba(255,255,255,0.02)'; ?>; border:1px solid <?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>; border-radius:12px; padding:15px; text-align:center; transition:0.3s; position:relative; overflow:hidden;"
+                                        onmouseover="this.style.transform='translateY(-3px)'; this.style.borderColor='var(--primary-color)'; this.style.boxShadow='0 5px 15px rgba(206,255,0,0.2)'"
+                                        onmouseout="this.style.transform='translateY(0)'; this.style.borderColor='<?php echo $has_data ? 'rgba(206, 255, 0, 0.2)' : 'rgba(255,255,255,0.05)'; ?>'; this.style.boxShadow='none'">
 
-                                                                <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
-                                                                    <?php echo $m_data['short']; ?>
-                                                                </h4>
+                                        <h4 style="margin:0 0 5px 0; color:#fff; font-size:1rem; opacity:0.9;">
+                                            <?php echo $m_data['short']; ?>
+                                        </h4>
 
-                                                                <div
-                                                                    style="font-size:1.8rem; font-weight:bold; color:<?php echo $has_data ? 'var(--primary-color)' : '#444'; ?>; margin:5px 0;">
-                                                                    <?php echo $m_data['count']; ?>
-                                                                </div>
-                                                                <div
-                                                                    style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
-                                                                    Days</div>
+                                        <div
+                                            style="font-size:1.8rem; font-weight:bold; color:<?php echo $has_data ? 'var(--primary-color)' : '#444'; ?>; margin:5px 0;">
+                                            <?php echo $m_data['count']; ?>
+                                        </div>
+                                        <div
+                                            style="font-size:0.7rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:1px;">
+                                            Days</div>
 
-                                                                <?php if ($has_data): ?>
-                                                                            <div
-                                                                                style="position:absolute; top:10px; right:10px; width:8px; height:8px; background:var(--primary-color); border-radius:50%; box-shadow:0 0 5px var(--primary-color);">
-                                                                            </div>
-                                                                <?php endif; ?>
-                                                            </div>
-                                                        </a>
-                                            <?php endif; ?>
-                                <?php endforeach; ?>
-                            </div>
-                            <?php $is_first = false; endforeach; ?>
+                                        <?php if ($has_data): ?>
+                                            <div
+                                                style="position:absolute; top:10px; right:10px; width:8px; height:8px; background:var(--primary-color); border-radius:50%; box-shadow:0 0 5px var(--primary-color);">
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                </a>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php $is_first = false; endforeach; ?>
             </div>
         </div>
     </div>

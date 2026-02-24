@@ -634,9 +634,11 @@ while ($row = mysqli_fetch_assoc($prod_res)) {
         $db_store_products[$cat_key] = [];
     }
     $db_store_products[$cat_key][] = [
+        'id' => (int) $row['id'],
         'name' => $row['name'],
         'price' => (float) $row['price'],
-        'image' => $row['image']
+        'image' => $row['image'],
+        'stock' => (int) $row['stock_count']
     ];
 }
 
@@ -2638,17 +2640,27 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; margin-bottom: 30px; text-align: left; border: 1px solid rgba(255,255,255,0.05);">
                     <p style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.9rem;">
                         <span style="color: var(--text-gray);">To:</span>
-                        <span style="color: #fff; font-weight: 500;">GymFit Membership</span>
+                        <span id="success-to-display" style="color: #fff; font-weight: 500;">GymFit Membership</span>
                     </p>
                     <p style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.9rem;">
                         <span style="color: var(--text-gray);">Ref No:</span>
                         <span
                             style="color: #fff; font-weight: 500;"><?php echo strtoupper(bin2hex(random_bytes(4))); ?></span>
                     </p>
-                    <p style="display: flex; justify-content: space-between; font-size: 0.9rem;">
+                    <p style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.9rem;">
                         <span style="color: var(--text-gray);">Method:</span>
-                        <span id="success-method-display" style="color: #fff; font-weight: 500;">UPI</span>
+                        <span id="success-method-display" style="color: #fff; font-weight: 500;">Razorpay</span>
                     </p>
+                    <div id="success-token-area"
+                        style="display:none; margin-top: 15px; padding-top: 15px; border-top: 1px dashed rgba(255,255,255,0.1); text-align: center;">
+                        <span
+                            style="font-size: 0.75rem; color: var(--text-gray); text-transform: uppercase; display: block; margin-bottom: 5px;">Pickup
+                            Token</span>
+                        <span id="success-token-display"
+                            style="font-family: 'Oswald'; font-size: 1.8rem; color: var(--primary-color); letter-spacing: 2px;">XXXXXX</span>
+                        <p style="font-size: 0.7rem; color: var(--text-gray); margin-top: 5px;">Show this at the desk to
+                            collect your item.</p>
+                    </div>
                 </div>
 
                 <form method="POST" id="confirm-payment-form">
@@ -2661,11 +2673,6 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     </button>
                 </form>
 
-                <p style="margin-top: 20px; font-size: 0.75rem; color: var(--text-gray);">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/Google_Pay_%28GPay%29_Logo.svg"
-                        alt="GPay" style="height: 15px; vertical-align: middle; margin-right: 5px; opacity: 0.6;">
-                    Securely processed by GPay Demo
-                </p>
             </div>
 
         </div>
@@ -3307,18 +3314,18 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         <div class="timeline-container"
                             style="display: flex; flex-direction: column; gap: 20px; max-height: 600px; overflow-y: auto; padding-right: 10px;">
                             <?php foreach ($progress_photos as $photo): ?>
-                                                        <div class="photo-item"
-                                                            style="display: flex; gap: 15px; background: rgba(255,255,255,0.03); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
-                                                            <div style="width: 120px; height: 120px; flex-shrink: 0; background: #000; border-radius: 8px; overflow: hidden; cursor: pointer;"
-                                                                onclick="viewFullImage('<?php echo htmlspecialchars($photo['photo_path']); ?>')">
-                                                                <img src="<?php echo htmlspecialchars($photo['photo_path']); ?>"
-                                                                    style="width: 100%; height: 100%; object-fit: cover;">
-                                                            </div>
-                                                            <div style="flex-grow: 1;">
-                                                                <div
-                                                                    style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-                                                                    <div>
-                                                                        <span style="
+                                <div class="photo-item"
+                                    style="display: flex; gap: 15px; background: rgba(255,255,255,0.03); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                                    <div style="width: 120px; height: 120px; flex-shrink: 0; background: #000; border-radius: 8px; overflow: hidden; cursor: pointer;"
+                                        onclick="viewFullImage('<?php echo htmlspecialchars($photo['photo_path']); ?>')">
+                                        <img src="<?php echo htmlspecialchars($photo['photo_path']); ?>"
+                                            style="width: 100%; height: 100%; object-fit: cover;">
+                                    </div>
+                                    <div style="flex-grow: 1;">
+                                        <div
+                                            style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                            <div>
+                                                <span style="
                                                     text-transform: uppercase; 
                                                     font-size: 0.7rem; 
                                                     font-weight: bold; 
@@ -3341,36 +3348,36 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                                                         echo 'var(--primary-color)';
                                                     ?>;
                                                 ">
-                                                                            <?php echo strtoupper($photo['photo_type']); ?>
-                                                                        </span>
-                                                                        <span
-                                                                            style="color: #fff; font-weight: bold; font-size: 0.95rem; margin-left: 10px;">
-                                                                            <?php echo date('M d, Y', strtotime($photo['date_taken'])); ?>
-                                                                        </span>
-                                                                    </div>
-                                                                    <form method="POST" onsubmit="return confirm('Delete this photo permanently?');">
-                                                                        <input type="hidden" name="delete_progress_photo" value="1">
-                                                                        <input type="hidden" name="photo_id" value="<?php echo $photo['id']; ?>">
-                                                                        <button type="submit"
-                                                                            style="background: none; border: none; color: #ff4d4d; cursor: pointer; padding: 5px;">
-                                                                            <i class="fa-solid fa-trash"></i>
-                                                                        </button>
-                                                                    </form>
-                                                                </div>
-                                                                <?php if (!empty($photo['notes'])): ?>
-                                                                                <p
-                                                                                    style="color: var(--text-gray); font-size: 0.9rem; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; margin: 0;">
-                                                                                    <i class="fa-solid fa-quote-left"
-                                                                                        style="font-size: 0.7rem; opacity: 0.5; vertical-align: top; margin-right: 5px;"></i>
-                                                                                    <?php echo nl2br(htmlspecialchars($photo['notes'])); ?>
-                                                                                </p>
-                                                                <?php else: ?>
-                                                                                <p style="color: #555; font-size: 0.85rem; font-style: italic;">No notes added.</p>
-                                                                <?php endif; ?>
-                                                            </div>
-                                                        </div>
-                                        <?php endforeach; ?>
+                                                    <?php echo strtoupper($photo['photo_type']); ?>
+                                                </span>
+                                                <span
+                                                    style="color: #fff; font-weight: bold; font-size: 0.95rem; margin-left: 10px;">
+                                                    <?php echo date('M d, Y', strtotime($photo['date_taken'])); ?>
+                                                </span>
+                                            </div>
+                                            <form method="POST" onsubmit="return confirm('Delete this photo permanently?');">
+                                                <input type="hidden" name="delete_progress_photo" value="1">
+                                                <input type="hidden" name="photo_id" value="<?php echo $photo['id']; ?>">
+                                                <button type="submit"
+                                                    style="background: none; border: none; color: #ff4d4d; cursor: pointer; padding: 5px;">
+                                                    <i class="fa-solid fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                        <?php if (!empty($photo['notes'])): ?>
+                                            <p
+                                                style="color: var(--text-gray); font-size: 0.9rem; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; margin: 0;">
+                                                <i class="fa-solid fa-quote-left"
+                                                    style="font-size: 0.7rem; opacity: 0.5; vertical-align: top; margin-right: 5px;"></i>
+                                                <?php echo nl2br(htmlspecialchars($photo['notes'])); ?>
+                                            </p>
+                                        <?php else: ?>
+                                            <p style="color: #555; font-size: 0.85rem; font-style: italic;">No notes added.</p>
+                                        <?php endif; ?>
                                     </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -3712,71 +3719,71 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     <div class="custom-scrollbar"
                         style="max-height: 320px; overflow-y: auto; padding: 0 30px 30px 30px;">
                         <?php if (empty($store_history)): ?>
-                                        <p style="color: var(--text-gray); text-align: center; margin-top: 30px;">No store purchases
-                                            found.</p>
+                            <p style="color: var(--text-gray); text-align: center; margin-top: 30px;">No store purchases
+                                found.</p>
                         <?php else: ?>
-                                        <div style="overflow-x: auto; margin-top: 15px;">
-                                            <table id="store-history-table"
-                                                style="width: 100%; border-collapse: collapse; min-width: 600px;">
-                                                <thead style="position: sticky; top: 0; background: #1a1a2e; z-index: 10;">
-                                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left;">
-                                                        <th style="padding: 10px; color: var(--text-gray);">Item</th>
-                                                        <th style="padding: 10px; color: var(--text-gray);">Date</th>
-                                                        <th style="padding: 10px; color: var(--text-gray);">Amount</th>
-                                                        <th style="padding: 10px; color: var(--text-gray);">Status</th>
-                                                        <th style="padding: 10px; color: var(--text-gray); text-align: right;">
-                                                            Actions
-                                                        </th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <?php foreach ($store_history as $hist):
-                                                        $item_name = str_replace('Store: ', '', $hist['plan_name']);
-                                                        $date = date('d M Y', strtotime($hist['created_at']));
-                                                        $status_color = $hist['status'] == 'completed' ? '#00ff88' : '#ffb74d';
-                                                        ?>
-                                                                    <tr class="history-row" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                                                        <td style="padding: 10px; font-weight: 500;" class="item-name">
-                                                                            <?php echo htmlspecialchars($item_name); ?>
-                                                                        </td>
-                                                                        <td style="padding: 10px; color: var(--text-gray); font-size: 0.9rem;">
-                                                                            <?php echo $date; ?>
-                                                                        </td>
-                                                                        <td style="padding: 10px;">₹<?php echo number_format($hist['amount']); ?>
-                                                                        </td>
-                                                                        <td
-                                                                            style="padding: 10px; color: <?php echo $status_color; ?>; text-transform: capitalize;">
-                                                                            <?php echo $hist['status']; ?>
-                                                                        </td>
-                                                                        <td style="padding: 10px; text-align: right;">
-                                                                            <div
-                                                                                style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
-                                                                                <?php if (!empty($hist['token_number'])): ?>
-                                                                                                <button
-                                                                                                    onclick="viewToken('<?php echo htmlspecialchars($item_name); ?>', '<?php echo $hist['token_number']; ?>', <?php echo $hist['token_accepted'] ? 'true' : 'false'; ?>)"
-                                                                                                    title="View Pickup Token"
-                                                                                                    style="background: rgba(206,255,0,0.1); border: 1px solid rgba(206,255,0,0.4); color: var(--primary-color); cursor: pointer; font-size: 0.75rem; padding: 5px 10px; border-radius: 5px; font-weight: bold; display: inline-flex; align-items: center; gap: 5px;">
-                                                                                                    <i class="fa-solid fa-ticket"></i> Token
-                                                                                                </button>
-                                                                                <?php endif; ?>
-                                                                                <a href="invoice.php?tid=<?php echo $hist['id']; ?>" target="_blank"
-                                                                                    title="Download Invoice"
-                                                                                    style="color: var(--primary-color); font-size: 1.1rem;">
-                                                                                    <i class="fa-solid fa-file-pdf"></i>
-                                                                                </a>
-                                                                                <button
-                                                                                    onclick="deleteTransaction(<?php echo $hist['id']; ?>, this.closest('tr'))"
-                                                                                    title="Delete Record"
-                                                                                    style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 1rem;">
-                                                                                    <i class="fa-solid fa-trash"></i>
-                                                                                </button>
-                                                                            </div>
-                                                                        </td>
-                                                                    </tr>
-                                                    <?php endforeach; ?>
-                                                </tbody>
-                                            </table>
-                                        </div>
+                            <div style="overflow-x: auto; margin-top: 15px;">
+                                <table id="store-history-table"
+                                    style="width: 100%; border-collapse: collapse; min-width: 600px;">
+                                    <thead style="position: sticky; top: 0; background: #1a1a2e; z-index: 10;">
+                                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left;">
+                                            <th style="padding: 10px; color: var(--text-gray);">Item</th>
+                                            <th style="padding: 10px; color: var(--text-gray);">Date</th>
+                                            <th style="padding: 10px; color: var(--text-gray);">Amount</th>
+                                            <th style="padding: 10px; color: var(--text-gray);">Status</th>
+                                            <th style="padding: 10px; color: var(--text-gray); text-align: right;">
+                                                Actions
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($store_history as $hist):
+                                            $item_name = str_replace('Store: ', '', $hist['plan_name']);
+                                            $date = date('d M Y', strtotime($hist['created_at']));
+                                            $status_color = $hist['status'] == 'completed' ? '#00ff88' : '#ffb74d';
+                                            ?>
+                                            <tr class="history-row" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                <td style="padding: 10px; font-weight: 500;" class="item-name">
+                                                    <?php echo htmlspecialchars($item_name); ?>
+                                                </td>
+                                                <td style="padding: 10px; color: var(--text-gray); font-size: 0.9rem;">
+                                                    <?php echo $date; ?>
+                                                </td>
+                                                <td style="padding: 10px;">₹<?php echo number_format($hist['amount']); ?>
+                                                </td>
+                                                <td
+                                                    style="padding: 10px; color: <?php echo $status_color; ?>; text-transform: capitalize;">
+                                                    <?php echo $hist['status']; ?>
+                                                </td>
+                                                <td style="padding: 10px; text-align: right;">
+                                                    <div
+                                                        style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
+                                                        <?php if (!empty($hist['token_number'])): ?>
+                                                            <button
+                                                                onclick="viewToken('<?php echo htmlspecialchars($item_name); ?>', '<?php echo $hist['token_number']; ?>', <?php echo $hist['token_accepted'] ? 'true' : 'false'; ?>)"
+                                                                title="View Pickup Token"
+                                                                style="background: rgba(206,255,0,0.1); border: 1px solid rgba(206,255,0,0.4); color: var(--primary-color); cursor: pointer; font-size: 0.75rem; padding: 5px 10px; border-radius: 5px; font-weight: bold; display: inline-flex; align-items: center; gap: 5px;">
+                                                                <i class="fa-solid fa-ticket"></i> Token
+                                                            </button>
+                                                        <?php endif; ?>
+                                                        <a href="invoice.php?tid=<?php echo $hist['id']; ?>" target="_blank"
+                                                            title="Download Invoice"
+                                                            style="color: var(--primary-color); font-size: 1.1rem;">
+                                                            <i class="fa-solid fa-file-pdf"></i>
+                                                        </a>
+                                                        <button
+                                                            onclick="deleteTransaction(<?php echo $hist['id']; ?>, this.closest('tr'))"
+                                                            title="Delete Record"
+                                                            style="background: none; border: none; color: #ff4d4d; cursor: pointer; font-size: 1rem;">
+                                                            <i class="fa-solid fa-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -3856,21 +3863,21 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                     else
                         $cat_key = strtolower(str_replace(' ', '_', $cat['name']));
                     ?>
-                                <div class="dashboard-card" style="text-align: center; padding: 20px;">
-                                    <div
-                                        style="height: 150px; background: rgba(255,255,255,0.05); margin-bottom: 15px; display: flex; align-items: center; justify-content: center; border-radius: 10px; overflow: hidden;">
-                                        <img src="<?php echo $cat['image']; ?>" alt="<?php echo htmlspecialchars($cat['name']); ?>"
-                                            style="width: 100%; height: 100%; object-fit: cover;">
-                                    </div>
-                                    <h3 style="font-family: 'Oswald'; margin-bottom: 5px;"><?php echo htmlspecialchars($cat['name']); ?>
-                                    </h3>
-                                    <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">
-                                        <?php echo htmlspecialchars($cat['description']); ?>
-                                    </p>
-                                    <button onclick="openCategoryModal('<?php echo $cat_key; ?>')" class="btn-action"
-                                        style="width: 100%;">View
-                                        Products</button>
-                                </div>
+                    <div class="dashboard-card" style="text-align: center; padding: 20px;">
+                        <div
+                            style="height: 150px; background: rgba(255,255,255,0.05); margin-bottom: 15px; display: flex; align-items: center; justify-content: center; border-radius: 10px; overflow: hidden;">
+                            <img src="<?php echo $cat['image']; ?>" alt="<?php echo htmlspecialchars($cat['name']); ?>"
+                                style="width: 100%; height: 100%; object-fit: cover;">
+                        </div>
+                        <h3 style="font-family: 'Oswald'; margin-bottom: 5px;"><?php echo htmlspecialchars($cat['name']); ?>
+                        </h3>
+                        <p style="color: var(--text-gray); font-size: 0.9rem; margin-bottom: 15px;">
+                            <?php echo htmlspecialchars($cat['description']); ?>
+                        </p>
+                        <button onclick="openCategoryModal('<?php echo $cat_key; ?>')" class="btn-action"
+                            style="width: 100%;">View
+                            Products</button>
+                    </div>
                 <?php endforeach; ?>
             </div>
         </div>
@@ -3955,246 +3962,193 @@ $is_beginner_completed = count($completed_weeks) >= 4;
         $base_url = "http://" . $server_ip . "/Gym-Fit-master";
         ?>
 
-        <!-- NEW GPay QR Modal -->
-        <div id="gpay-qr-modal"
-            style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 2200; align-items: center; justify-content: center; flex-direction: column;">
-            <div
-                style="background: #fff; padding: 30px; border-radius: 20px; width: 90%; max-width: 350px; text-align: center; position: relative;">
-                <button onclick="closeGPayModal()"
-                    style="position: absolute; top: 10px; right: 15px; background: none; border: none; font-size: 1.5rem; color: #333; cursor: pointer;">&times;</button>
-
-                <h3 style="color: #333; margin-bottom: 10px; font-family: 'Roboto', sans-serif;">Scan to Pay</h3>
-                <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">Open GPay and scan this QR code</p>
-
-                <div style="margin-bottom: 20px; position: relative; width: 200px; height: 200px; margin: 0 auto 20px;">
-                    <!-- QR Code Image -->
-                    <img id="gpay-qr-code" src="" alt="GPay QR" style="width: 100%; height: 100%;">
-
-                    <!-- Scanning Overlay Animation -->
-                    <div id="scan-overlay"
-                        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); display: none; align-items: center; justify-content: center; flex-direction: column;">
-                        <div class="spinner"
-                            style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 10px;">
-                        </div>
-                        <p style="color: #333; font-weight: bold;">Processing Payment...</p>
-                    </div>
-                    <div id="success-overlay"
-                        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); display: none; align-items: center; justify-content: center; flex-direction: column;">
-                        <i class="fa-solid fa-circle-check"
-                            style="font-size: 4rem; color: #00ff88; margin-bottom: 15px;"></i>
-                        <h4 style="color: #333; margin: 0;">Payment Successful!</h4>
-                        <div id="token-display-area"
-                            style="margin-top: 15px; padding: 10px; background: #f0f0f0; border-radius: 8px; border: 1px dashed #ccc; display: none;">
-                            <span
-                                style="font-size: 0.7rem; color: #666; display: block; text-transform: uppercase;">Your
-                                Pickup Token:</span>
-                            <span id="store-token-number"
-                                style="font-family: 'Oswald'; font-size: 1.5rem; font-weight: bold; color: #333; letter-spacing: 2px;">XXXXXX</span>
-                            <p style="font-size: 0.65rem; color: #888; margin: 4px 0 0 0;">Show this to Admin to pick up
-                                your item.</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div
-                    style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 10px;">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/Google_Pay_Logo.svg/2560px-Google_Pay_Logo.svg.png"
-                        alt="GPay" style="height: 25px;">
-                </div>
-
-                <p id="qr-amount-display" style="font-size: 1.2rem; font-weight: bold; color: #333;">₹0</p>
-                <div style="font-size: 0.9rem; color: #666; width: 100%; text-align: center; margin-top: 15px;">
-                    <i class="fa-solid fa-spinner fa-spin"></i> Waiting for payment...
-                </div>
-
-                <!-- IP Correction UI -->
-                <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #eee;">
-                    <p style="font-size: 0.75rem; color: #888; margin-bottom: 5px;">Can't access on phone?</p>
-                    <button
-                        onclick="document.getElementById('ip-fix-area').style.display='block'; this.style.display='none'"
-                        style="background: none; border: none; color: #3498db; text-decoration: underline; font-size: 0.75rem; cursor: pointer;">
-                        Click here to check Server IP
-                    </button>
-                    <div id="ip-fix-area" style="display: none; margin-top: 10px;">
-                        <p style="font-size: 0.7rem; color: #666; margin-bottom: 8px;">Your computer's IP might be
-                            different. Enter local IP (e.g. 192.168.1.5):</p>
-                        <div style="display: flex; gap: 5px;">
-                            <input type="text" id="manual-ip-input" placeholder="e.g. 192.168.1.5"
-                                style="flex: 1; padding: 5px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.8rem;">
-                            <button onclick="updateServerIp()"
-                                style="background: #3498db; color: #fff; border: none; padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; cursor: pointer;">Update</button>
-                        </div>
-                        <p style="font-size: 0.6rem; color: #999; margin-top: 5px;">Tip: Run 'ipconfig' in CMD to find
-                            your IPv4 Address.</p>
-                    </div>
-                </div>
-            </div>
-            <style>
-                @keyframes spin {
-                    0% {
-                        transform: rotate(0deg);
-                    }
-
-                    100% {
-                        transform: rotate(360deg);
-                    }
+        <style>
+            @keyframes spin {
+                0% {
+                    transform: rotate(0deg);
                 }
-            </style>
-        </div>
 
-        <script>
-            // Store variables
-            const serverBaseUrl = "<?php echo $base_url; ?>";
-            const currentUserId = <?php echo $user_id; ?>;
-            let paymentPollInterval;
+                100% {
+                    transform: rotate(360deg);
+                }
+            }
+        </style>
+    </div>
 
-            // Product Data
-            const storeProducts = <?php echo json_encode($db_store_products); ?>;
+    <script>
+        // Store variables
+        const serverBaseUrl = "<?php echo $base_url; ?>";
+        const currentUserId = <?php echo $user_id; ?>;
+        let paymentPollInterval;
 
-            function openCategoryModal(catKey) {
-                const modal = document.getElementById('category-modal');
-                const title = document.getElementById('cat-modal-title');
-                const grid = document.getElementById('cat-modal-grid');
+        // Product Data
+        const storeProducts = <?php echo json_encode($db_store_products); ?>;
 
-                // Set Title
-                const titles = {
-                    'protein': 'Proteins',
-                    'gloves': 'Gym Gloves',
-                    'shakers': 'Shakers',
-                    'belts': 'Lifting Belts',
-                    'snacks': 'Healthy Snacks',
-                    'accessories': 'Fitness Accessories',
-                    'hygiene': 'Hygiene Essentials'
-                };
-                title.innerText = titles[catKey];
+        async function openCategoryModal(catKey) {
+            const modal = document.getElementById('category-modal');
+            const title = document.getElementById('cat-modal-title');
+            const grid = document.getElementById('cat-modal-grid');
 
-                // Clear grid
-                grid.innerHTML = '';
+            // Set Title
+            const titles = {
+                'protein': 'Proteins',
+                'gloves': 'Gym Gloves',
+                'shakers': 'Shakers',
+                'belts': 'Lifting Belts',
+                'snacks': 'Healthy Snacks',
+                'accessories': 'Fitness Accessories',
+                'hygiene': 'Hygiene Essentials'
+            };
+            title.innerText = titles[catKey] || catKey;
 
-                // Populate Products
-                if (storeProducts[catKey]) {
-                    storeProducts[catKey].forEach(prod => {
-                        const card = document.createElement('div');
-                        card.style.background = 'rgba(255,255,255,0.05)';
-                        card.style.padding = '15px';
-                        card.style.borderRadius = '10px';
-                        card.style.textAlign = 'center';
-                        card.style.border = '1px solid rgba(255,255,255,0.05)';
+            // Clear grid and show loading
+            grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-gray);"><i class="fa-solid fa-circle-notch fa-spin" style="font-size: 2rem; color: var(--primary-color);"></i><p style="margin-top: 15px;">Updating stock levels...</p></div>';
+            modal.style.display = 'flex';
 
-                        // Check for image or fallback icon
-                        let imgHtml = '';
-                        if (prod.image) {
-                            imgHtml = `<img src="${prod.image}" alt="${prod.name}" style="height: 120px; width: auto; max-width: 100%; object-fit: contain; margin-bottom: 15px;">`;
-                        } else {
-                            // Default icon based on category? Simplified fallback
-                            imgHtml = `<div style="height: 120px; display: flex; align-items: center; justify-content: center; margin-bottom: 15px;"><i class="fa-solid fa-box-open" style="font-size: 3rem; color: var(--primary-color);"></i></div>`;
+            // Fetch latest inventory via AJAX
+            try {
+                const response = await fetch('get_inventory.php');
+                const result = await response.json();
+                if (result.status === 'success') {
+                    // Update the local storeProducts mapping with fresh stock
+                    result.data.forEach(item => {
+                        // Find this product in our storeProducts array and update stock
+                        for (let category in storeProducts) {
+                            const prod = storeProducts[category].find(p => p.name === item.name);
+                            if (prod) {
+                                prod.stock = item.stock;
+                            }
                         }
-
-                        card.innerHTML = `
-                            ${imgHtml}
-                            <h4 style="margin-bottom: 5px; color: #fff;">${prod.name}</h4>
-                            <p style="color: var(--text-gray); font-size: 0.85rem; margin-bottom: 10px;">${prod.desc || ''}</p>
-                            <h3 style="color: var(--primary-color); margin-bottom: 15px;">₹${prod.price}</h3>
-                            <button onclick="openPurchaseModal('${prod.name}', ${prod.price})" class="btn-action" style="width: 100%; font-size: 0.9rem; padding: 10px;">Buy Now</button>
-                        `;
-                        grid.appendChild(card);
                     });
                 }
-
-                modal.style.display = 'flex';
+            } catch (err) {
+                console.error("Failed to fetch latest stock:", err);
             }
 
-            let currentStoreProduct = {};
+            grid.innerHTML = '';
 
-            function openPurchaseModal(name, price) {
-                currentStoreProduct = { name, price };
-                document.getElementById('store_product_name').value = name;
-                document.getElementById('store_product_price').value = price;
-                document.getElementById('disp_prod_name').innerText = name;
-                document.getElementById('disp_prod_price').innerText = price;
+            // Populate Products
+            if (storeProducts[catKey]) {
+                storeProducts[catKey].forEach(prod => {
+                    const card = document.createElement('div');
+                    card.style.background = 'rgba(255,255,255,0.05)';
+                    card.style.padding = '15px';
+                    card.style.borderRadius = '10px';
+                    card.style.textAlign = 'center';
+                    card.style.border = '1px solid rgba(255,255,255,0.05)';
 
-                // Reset to Razorpay default
-                document.querySelector('input[name="payment_method"][value="Razorpay"]').checked = true;
-                toggleStoreBtn('Razorpay');
+                    // Check for image or fallback icon
+                    let imgHtml = '';
+                    if (prod.image) {
+                        imgHtml = `<img src="${prod.image}" alt="${prod.name}" style="height: 120px; width: auto; max-width: 100%; object-fit: contain; margin-bottom: 15px;">`;
+                    } else {
+                        // Default icon based on category? Simplified fallback
+                        imgHtml = `<div style="height: 120px; display: flex; align-items: center; justify-content: center; margin-bottom: 15px;"><i class="fa-solid fa-box-open" style="font-size: 3rem; color: var(--primary-color);"></i></div>`;
+                    }
 
-                document.getElementById('store-modal').style.display = 'flex';
-            }
+                    const isOutOfStock = prod.stock <= 0;
+                    const stockLabel = isOutOfStock
+                        ? `<span id="m-stock-text-${prod.id}" style="color: #ff4d4d; font-size: 0.8rem; font-weight: bold;">Sold Out</span>`
+                        : `<span id="m-stock-text-${prod.id}" style="color: var(--primary-color); font-size: 0.8rem;">${prod.stock} in stock</span>`;
 
-            function toggleStoreBtn(method) {
-                const btn = document.getElementById('store-submit-btn');
-                btn.innerText = 'Pay with Razorpay';
-            }
-
-            function processStoreOrder() {
-                initiateRazorpayPayment({
-                    amount: currentStoreProduct.price,
-                    plan: 'Store: ' + currentStoreProduct.name,
-                    context: 'store'
+                    card.innerHTML = `
+                            ${imgHtml}
+                            <h4 style="margin-bottom: 5px; color: #fff;">${prod.name}</h4>
+                            <div style="margin-bottom: 10px;">${stockLabel}</div>
+                            <h3 style="color: var(--primary-color); margin-bottom: 15px;">₹${prod.price}</h3>
+                            <button id="m-buy-btn-${prod.id}" onclick="openPurchaseModal('${prod.name}', ${prod.price})" 
+                                    class="btn-action" 
+                                    style="width: 100%; font-size: 0.9rem; padding: 10px; ${isOutOfStock ? 'opacity: 0.5; cursor: not-allowed;' : ''}"
+                                    ${isOutOfStock ? 'disabled' : ''}>
+                                ${isOutOfStock ? 'Sold Out' : 'Buy Now'}
+                            </button>
+                        `;
+                    grid.appendChild(card);
                 });
             }
 
-            function startPaymentPolling() {
-                if (paymentPollInterval) clearInterval(paymentPollInterval);
+            modal.style.display = 'flex';
+        }
 
-                paymentPollInterval = setInterval(() => {
-                    const planName = 'Store: ' + currentStoreProduct.name;
-                    fetch(`check_payment_status.php?uid=${currentUserId}&plan=${encodeURIComponent(planName)}`)
-                        .then(res => res.json())
-                        .then(data => {
-                            if (data.status === 'paid') {
-                                clearInterval(paymentPollInterval);
-                                showSuccessAndRedirect(data.token);
+        // --- REAL-TIME INVENTORY SYNC FOR MEMBERS ---
+        setInterval(async () => {
+            try {
+                const response = await fetch('get_inventory.php');
+                const result = await response.json();
+                if (result.status === 'success') {
+                    result.data.forEach(item => {
+                        // Update local data
+                        for (let category in storeProducts) {
+                            const prod = storeProducts[category].find(p => p.name === item.name);
+                            if (prod) prod.stock = item.stock;
+                        }
+
+                        // Update current UI if labels exist
+                        const stockText = document.getElementById('m-stock-text-' + item.id);
+                        const buyBtn = document.getElementById('m-buy-btn-' + item.id);
+                        
+                        if (stockText) {
+                            if (item.stock <= 0) {
+                                stockText.innerText = 'Sold Out';
+                                stockText.style.color = '#ff4d4d';
+                                stockText.style.fontWeight = 'bold';
+                            } else {
+                                stockText.innerText = item.stock + ' in stock';
+                                stockText.style.color = 'var(--primary-color)';
+                                stockText.style.fontWeight = 'normal';
                             }
-                        })
-                        .catch(err => console.error("Polling error:", err));
-                }, 2000);
-            }
+                        }
 
-            function showSuccessAndRedirect(token = '') {
-                document.getElementById('scan-overlay').style.display = 'none'; // Hide if stuck
-                document.getElementById('success-overlay').style.display = 'flex';
-
-                if (token) {
-                    document.getElementById('token-display-area').style.display = 'block';
-                    document.getElementById('store-token-number').innerText = token;
+                        if (buyBtn) {
+                            if (item.stock <= 0) {
+                                buyBtn.innerText = 'Sold Out';
+                                buyBtn.disabled = true;
+                                buyBtn.style.opacity = '0.5';
+                                buyBtn.style.cursor = 'not-allowed';
+                            } else {
+                                buyBtn.innerText = 'Buy Now';
+                                buyBtn.disabled = false;
+                                buyBtn.style.opacity = '1';
+                                buyBtn.style.cursor = 'pointer';
+                            }
+                        }
+                    });
                 }
-
-                setTimeout(() => {
-                    closeGPayModal();
-                    document.getElementById('category-modal').style.display = 'none';
-                    window.location.href = 'dashboard_member.php?section=gym-store';
-                }, 5000); // 5 seconds to let them see the token
+            } catch (err) {
+                // Silently fail
             }
+        }, 3000); // 3-second sync for better responsiveness on store
 
-            function closeGPayModal() {
-                if (paymentPollInterval) clearInterval(paymentPollInterval);
-                document.getElementById('gpay-qr-modal').style.display = 'none';
-                document.getElementById('scan-overlay').style.display = 'none';
-                document.getElementById('success-overlay').style.display = 'none';
-            }
+        let currentStoreProduct = {};
 
-            let customServerBaseUrl = null;
+        function openPurchaseModal(name, price) {
+            currentStoreProduct = { name, price };
+            document.getElementById('store_product_name').value = name;
+            document.getElementById('store_product_price').value = price;
+            document.getElementById('disp_prod_name').innerText = name;
+            document.getElementById('disp_prod_price').innerText = price;
 
-            function generateStoreQR() {
-                const baseUrl = customServerBaseUrl || serverBaseUrl;
-                const payUrl = `${baseUrl}/gpay_mock.php?amt=${currentStoreProduct.price}&plan=${encodeURIComponent('Store: ' + currentStoreProduct.name)}&uid=${currentUserId}`;
-                const qrImg = document.getElementById('gpay-qr-code');
-                qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(payUrl)}`;
+            // Reset to Razorpay default
+            document.querySelector('input[name="payment_method"][value="Razorpay"]').checked = true;
+            toggleStoreBtn('Razorpay');
 
-                // Set the current IP in the input for convenience
-                const currentIp = baseUrl.replace('http://', '').split('/')[0];
-                document.getElementById('manual-ip-input').value = currentIp;
-            }
+            document.getElementById('store-modal').style.display = 'flex';
+        }
 
-            function updateServerIp() {
-                const newIp = document.getElementById('manual-ip-input').value.trim();
-                if (newIp) {
-                    customServerBaseUrl = `http://${newIp}/Gym-Fit-master`;
-                    generateStoreQR();
-                    alert("QR Code updated with IP: " + newIp);
-                }
-            }
-        </script>
+        function toggleStoreBtn(method) {
+            const btn = document.getElementById('store-submit-btn');
+            btn.innerText = 'Pay with Razorpay';
+        }
+
+        function processStoreOrder() {
+            initiateRazorpayPayment({
+                amount: currentStoreProduct.price,
+                plan: 'Store: ' + currentStoreProduct.name,
+                context: 'store'
+            });
+        }
+
+    </script>
 
     </div>
 
@@ -5151,120 +5105,33 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             // Only Razorpay fields exist now
             const rFields = document.getElementById('razorpay-fields');
             if (rFields) rFields.style.display = 'block';
-            
+
             if (membershipPollInterval) clearInterval(membershipPollInterval);
         }
 
-        function startProcessing(fromScan = false) {
+        function startProcessing() {
             if (membershipPollInterval) clearInterval(membershipPollInterval);
 
             const errorEl = document.getElementById('payment-error');
-            errorEl.style.display = 'none';
+            if (errorEl) errorEl.style.display = 'none';
 
-            // Validation (skip if confirming from scan or Razorpay)
-            if (!fromScan) {
-                if (currentMethod === 'Razorpay') {
-                    // Handle Razorpay flow
-                    let amt, plan;
-                    if (paymentContext === 'membership') {
-                        amt = document.getElementById('plan-selector').value;
-                        plan = document.getElementById('plan-selector').options[document.getElementById('plan-selector').selectedIndex].text.split(' - ')[0];
-                    } else {
-                        amt = currentPayAmount;
-                        plan = currentPayDesc;
-                    }
-
-                    initiateRazorpayPayment({
-                        amount: amt,
-                        plan: plan,
-                        context: paymentContext
-                    });
-                    return; // Stop here, Razorpay takes over
-                }
-
-                if (currentMethod === 'Credit Card') {
-                    const cardNum = document.getElementById('card-num').value.trim();
-                    const cardExp = document.getElementById('card-exp').value.trim();
-                    const cardCvv = document.getElementById('card-cvv').value.trim();
-
-                    if (cardNum.length !== 16 || isNaN(cardNum)) {
-                        errorEl.innerText = "Please enter a valid 16-digit card number.";
-                        errorEl.style.display = 'block';
-                        return;
-                    }
-                    if (!/^\d{2}\/\d{2}$/.test(cardExp)) {
-                        errorEl.innerText = "Please enter expiry in MM/YY format.";
-                        errorEl.style.display = 'block';
-                        return;
-                    }
-                    if (cardCvv.length !== 3 || isNaN(cardCvv)) {
-                        errorEl.innerText = "Please enter a valid 3-digit CVV.";
-                        errorEl.style.display = 'block';
-                        return;
-                    }
-                } else {
-                    const upiId = document.getElementById('upi-id-input').value.trim();
-                    // Strict UPI format: username@bank (Letters only, no numbers allowed as per request)
-                    if (!/^[a-zA-Z][a-zA-Z.-]*@[a-zA-Z]+$/.test(upiId)) {
-                        errorEl.innerText = "Please enter a valid format: username@bank (only letters allowed, e.g. user@okaxis)";
-                        errorEl.style.display = 'block';
-                        return;
-                    }
-                }
+            // Only Razorpay is supported now
+            let amt, plan;
+            if (paymentContext === 'membership') {
+                amt = document.getElementById('plan-selector').value;
+                plan = document.getElementById('plan-selector').options[document.getElementById('plan-selector').selectedIndex].text.split(' - ')[0];
+            } else {
+                amt = currentPayAmount;
+                plan = currentPayDesc;
             }
 
-            document.getElementById('payment-form-area').style.display = 'none';
-            document.getElementById('processing-payment').style.display = 'block';
-
-            setTimeout(() => {
-                document.getElementById('processing-payment').style.display = 'none';
-                document.getElementById('payment-success').style.display = 'block';
-
-                if (paymentContext === 'membership') {
-                    if (fromScan) {
-                        // Already recorded via record_payment.php
-                        document.getElementById('confirm-payment-form').innerHTML = `
-                            <button type="button" class="btn-action" style="width: 100%; border-radius: 30px;" onclick="location.reload()">
-                                Done
-                            </button>
-                        `;
-                    } else {
-                        const planName = planSelector.options[planSelector.selectedIndex].text.split(' - ')[0];
-                        const amt = planSelector.value;
-
-                        document.getElementById('final-plan').value = planName;
-                        document.getElementById('final-amt').value = amt;
-                        document.getElementById('final-method').value = currentMethod;
-                    }
-                } else if (paymentContext === 'appointment') {
-                    // Update Appointment Success UI
-                    document.getElementById('success-amt-display').innerText = "200.00";
-                    document.getElementById('success-method-display').innerText = currentMethod;
-
-                    // Change the Done button behavior or auto-submit
-                    // We will attach a specific handler or just trigger the booking form submit
-
-                    // Change the form action or use JS to submit the original booking form
-                    const confirmForm = document.getElementById('confirm-payment-form');
-                    // Remove existing hidden inputs to avoid conflict if any, or just repurpose?
-                    // Actually, for appointments, we just need to submit the booking form data
-
-                    // Helper: Hide the membership submit button, show a "Finish Booking" button
-                    confirmForm.innerHTML = `
-                        <button type="button" class="btn-action" style="width: 100%; border-radius: 30px;" onclick="finalizeBooking()">
-                            Finish Booking
-                        </button>
-                     `;
-                }
-
-                // Update Success UI Common Parts
-                if (paymentContext === 'membership') {
-                    const amt = planSelector.value;
-                    document.getElementById('success-amt-display').innerText = parseFloat(amt).toFixed(2);
-                }
-                document.getElementById('success-method-display').innerText = currentMethod;
-            }, 2500);
+            initiateRazorpayPayment({
+                amount: amt,
+                plan: plan,
+                context: paymentContext
+            });
         }
+
 
         function finalizeBooking() {
             // Submit the booking form programmatically
@@ -5353,6 +5220,8 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         document.getElementById('success-amt-display').innerText = parseFloat(originalOptions.amount).toFixed(2);
                         document.getElementById('success-method-display').innerText = 'Razorpay';
 
+                        document.getElementById('success-to-display').innerText = originalOptions.plan;
+
                         if (originalOptions.context === 'membership') {
                             // Transaction already recorded by razorpay_callback.php, just refresh on Done
                             const confirmForm = document.getElementById('confirm-payment-form');
@@ -5369,8 +5238,16 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                             </button>
                         `;
                         } else if (originalOptions.context === 'store') {
-                            document.getElementById('payment-modal').style.display = 'none';
-                            showSuccessAndRedirect(data.token);
+                            // Show token display
+                            document.getElementById('success-token-area').style.display = 'block';
+                            document.getElementById('success-token-display').innerText = data.token;
+
+                            const confirmForm = document.getElementById('confirm-payment-form');
+                            confirmForm.innerHTML = `
+                                <button type="button" class="btn-action" style="width: 100%; border-radius: 30px;" onclick="window.location.href='dashboard_member.php?section=gym-store'">
+                                    Done
+                                </button>
+                            `;
                         }
                     } else {
                         alert("Error recording payment: " + data.message);

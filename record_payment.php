@@ -22,6 +22,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         // Generate a unique token for store purchases
         if (stripos($plan_name, 'Store:') !== false) {
             $token_number = strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 6));
+
+            // Decrement stock in store_products
+            $clean_prod_name = trim(str_replace('Store:', '', $plan_name));
+            mysqli_query($link, "UPDATE store_products SET stock_count = stock_count - 1 WHERE name = '$clean_prod_name' AND stock_count > 0");
         }
 
         $sql = "INSERT INTO transactions (user_id, plan_name, amount, payment_method, status, token_number) VALUES (?, ?, ?, ?, ?, ?)";

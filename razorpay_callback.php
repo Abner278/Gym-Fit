@@ -17,10 +17,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $method = 'Razorpay';
         $status = 'completed';
         $token_number = null;
-
-        // Generate a unique token for store purchases
+        // Generate a unique token and decrement stock for store purchases
         if (stripos($plan_name, 'Store:') !== false) {
             $token_number = strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 6));
+
+            // Decrement stock in store_products
+            // More robust extraction: case-insensitive replace of "Store:" prefix
+            $raw_prod_name = preg_replace('/^Store:\s*/i', '', $data['plan']);
+            $clean_prod_name = mysqli_real_escape_string($link, trim($raw_prod_name));
+
+            $update_sql = "UPDATE store_products SET stock_count = stock_count - 1 WHERE name = '$clean_prod_name' AND stock_count > 0";
+            mysqli_query($link, $update_sql);
         }
 
         $sql = "INSERT INTO transactions (user_id, plan_name, amount, payment_method, status, token_number) VALUES (?, ?, ?, ?, ?, ?)";

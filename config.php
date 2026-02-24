@@ -15,19 +15,16 @@ try {
 
     if ($link === false) {
         throw new Exception(mysqli_connect_error());
-        // Create user_progress_photos table
-        $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-        mysqli_query($link, $photos_sql);
     }
+
+    // Create database if it doesn't exist
+    $sql = "CREATE DATABASE IF NOT EXISTS " . DB_NAME;
+    if (mysqli_query($link, $sql)) {
+        mysqli_select_db($link, DB_NAME);
+    } else {
+        throw new Exception("Could not create database. " . mysqli_error($link));
+    }
+
 } catch (Exception $e) {
     die("<div style='font-family:sans-serif; padding:40px; text-align:center; background-color:#0f0f1a; color:#fff; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center;'>
             <h2 style='color:#ceff00;'>Database Connection Error</h2>
@@ -38,52 +35,28 @@ try {
                 <p>2. Click 'Start' next to MySQL</p>
             </div>
          </div>");
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
 }
 
-// Create database if it doesn't exist
-$sql = "CREATE DATABASE IF NOT EXISTS " . DB_NAME;
-if (mysqli_query($link, $sql)) {
-    mysqli_select_db($link, DB_NAME);
-} else {
-    die("ERROR: Could not create database. " . mysqli_error($link));
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
-}
+// -------------------------------------------------------------------------
+// TABLE INITIALIZATION
+// -------------------------------------------------------------------------
 
-// Create users table with profile_image
-$table_sql = "CREATE TABLE IF NOT EXISTS users (
+// 1. Users table
+$users_sql = "CREATE TABLE IF NOT EXISTS users (
     id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
     full_name VARCHAR(100) NOT NULL,
     email VARCHAR(100) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
-    role ENUM('member', 'staff', 'admin') DEFAULT 'member',
+    role ENUM('member', 'staff', 'admin', 'shop_staff') DEFAULT 'member',
     profile_image TEXT DEFAULT NULL,
+    membership_plan VARCHAR(100) DEFAULT 'Standard',
+    membership_status VARCHAR(50) DEFAULT 'Active',
+    membership_expiry DATE DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 )";
+mysqli_query($link, $users_sql);
 
-// Update role ENUM to include shop_staff if not present
+// Migrations for users table (if table existed but columns were missing)
 $check_role = mysqli_query($link, "SHOW COLUMNS FROM users LIKE 'role'");
 if ($check_role) {
     $role_row = mysqli_fetch_assoc($check_role);
@@ -91,97 +64,47 @@ if ($check_role) {
         mysqli_query($link, "ALTER TABLE users MODIFY COLUMN role ENUM('member', 'staff', 'admin', 'shop_staff') DEFAULT 'member'");
     }
 }
-
-if (!mysqli_query($link, $table_sql)) {
-    die("ERROR: Could not create table. " . mysqli_error($link));
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
-}
-
-// Check if profile_image column exists, if not add it (for existing databases)
 $check_col = mysqli_query($link, "SHOW COLUMNS FROM users LIKE 'profile_image'");
-if (mysqli_num_rows($check_col) == 0) {
+if (mysqli_num_rows($check_col) == 0)
     mysqli_query($link, "ALTER TABLE users ADD profile_image TEXT DEFAULT NULL AFTER role");
-} else {
-    // Ensure it's TEXT type (fix for short VARCHAR truncation)
-    mysqli_query($link, "ALTER TABLE users MODIFY profile_image TEXT DEFAULT NULL");
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
-}
+mysqli_query($link, "ALTER TABLE users MODIFY profile_image TEXT DEFAULT NULL"); // Ensure TEXT type
 
-// Check membership columns for users table (membership_plan, membership_status, membership_expiry)
-$check_plan_col = mysqli_query($link, "SHOW COLUMNS FROM users LIKE 'membership_plan'");
-if (mysqli_num_rows($check_plan_col) == 0) {
+if (mysqli_num_rows(mysqli_query($link, "SHOW COLUMNS FROM users LIKE 'membership_plan'")) == 0)
     mysqli_query($link, "ALTER TABLE users ADD membership_plan VARCHAR(100) DEFAULT 'Standard'");
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
-}
-
-$check_status_col = mysqli_query($link, "SHOW COLUMNS FROM users LIKE 'membership_status'");
-if (mysqli_num_rows($check_status_col) == 0) {
+if (mysqli_num_rows(mysqli_query($link, "SHOW COLUMNS FROM users LIKE 'membership_status'")) == 0)
     mysqli_query($link, "ALTER TABLE users ADD membership_status VARCHAR(50) DEFAULT 'Active'");
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
-}
-
-$check_expiry_col = mysqli_query($link, "SHOW COLUMNS FROM users LIKE 'membership_expiry'");
-if (mysqli_num_rows($check_expiry_col) == 0) {
+if (mysqli_num_rows(mysqli_query($link, "SHOW COLUMNS FROM users LIKE 'membership_expiry'")) == 0)
     mysqli_query($link, "ALTER TABLE users ADD membership_expiry DATE DEFAULT NULL");
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
-}
 
-// Create tasks table
+
+// 2. Transactions table
+$trans_sql = "CREATE TABLE IF NOT EXISTS transactions (
+    id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    plan_name VARCHAR(100) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    payment_method VARCHAR(50) NOT NULL,
+    status ENUM('completed', 'failed', 'pending') DEFAULT 'completed',
+    token_number VARCHAR(20) DEFAULT NULL,
+    token_accepted TINYINT(1) DEFAULT 0,
+    is_deleted_by_user TINYINT(1) DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+)";
+mysqli_query($link, $trans_sql);
+
+// Migrations for transactions
+if (mysqli_num_rows(mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'status'")) == 0)
+    mysqli_query($link, "ALTER TABLE transactions ADD status ENUM('completed', 'failed', 'pending') DEFAULT 'completed' AFTER payment_method");
+if (mysqli_num_rows(mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'token_number'")) == 0)
+    mysqli_query($link, "ALTER TABLE transactions ADD token_number VARCHAR(20) DEFAULT NULL AFTER status");
+if (mysqli_num_rows(mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'token_accepted'")) == 0)
+    mysqli_query($link, "ALTER TABLE transactions ADD token_accepted TINYINT(1) DEFAULT 0 AFTER token_number");
+if (mysqli_num_rows(mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'is_deleted_by_user'")) == 0)
+    mysqli_query($link, "ALTER TABLE transactions ADD is_deleted_by_user TINYINT(1) DEFAULT 0 AFTER token_accepted");
+
+
+// 3. Tasks table
 $tasks_sql = "CREATE TABLE IF NOT EXISTS tasks (
     id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
     user_id INT NOT NULL,
@@ -192,57 +115,20 @@ $tasks_sql = "CREATE TABLE IF NOT EXISTS tasks (
 )";
 mysqli_query($link, $tasks_sql);
 
-// Create transactions table
-$trans_sql = "CREATE TABLE IF NOT EXISTS transactions (
+// 4. Progress Photos table
+$photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
     id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
     user_id INT NOT NULL,
-    plan_name VARCHAR(50) NOT NULL,
-    amount DECIMAL(10,2) NOT NULL,
-    payment_method VARCHAR(50) NOT NULL,
-    status ENUM('completed', 'failed', 'pending') DEFAULT 'completed',
+    photo_path VARCHAR(255) NOT NULL,
+    photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
+    date_taken DATE NOT NULL,
+    notes TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 )";
-mysqli_query($link, $trans_sql);
-
-// Add status column if it doesn't exist
-$check_trans_status = mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'status'");
-if (mysqli_num_rows($check_trans_status) == 0) {
-    mysqli_query($link, "ALTER TABLE transactions ADD status ENUM('completed', 'failed', 'pending') DEFAULT 'completed' AFTER payment_method");
-}
-
-// Add token_number column if it doesn't exist
-$check_trans_token = mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'token_number'");
-if (mysqli_num_rows($check_trans_token) == 0) {
-    mysqli_query($link, "ALTER TABLE transactions ADD token_number VARCHAR(20) DEFAULT NULL AFTER status");
-}
-
-// Add token_accepted column if it doesn't exist
-$check_trans_accepted = mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'token_accepted'");
-if (mysqli_num_rows($check_trans_accepted) == 0) {
-    mysqli_query($link, "ALTER TABLE transactions ADD token_accepted TINYINT(1) DEFAULT 0 AFTER token_number");
-}
-
-// Add is_deleted_by_user column if it doesn't exist
-$check_trans_deleted = mysqli_query($link, "SHOW COLUMNS FROM transactions LIKE 'is_deleted_by_user'");
-if (mysqli_num_rows($check_trans_deleted) == 0) {
-    mysqli_query($link, "ALTER TABLE transactions ADD is_deleted_by_user TINYINT(1) DEFAULT 0 AFTER token_accepted");
-}
-
-// Create user_progress_photos table
-$photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
 mysqli_query($link, $photos_sql);
 
-// Create completed_workouts table for progress tracking
+// 5. Completed Workouts table
 $workouts_sql = "CREATE TABLE IF NOT EXISTS completed_workouts (
     id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
     user_id INT NOT NULL,
@@ -252,7 +138,7 @@ $workouts_sql = "CREATE TABLE IF NOT EXISTS completed_workouts (
 )";
 mysqli_query($link, $workouts_sql);
 
-// Create password_resets table
+// 6. Password Resets table
 $reset_sql = "CREATE TABLE IF NOT EXISTS password_resets (
     id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
     email VARCHAR(100) NOT NULL,
@@ -262,7 +148,7 @@ $reset_sql = "CREATE TABLE IF NOT EXISTS password_resets (
 )";
 mysqli_query($link, $reset_sql);
 
-// Create trainers table
+// 7. Trainers table
 $trainers_sql = "CREATE TABLE IF NOT EXISTS trainers (
     id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
@@ -271,7 +157,7 @@ $trainers_sql = "CREATE TABLE IF NOT EXISTS trainers (
 )";
 mysqli_query($link, $trainers_sql);
 
-// Create member_queries table
+// 8. Member Queries table
 $queries_sql = "CREATE TABLE IF NOT EXISTS member_queries (
     id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
@@ -285,7 +171,7 @@ $queries_sql = "CREATE TABLE IF NOT EXISTS member_queries (
 )";
 mysqli_query($link, $queries_sql);
 
-// Create announcements table
+// 9. Announcements table
 $ann_sql = "CREATE TABLE IF NOT EXISTS announcements (
     id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
     title VARCHAR(255) NOT NULL,
@@ -294,7 +180,7 @@ $ann_sql = "CREATE TABLE IF NOT EXISTS announcements (
 )";
 mysqli_query($link, $ann_sql);
 
-// Create daily_workouts table
+// 10. Daily Workouts table
 $daily_sql = "CREATE TABLE IF NOT EXISTS daily_workouts (
     id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
     title VARCHAR(255) NOT NULL,
@@ -305,7 +191,7 @@ $daily_sql = "CREATE TABLE IF NOT EXISTS daily_workouts (
 )";
 mysqli_query($link, $daily_sql);
 
-// Create inventory table
+// 11. Inventory table
 $inventory_sql = "CREATE TABLE IF NOT EXISTS inventory (
     id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
     item_name VARCHAR(255) NOT NULL,
@@ -317,7 +203,7 @@ $inventory_sql = "CREATE TABLE IF NOT EXISTS inventory (
 )";
 mysqli_query($link, $inventory_sql);
 
-// Populate default inventory if table is empty or has very few items (fresh install)
+// Populate default inventory if fresh install
 $check_inv = mysqli_query($link, "SELECT count(*) as count FROM inventory");
 $inv_count = mysqli_fetch_assoc($check_inv);
 if ($inv_count['count'] < 5) {
@@ -331,52 +217,11 @@ if ($inv_count['count'] < 5) {
     ('Kettlebell Collection', 1, 'Functional', '2026-01-01', '2026-04-01'),
     ('Leg Press Machine', 1, 'Functional', '2026-01-12', '2026-04-12'),
     ('Lat Pulldown Machine', 1, 'Service Due', '2025-10-15', '2026-01-15'),
-    ('Cable Crossover', 1, 'Functional', '2026-01-10', '2026-04-10'),
-    ('Smith Machine', 1, 'Functional', '2026-01-08', '2026-07-08'),
-    ('Yoga Mats Premium', 20, 'Functional', '2026-01-18', '2026-02-18'),
-    ('Medicine Balls Set', 5, 'Functional', '2026-01-05', '2026-03-05'),
-    ('Swiss Balls', 5, 'Functional', '2026-01-05', '2026-03-05'),
-    ('Speed Jump Ropes', 10, 'Functional', '2026-01-20', '2026-03-20'),
-    ('Foam Rollers', 8, 'Functional', '2026-01-20', '2026-03-20'),
-    ('Battle Ropes', 2, 'Damaged', '2025-11-20', '2026-01-22'),
-    ('Pull-up Bar Station', 2, 'Functional', '2026-01-01', '2026-12-01'),
-    ('Dip Station', 1, 'Functional', '2026-01-01', '2026-12-01'),
-    ('Ab Roller Wheels', 5, 'Functional', '2026-01-15', '2026-04-15'),
-    ('TRX Suspension Kit', 3, 'Functional', '2026-01-10', '2026-03-10'),
-    ('Heavy Boxing Bag', 2, 'Functional', '2026-01-05', '2026-04-05'),
-    ('EZ Curl Bar', 3, 'Functional', '2026-01-08', '2026-07-08'),
-    ('Adjustable Bench', 4, 'Functional', '2026-01-12', '2026-07-12')";
-
-    if (!mysqli_query($link, $inv_insert)) {
-        // Silently fail or log, but don't stop execution if duplicate
-        // Create user_progress_photos table
-        $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-        mysqli_query($link, $photos_sql);
-    }
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
+    ('Cable Crossover', 1, 'Functional', '2026-01-10', '2026-04-10')";
+    mysqli_query($link, $inv_insert);
 }
 
-// Create membership_plans table
+// 12. Membership Plans table
 $plans_sql = "CREATE TABLE IF NOT EXISTS membership_plans (
     id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(50) NOT NULL,
@@ -393,86 +238,33 @@ $plans_sql = "CREATE TABLE IF NOT EXISTS membership_plans (
     diet_consultation_yearly TINYINT(1) DEFAULT 0,
     personal_locker_yearly TINYINT(1) DEFAULT 0,
     guest_pass_yearly TINYINT(1) DEFAULT 0,
-    nutrition_guide_yearly TINYINT(1) DEFAULT 0
+    nutrition_guide_yearly TINYINT(1) DEFAULT 0,
+    custom_attributes TEXT DEFAULT NULL,
+    feature_labels TEXT DEFAULT NULL,
+    hidden_features TEXT DEFAULT NULL
 )";
 mysqli_query($link, $plans_sql);
 
-// Insert default plans if they don't exist
-$check_plans = "SELECT * FROM membership_plans LIMIT 1";
-$res_plans = mysqli_query($link, $check_plans);
+// Migrations for membership_plans
+if (mysqli_num_rows(mysqli_query($link, "SHOW COLUMNS FROM membership_plans LIKE 'custom_attributes'")) == 0)
+    mysqli_query($link, "ALTER TABLE membership_plans ADD custom_attributes TEXT DEFAULT NULL");
+if (mysqli_num_rows(mysqli_query($link, "SHOW COLUMNS FROM membership_plans LIKE 'feature_labels'")) == 0)
+    mysqli_query($link, "ALTER TABLE membership_plans ADD feature_labels TEXT DEFAULT NULL");
+if (mysqli_num_rows(mysqli_query($link, "SHOW COLUMNS FROM membership_plans LIKE 'hidden_features'")) == 0)
+    mysqli_query($link, "ALTER TABLE membership_plans ADD hidden_features TEXT DEFAULT NULL");
+
+// Insert default plans if fresh install
+$res_plans = mysqli_query($link, "SELECT * FROM membership_plans LIMIT 1");
 if ($res_plans && mysqli_num_rows($res_plans) == 0) {
     mysqli_query($link, "INSERT INTO membership_plans (name, price_monthly, price_yearly, is_popular, gym_access, free_locker, group_class, personal_trainer, protein_drinks_monthly, protein_drinks_yearly, customized_workout_plan, diet_consultation_yearly, personal_locker_yearly, guest_pass_yearly, nutrition_guide_yearly) VALUES 
     ('Basic', 399, 2999, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0),
     ('Standard', 899, 5999, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1),
     ('Premium', 999, 10999, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0)");
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
 }
 
-// Add columns for dynamic features and labels
-$check_custom = mysqli_query($link, "SHOW COLUMNS FROM membership_plans LIKE 'custom_attributes'");
-if (mysqli_num_rows($check_custom) == 0) {
-    mysqli_query($link, "ALTER TABLE membership_plans ADD custom_attributes TEXT DEFAULT NULL");
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
-}
-$check_labels = mysqli_query($link, "SHOW COLUMNS FROM membership_plans LIKE 'feature_labels'");
-if (mysqli_num_rows($check_labels) == 0) {
-    mysqli_query($link, "ALTER TABLE membership_plans ADD feature_labels TEXT DEFAULT NULL");
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
-}
-$check_hidden = mysqli_query($link, "SHOW COLUMNS FROM membership_plans LIKE 'hidden_features'");
-if (mysqli_num_rows($check_hidden) == 0) {
-    mysqli_query($link, "ALTER TABLE membership_plans ADD hidden_features TEXT DEFAULT NULL");
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
-}
-
-// Create some default users for testing if they don't exist
-$check_admin = "SELECT * FROM users WHERE role='admin' LIMIT 1";
-$result = mysqli_query($link, $check_admin);
-if ($result && mysqli_num_rows($result) == 0) {
+// 13. Default Users for testing
+$res_admin = mysqli_query($link, "SELECT * FROM users WHERE role='admin' LIMIT 1");
+if ($res_admin && mysqli_num_rows($res_admin) == 0) {
     $admin_pass = password_hash('admin123', PASSWORD_DEFAULT);
     $staff_pass = password_hash('staff123', PASSWORD_DEFAULT);
     $member_pass = password_hash('member123', PASSWORD_DEFAULT);
@@ -481,36 +273,39 @@ if ($result && mysqli_num_rows($result) == 0) {
     mysqli_query($link, "INSERT INTO users (full_name, email, password, role) VALUES ('Staff User', 'staff@gym.com', '$staff_pass', 'staff')");
     mysqli_query($link, "INSERT INTO users (full_name, email, password, role) VALUES ('Member User', 'member@gym.com', '$member_pass', 'member')");
 
-    // Add default tasks for the member user
     $member_id = mysqli_insert_id($link);
     if ($member_id) {
         mysqli_query($link, "INSERT INTO tasks (user_id, task_name, is_done) VALUES 
             ($member_id, 'Morning Cardio (30 mins)', 1),
             ($member_id, 'Drink 4L Water', 0),
             ($member_id, 'Take Supplements', 1)");
-        // Create user_progress_photos table
-        $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-        mysqli_query($link, $photos_sql);
     }
-    // Create user_progress_photos table
-    $photos_sql = "CREATE TABLE IF NOT EXISTS user_progress_photos (
-        id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
-        user_id INT NOT NULL,
-        photo_path VARCHAR(255) NOT NULL,
-        photo_type ENUM('before', 'after', 'progress') DEFAULT 'progress',
-        date_taken DATE NOT NULL,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    mysqli_query($link, $photos_sql);
 }
+
+// 14. Store Categories table
+mysqli_query($link, "CREATE TABLE IF NOT EXISTS store_categories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    image VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)");
+
+// 15. Store Products table
+mysqli_query($link, "CREATE TABLE IF NOT EXISTS store_products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    category_id INT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    image VARCHAR(255) NOT NULL,
+    stock_count INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (category_id) REFERENCES store_categories(id) ON DELETE CASCADE
+)");
+
+// Migrations for store_products
+$check_prod_stock = mysqli_query($link, "SHOW COLUMNS FROM store_products LIKE 'stock_count'");
+if (mysqli_num_rows($check_prod_stock) == 0) {
+    mysqli_query($link, "ALTER TABLE store_products ADD COLUMN stock_count INT DEFAULT 0");
+}
+?>
