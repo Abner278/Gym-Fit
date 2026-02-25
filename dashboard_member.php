@@ -2296,16 +2296,16 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         <p style="font-size: 1.2rem; opacity: 0.8;">₹<?php
                         if (strpos($membership_plan, 'Yearly') !== false) {
                             if (strpos($membership_plan, 'Basic') !== false)
-                                echo '3999';
+                                echo '2999';
                             elseif (strpos($membership_plan, 'Premium') !== false)
-                                echo '9999';
+                                echo '10999';
                             else
-                                echo '8999';
+                                echo '5999';
                             echo ' / year';
                         } else {
-                            if ($membership_plan == 'Basic')
+                            if (strpos($membership_plan, 'Basic') !== false)
                                 echo '399';
-                            elseif ($membership_plan == 'Premium')
+                            elseif (strpos($membership_plan, 'Premium') !== false)
                                 echo '999';
                             else
                                 echo '899';
@@ -2571,43 +2571,31 @@ $is_beginner_completed = count($completed_weeks) >= 4;
             <div class="modal-content" id="payment-form-area"
                 style="background: var(--secondary-color); padding: 40px; border-radius: 20px; width: 100%; max-width: 450px; border: 1px solid rgba(255,255,255,0.1);position: relative;">
 
-                <!-- Gateway Header -->
-                <div style="text-align: center; margin-bottom: 30px;">
-                    <div
-                        style="color: var(--primary-color); font-family: 'Oswald'; font-size: 1.5rem; margin-bottom: 5px;">
-                        <i class="fa-solid fa-shield-halved"></i> GymFit Secure Pay
-                    </div>
-                    <p style="font-size: 0.8rem; color: var(--text-gray);">🔒 SSL Encrypted Checkout</p>
-                </div>
-
+                <!-- Payment Method Header -->
                 <h3
-                    style="font-family:'Oswald'; margin-bottom:20px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px;">
-                    Choose Payment Method</h3>
+                    style="color: var(--text-gray); font-family: 'Roboto', sans-serif; font-size: 1.1rem; margin-bottom: 25px; font-weight: 400;">
+                    Payment Method</h3>
 
-                <div class="payment-options" style="grid-template-columns: 1fr;">
-                    <div class="pay-opt active" onclick="selectPayMethod(this, 'Razorpay')">
-                        <i class="fa-solid fa-bolt" style="color: var(--primary-color);"></i><br>Razorpay
-                    </div>
+                <div style="margin-bottom: 30px;">
+                    <label
+                        style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.02); padding: 18px; border-radius: 12px; border: 1px solid var(--primary-color); cursor: pointer; transition: 0.3s;">
+                        <input type="radio" name="pay_method_select" checked
+                            style="width: 18px; height: 18px; accent-color: var(--primary-color);">
+                        <i class="fa-solid fa-bolt" style="color: var(--primary-color); font-size: 1.2rem;"></i>
+                        <span style="color: #fff; font-weight: 500; font-size: 1.1rem;">Razorpay</span>
+                    </label>
                 </div>
-
-                <div id="razorpay-fields"
-                    style="display:block; text-align:center; padding:20px; border: 1px dashed var(--primary-color); border-radius: 12px; background: rgba(206,255,0,0.05); margin-bottom: 20px;">
-                    <i class="fa-solid fa-bolt"
-                        style="font-size: 2rem; color: var(--primary-color); margin-bottom: 10px;"></i>
-                    <p style="color: #fff; font-weight: 500;">Razorpay Secure Checkout</p>
-                    <p style="font-size: 0.8rem; color: var(--text-gray);">You will be redirected to the secure Razorpay
-                        portal to complete your payment.</p>
-                </div>
-
 
                 <p id="payment-error"
                     style="color:#ff4d4d; font-size:0.85rem; text-align:center; margin-top:15px; display:none;"></p>
 
+                <button type="button" class="btn-action"
+                    style="margin-top:10px; padding: 16px; font-size: 1rem; letter-spacing: 1px;"
+                    onclick="startProcessing()">PAY WITH RAZORPAY</button>
 
-                <button type="button" class="btn-action" style="margin-top:30px;" onclick="startProcessing()">Confirm &
-                    Pay</button>
                 <p onclick="closePaymentModal()"
-                    style="text-align:center; margin-top:20px; cursor:pointer; opacity:0.6;">
+                    style="text-align:center; margin-top:25px; cursor:pointer; opacity:0.5; font-size: 0.9rem; transition: 0.3s;"
+                    onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'">
                     Cancel</p>
             </div>
 
@@ -4086,7 +4074,6 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                         // Update current UI if labels exist
                         const stockText = document.getElementById('m-stock-text-' + item.id);
                         const buyBtn = document.getElementById('m-buy-btn-' + item.id);
-                        
                         if (stockText) {
                             if (item.stock <= 0) {
                                 stockText.innerText = 'Sold Out';
