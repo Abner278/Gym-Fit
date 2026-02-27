@@ -260,6 +260,33 @@ if (isset($_GET['delete_store_product'])) {
     exit;
 }
 
+// --- ATTENDANCE FETCHING ---
+$shop_staff_id = $_SESSION["id"];
+$selected_month = isset($_GET['att_month']) ? $_GET['att_month'] : date('Y-m');
+
+$att_query = mysqli_query($link, "
+    SELECT * FROM attendance 
+    WHERE user_id = $shop_staff_id AND user_type = 'shop_staff' 
+    AND DATE_FORMAT(date, '%Y-%m') = '$selected_month'
+    ORDER BY date ASC
+");
+
+$attendance_records = [];
+while ($row = mysqli_fetch_assoc($att_query)) {
+    $attendance_records[$row['date']] = $row['status'];
+}
+
+// Summary for the month
+$summary_query = mysqli_query($link, "
+    SELECT 
+        SUM(CASE WHEN LOWER(status) = 'present' THEN 1 ELSE 0 END) as present_count,
+        SUM(CASE WHEN LOWER(status) = 'absent' THEN 1 ELSE 0 END) as absent_count
+    FROM attendance
+    WHERE user_id = $shop_staff_id AND user_type = 'shop_staff'
+    AND DATE_FORMAT(date, '%Y-%m') = '$selected_month'
+");
+$att_summary = mysqli_fetch_assoc($summary_query);
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -531,6 +558,113 @@ if (isset($_GET['delete_store_product'])) {
                 padding: 20px;
             }
         }
+
+        /* Attendance Calendar Styles */
+        .att-calendar {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 12px;
+            margin-top: 20px;
+            max-width: 850px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .calendar-day {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            height: 110px;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transition: 0.3s;
+        }
+
+        .calendar-day.present {
+            border-color: #00ff88;
+            background: rgba(0, 255, 136, 0.05);
+        }
+
+        .calendar-day.absent {
+            border-color: #ff4d4d;
+            background: rgba(255, 77, 77, 0.05);
+        }
+
+        .calendar-day.not-marked {
+            opacity: 0.5;
+        }
+
+        .day-num {
+            font-size: 1rem;
+            font-weight: bold;
+            font-family: 'Oswald', sans-serif;
+        }
+
+        .day-status {
+            font-size: 0.55rem;
+            text-transform: uppercase;
+            font-weight: bold;
+            margin-top: 2px;
+        }
+
+        .calendar-header-days {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 12px;
+            margin-bottom: 12px;
+            text-align: center;
+            max-width: 850px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .calendar-header-day {
+            color: var(--text-gray);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        .att-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+            max-width: 850px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .att-stat-card {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 15px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .att-stat-card h4 {
+            font-size: 0.8rem;
+            color: var(--text-gray);
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .att-stat-card .att-val {
+            font-size: 1.5rem;
+            font-weight: bold;
+            font-family: 'Oswald', sans-serif;
+            color: var(--primary-color);
+        }
+
+        /* Make calendar icon visible on dark background */
+        input[type="month"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+            cursor: pointer;
+        }
     </style>
 </head>
 
@@ -564,10 +698,12 @@ if (isset($_GET['delete_store_product'])) {
             <li><a href="index.php"><i class="fa-solid fa-house"></i> Back to Website</a></li>
             <li style="border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 10px; padding-bottom: 10px;">
             </li>
-            <li><a href="#" class="active" onclick="showSection('orders')"><i class="fa-solid fa-cart-shopping"></i>
+            <li><a href="#" onclick="showSection('orders')"><i class="fa-solid fa-cart-shopping"></i>
                     Store Orders</a></li>
             <li><a href="#" onclick="showSection('gym-store-mgmt')"><i class="fa-solid fa-shop"></i> Manage Store</a>
             </li>
+            <li><a href="#" onclick="showSection('attendance')"><i class="fa-solid fa-calendar-check"></i> My
+                    Attendance</a></li>
             <li><a href="#" onclick="showSection('profile')"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
             </li>
 
@@ -817,6 +953,105 @@ if (isset($_GET['delete_store_product'])) {
                                 <?php endwhile; ?>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- My Attendance -->
+        <div id="attendance" class="dashboard-section">
+            <div class="card" style="max-width: 950px; margin: 0 auto;">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3>My Attendance History</h3>
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <span style="font-size: 0.9rem; color: var(--text-gray);">Select Month:</span>
+                        <input type="month" id="att-month-select" value="<?php echo $selected_month; ?>"
+                            class="form-control" style="width: 200px; height: 40px; font-weight: 500;"
+                            onchange="window.location.href='dashboard_shop_staff.php?att_month=' + this.value + '#attendance'">
+                    </div>
+                </div>
+
+                <div class="att-summary-grid">
+                    <div class="att-stat-card">
+                        <h4>Total Marked</h4>
+                        <div class="att-val">
+                            <?php echo (int) $att_summary['present_count'] + (int) $att_summary['absent_count']; ?>
+                        </div>
+                    </div>
+                    <div class="att-stat-card" style="border-bottom: 2px solid #00ff88;">
+                        <h4>Present Days</h4>
+                        <div class="att-val" style="color: #00ff88;"><?php echo (int) $att_summary['present_count']; ?>
+                        </div>
+                    </div>
+                    <div class="att-stat-card" style="border-bottom: 2px solid #ff4d4d;">
+                        <h4>Absent Days</h4>
+                        <div class="att-val" style="color: #ff4d4d;"><?php echo (int) $att_summary['absent_count']; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="calendar-header-days">
+                    <div class="calendar-header-day">Sun</div>
+                    <div class="calendar-header-day">Mon</div>
+                    <div class="calendar-header-day">Tue</div>
+                    <div class="calendar-header-day">Wed</div>
+                    <div class="calendar-header-day">Thu</div>
+                    <div class="calendar-header-day">Fri</div>
+                    <div class="calendar-header-day">Sat</div>
+                </div>
+
+                <div class="att-calendar">
+                    <?php
+                    $year = date('Y', strtotime($selected_month));
+                    $month = date('m', strtotime($selected_month));
+                    $first_day_of_month = date('w', strtotime("$year-$month-01"));
+                    $days_in_month = date('t', strtotime("$year-$month-01"));
+
+                    // Empty slots for start of month
+                    for ($i = 0; $i < $first_day_of_month; $i++) {
+                        echo '<div class="calendar-day" style="opacity: 0;"></div>';
+                    }
+
+                    // Days of month
+                    for ($day = 1; $day <= $days_in_month; $day++) {
+                        $current_date = "$year-$month-" . str_pad($day, 2, '0', STR_PAD_LEFT);
+                        $status = isset($attendance_records[$current_date]) ? strtolower($attendance_records[$current_date]) : '';
+                        $class = $status ? $status : 'not-marked';
+
+                        echo '<div class="calendar-day ' . $class . '">';
+                        echo '<div class="day-num">' . $day . '</div>';
+                        if ($status) {
+                            $icon = ($status == 'present') ? 'fa-circle-check' : 'fa-circle-xmark';
+                            echo '<div class="day-status" style="color: ' . ($status == 'present' ? '#00ff88' : '#ff4d4d') . ';">';
+                            echo '<i class="fa-solid ' . $icon . '"></i> ' . $status;
+                            echo '</div>';
+                        } else {
+                            echo '<div class="day-status" style="opacity: 0.3;">-</div>';
+                        }
+                        echo '</div>';
+                    }
+                    ?>
+                </div>
+
+                <div
+                    style="margin-top: 30px; display: flex; gap: 20px; justify-content: center; font-size: 0.85rem; color: var(--text-gray);">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div
+                            style="width: 12px; height: 12px; border-radius: 2px; background: rgba(0, 255, 136, 0.15); border: 1px solid #00ff88;">
+                        </div>
+                        Present
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div
+                            style="width: 12px; height: 12px; border-radius: 2px; background: rgba(255, 77, 77, 0.15); border: 1px solid #ff4d4d;">
+                        </div>
+                        Absent
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div
+                            style="width: 12px; height: 12px; border-radius: 2px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1);">
+                        </div>
+                        Not Marked
                     </div>
                 </div>
             </div>

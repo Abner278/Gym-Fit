@@ -1168,17 +1168,138 @@ if (isset($_GET['delete_shop_staff'])) {
 mysqli_query($link, "CREATE TABLE IF NOT EXISTS attendance (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
-    user_type ENUM('user', 'trainer') DEFAULT 'user',
+    user_type VARCHAR(50) DEFAULT 'user',
     date DATE NOT NULL,
     status VARCHAR(20) DEFAULT 'present',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )");
 
+// Safe column modification
 $check_att_type = mysqli_query($link, "SHOW COLUMNS FROM attendance LIKE 'user_type'");
-if (mysqli_num_rows($check_att_type) == 0) {
-    mysqli_query($link, "ALTER TABLE attendance ADD COLUMN user_type ENUM('user', 'trainer') DEFAULT 'user' AFTER user_id");
-    @mysqli_query($link, "ALTER TABLE attendance DROP INDEX unique_attendance");
-    mysqli_query($link, "ALTER TABLE attendance ADD UNIQUE KEY unique_attendance (user_id, user_type, date)");
+if ($col = mysqli_fetch_assoc($check_att_type)) {
+    if (stripos($col['Type'], 'enum') !== false) {
+        // Was an ENUM, convert to VARCHAR to support 'shop_staff'
+        mysqli_query($link, "ALTER TABLE attendance MODIFY COLUMN user_type VARCHAR(50) DEFAULT 'user'");
+    }
+} else {
+    mysqli_query($link, "ALTER TABLE attendance ADD COLUMN user_type VARCHAR(50) DEFAULT 'user' AFTER user_id");
+}
+
+// Re-ensure unique constraint
+@mysqli_query($link, "ALTER TABLE attendance DROP INDEX unique_attendance");
+@mysqli_query($link, "ALTER TABLE attendance ADD UNIQUE KEY unique_attendance (user_id, user_type, date)");
+
+// Ensure salary tables exist
+mysqli_query($link, "CREATE TABLE IF NOT EXISTS salary_settings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    user_type VARCHAR(50) NOT NULL,
+    month VARCHAR(7) DEFAULT NULL,
+    basic_salary DECIMAL(10,2) DEFAULT 0.00,
+    incentives DECIMAL(10,2) DEFAULT 0.00,
+    deductions DECIMAL(10,2) DEFAULT 0.00,
+    UNIQUE KEY user_type_month (user_id, user_type, month)
+)");
+
+$check_settings_month = mysqli_query($link, "SHOW COLUMNS FROM salary_settings LIKE 'month'");
+if (mysqli_num_rows($check_settings_month) == 0) {
+    try {
+        mysqli_query($link, "ALTER TABLE salary_settings ADD COLUMN month VARCHAR(7) DEFAULT NULL AFTER user_type");
+    } catch (Exception $e) {
+    }
+    try {
+        mysqli_query($link, "ALTER TABLE salary_settings DROP INDEX user_id");
+    } catch (Exception $e) {
+    }
+    try {
+        mysqli_query($link, "ALTER TABLE salary_settings ADD UNIQUE KEY user_type_month (user_id, user_type, month)");
+    } catch (Exception $e) {
+    }
+}
+
+mysqli_query($link, "CREATE TABLE IF NOT EXISTS salary_settlements (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    user_type VARCHAR(50) NOT NULL,
+    month VARCHAR(7) NOT NULL,
+    basic_salary DECIMAL(10,2) DEFAULT 0.00,
+    incentives DECIMAL(10,2) DEFAULT 0.00,
+    deductions DECIMAL(10,2) DEFAULT 0.00,
+    total_amount DECIMAL(10,2) DEFAULT 0.00,
+    status VARCHAR(20) DEFAULT 'paid',
+    settled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)");
+
+$check_settle_cols = mysqli_query($link, "SHOW COLUMNS FROM salary_settlements LIKE 'basic_salary'");
+if (mysqli_num_rows($check_settle_cols) == 0) {
+    mysqli_query($link, "ALTER TABLE salary_settlements ADD COLUMN basic_salary DECIMAL(10,2) DEFAULT 0.00 AFTER month");
+    mysqli_query($link, "ALTER TABLE salary_settlements ADD COLUMN incentives DECIMAL(10,2) DEFAULT 0.00 AFTER basic_salary");
+    mysqli_query($link, "ALTER TABLE salary_settlements ADD COLUMN deductions DECIMAL(10,2) DEFAULT 0.00 AFTER incentives");
+}
+
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_salary_setting'])) {
+    $uid = (int) $_POST['user_id'];
+    $utype = mysqli_real_escape_string($link, $_POST['user_type']);
+    $month_raw = mysqli_real_escape_string($link, $_POST['month']);
+    $month = substr($month_raw, 0, 7);
+    $basic = (float) ($_POST['basic_salary'] ?? 0);
+    $incentives = (float) ($_POST['incentives'] ?? 0);
+    $deductions = (float) ($_POST['deductions'] ?? 0);
+
+    // Validation
+    if ($basic < 0 || $incentives < 0 || $deductions < 0) {
+        $_SESSION['message'] = "Salary values cannot be negative!";
+        $_SESSION['message_type'] = "error";
+    } else {
+        $sql = "INSERT INTO salary_settings (user_id, user_type, month, basic_salary, incentives, deductions) 
+                VALUES ($uid, '$utype', '$month', $basic, $incentives, $deductions)
+                ON DUPLICATE KEY UPDATE basic_salary=$basic, incentives=$incentives, deductions=$deductions";
+        if (mysqli_query($link, $sql)) {
+            $_SESSION['message'] = "Salary settings updated successfully!";
+            $_SESSION['message_type'] = "success";
+        } else {
+            $_SESSION['message'] = "Error updating salary.";
+            $_SESSION['message_type'] = "error";
+        }
+    }
+    header("Location: dashboard_admin.php#salary_mgmt");
+    exit;
+}
+
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['settle_salary'])) {
+    $uid = (int) $_POST['user_id'];
+    $utype = mysqli_real_escape_string($link, $_POST['user_type']);
+    $month_raw = mysqli_real_escape_string($link, $_POST['month']);
+    $month = substr($month_raw, 0, 7);
+    $amount = (float) $_POST['total_amount'];
+    $basic = (float) $_POST['settle_basic'];
+    $incentives = (float) $_POST['settle_incentives'];
+    $deductions = (float) $_POST['settle_deductions'];
+
+    $sql = "INSERT INTO salary_settlements (user_id, user_type, month, total_amount, basic_salary, incentives, deductions) 
+            VALUES ($uid, '$utype', '$month', $amount, $basic, $incentives, $deductions)
+            ON DUPLICATE KEY UPDATE total_amount=$amount, basic_salary=$basic, incentives=$incentives, deductions=$deductions";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Salary settled for $month!";
+        $_SESSION['message_type'] = "success";
+    }
+    header("Location: dashboard_admin.php#salary_mgmt");
+    exit;
+}
+
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['unsettle_salary'])) {
+    $uid = (int) $_POST['user_id'];
+    $utype = mysqli_real_escape_string($link, $_POST['user_type']);
+    $month_raw = mysqli_real_escape_string($link, $_POST['month']);
+    $month = substr($month_raw, 0, 7);
+
+    $sql = "DELETE FROM salary_settlements WHERE user_id=$uid AND user_type='$utype' AND month='$month'";
+    if (mysqli_query($link, $sql)) {
+        $_SESSION['message'] = "Payslip unsettled for $month!";
+        $_SESSION['message_type'] = "success";
+    }
+    header("Location: dashboard_admin.php#salary_mgmt");
+    exit;
 }
 
 // Handle Mark Attendance from Admin (AJAX)
@@ -1694,6 +1815,54 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, visible_pass
             backdrop-filter: blur(5px);
         }
 
+        /* Flatpickr Dark Mode Fixes */
+        .flatpickr-calendar {
+            background: #1a1a2e !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+        }
+
+        .flatpickr-day,
+        .flatpickr-month,
+        .flatpickr-weekday,
+        .flatpickr-current-month,
+        .flatpickr-months .flatpickr-prev-month,
+        .flatpickr-months .flatpickr-next-month {
+            color: #fff !important;
+            fill: #fff !important;
+        }
+
+        .flatpickr-day.today {
+            border-color: var(--primary-color) !important;
+        }
+
+        .flatpickr-day.selected {
+            background: var(--primary-color) !important;
+            color: #000 !important;
+            border-color: var(--primary-color) !important;
+        }
+
+        .flatpickr-day:hover {
+            background: rgba(206, 255, 0, 0.2) !important;
+        }
+
+        /* Fix for the month dropdown list color */
+        .flatpickr-monthDropdown-months {
+            background: #1a1a2e !important;
+            color: #fff !important;
+        }
+
+        .flatpickr-monthDropdown-month {
+            background: #1a1a2e !important;
+            color: #fff !important;
+        }
+
+        /* Native month picker icon visibility */
+        input[type="month"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+            cursor: pointer;
+        }
+
         .modal-content {
             background: var(--secondary-color);
             padding: 30px;
@@ -1926,7 +2095,13 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, visible_pass
             border-radius: 6px !important;
         }
 
-        .flatpickr-day:hover {
+        .flatpickr-day.prevMonthDay,
+        .flatpickr-day.nextMonthDay,
+        .flatpickr-day.flatpickr-disabled {
+            color: rgba(255, 255, 255, 0.2) !important;
+        }
+
+        .flatpickr-day:hover:not(.prevMonthDay):not(.nextMonthDay) {
             background: rgba(206, 255, 0, 0.15) !important;
             border-color: transparent !important;
             color: #fff !important;
@@ -1995,6 +2170,9 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, visible_pass
             <li><a href="#" onclick="showSection('inventory')"><i class="fa-solid fa-boxes-stacked"></i> Inventory</a>
             </li>
             <li><a href="#" onclick="showSection('shop-staff')"><i class="fa-solid fa-users-gear"></i> Shop Staff</a>
+            </li>
+            <li><a href="#" onclick="showSection('salary_mgmt')"><i class="fa-solid fa-money-check-dollar"></i> Salary
+                    Management</a>
             </li>
             <li><a href="#" onclick="showSection('announcements')"><i class="fa-solid fa-bullhorn"></i>
                     Announcements</a></li>
@@ -3420,6 +3598,270 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, visible_pass
             </div>
         </div>
 
+        <!-- Salary Management -->
+        <div id="salary_mgmt" class="dashboard-section">
+            <?php
+            $view_month = isset($_GET['salary_month']) ? substr($_GET['salary_month'], 0, 7) : date('Y-m');
+            $d = date('d');
+            $t = date('t', strtotime($view_month . '-01'));
+            $safe_d = $d > $t ? $t : $d;
+            $picker_val = htmlspecialchars($view_month) . '-' . $safe_d;
+            ?>
+            <div class="card">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3>Staff & Trainer Salary Management</h3>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <label style="color:var(--text-gray); font-size: 0.9rem;">Select Month/Year: </label>
+                        <div style="position: relative; width: 180px;">
+                            <input type="text" id="salary-month-picker" class="form-control flatpickr-month-picker"
+                                style="width: 100%; padding: 8px 35px 8px 12px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; border-radius: 5px;"
+                                value="<?php echo $picker_val; ?>" placeholder="Select Month ...">
+                            <i class="fa-solid fa-calendar-days"
+                                style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--primary-color); pointer-events: none; opacity: 0.8;"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="user-tabs">
+                    <div class="user-tab active" onclick="switchSalaryTab('trainers', this)">Trainers</div>
+                    <div class="user-tab" onclick="switchSalaryTab('shop_staff', this)">Shop Staff</div>
+                </div>
+
+                <!-- Trainers Salary Tab -->
+                <div id="salary-trainers-tab" class="user-tab-content active">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Joined Date</th>
+                                <th>Appointments</th>
+                                <th>Basic Salary</th>
+                                <th>Incentive</th>
+                                <th>Deduction</th>
+                                <th>Net Salary</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $trainers_salary_query = mysqli_query($link, "
+                            SELECT t.id, t.name, t.created_at as join_date, 
+                                COALESCE(setl.basic_salary, s.basic_salary, 0) as basic_salary, 
+                                COALESCE(setl.incentives, s.incentives, 0) as incentives, 
+                                COALESCE(setl.deductions, s.deductions, 0) as deductions,
+                                (SELECT COUNT(*) FROM appointments WHERE trainer_id = t.id AND status IN ('approved', 'completed') AND DATE_FORMAT(booking_date, '%Y-%m') = '$view_month') as appt_count,
+                                setl.id as is_settled
+                            FROM trainers t
+                            LEFT JOIN salary_settings s ON s.user_id = t.id AND s.user_type = 'trainer' AND s.month = '$view_month'
+                            LEFT JOIN salary_settlements setl ON setl.user_id = t.id AND setl.user_type = 'trainer' AND setl.month = '$view_month'
+                        ");
+                            while ($ts = mysqli_fetch_assoc($trainers_salary_query)):
+                                $net = max(0, $ts['basic_salary'] + $ts['incentives'] - $ts['deductions']);
+                                ?>
+                                <tr>
+                                    <td>
+                                        <?php echo htmlspecialchars($ts['name']); ?>
+                                    </td>
+                                    <td style="color:var(--text-gray); font-size: 0.9em;">
+                                        <?php echo date('d M Y', strtotime($ts['join_date'])); ?>
+                                    </td>
+                                    <td>
+                                        <span class="badge badge-warning" title="Valid active appointments in this month">
+                                            <?php echo $ts['appt_count']; ?> Users
+                                        </span>
+                                    </td>
+                                    <form method="POST">
+                                        <input type="hidden" name="update_salary_setting" value="1">
+                                        <input type="hidden" name="user_id" value="<?php echo $ts['id']; ?>">
+                                        <input type="hidden" name="user_type" value="trainer">
+                                        <input type="hidden" name="month" value="<?php echo $view_month; ?>">
+                                        <td><input type="number" step="0.01" name="basic_salary" min="0" required
+                                                oninput="validateSalaryRow(this)" value="<?php echo $ts['basic_salary']; ?>"
+                                                style="width:80px; padding:5px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:4px;">
+                                        </td>
+                                        <td><input type="number" step="0.01" name="incentives" min="0" required
+                                                oninput="validateSalaryRow(this)" value="<?php echo $ts['incentives']; ?>"
+                                                style="width:80px; padding:5px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:4px;">
+                                        </td>
+                                        <td><input type="number" step="0.01" name="deductions" min="0" required
+                                                oninput="validateSalaryRow(this)" value="<?php echo $ts['deductions']; ?>"
+                                                style="width:80px; padding:5px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:4px;">
+                                        </td>
+                                        <td style="color:var(--primary-color); font-weight:bold;" class="net-val">
+                                            ₹<?php echo number_format($net, 2); ?></td>
+                                        <td style="display:flex; gap:10px; align-items:center;">
+                                            <button type="submit" class="btn-action btn-view">Save</button>
+
+                                            <?php if ($ts['is_settled']): ?>
+                                                <button type="submit" form="unsettle_form_t_<?php echo $ts['id']; ?>"
+                                                    class="btn-action"
+                                                    style="background:#dc3545; border:none; padding:8px 12px; color:#fff; border-radius:5px; cursor:pointer;"
+                                                    title="Revert Settlement">
+                                                    <i class="fa-solid fa-xmark"></i> Unsettle
+                                                </button>
+                                                <a href="payslip_pdf.php?uid=<?php echo $ts['id']; ?>&type=trainer&month=<?php echo $view_month; ?>"
+                                                    target="_blank" class="btn-action"
+                                                    style="background:#28a745; border:none; padding:8px 12px; color:#fff; border-radius:5px; text-decoration:none;">
+                                                    <i class="fa-solid fa-download"></i> Slip
+                                                </a>
+                                            <?php else: ?>
+                                                <button type="button" class="btn-action"
+                                                    style="background:#007bff; border:none; padding:8px 12px; color:#fff; border-radius:5px; cursor:pointer;"
+                                                    onclick="openSettleModal(<?php echo $ts['id']; ?>, 'trainer', <?php echo $net; ?>, <?php echo $ts['basic_salary']; ?>, <?php echo $ts['incentives']; ?>, <?php echo $ts['deductions']; ?>, '<?php echo htmlspecialchars(addslashes($ts['name'])); ?>')">
+                                                    Settle Payslip
+                                                </button>
+                                            <?php endif; ?>
+
+                                            <a href="attendance_pdf.php?uid=<?php echo $ts['id']; ?>&type=trainer"
+                                                target="_blank" class="btn-action"
+                                                style="background:#ff4d4d; border:none; padding:8px 12px; color:#fff; border-radius:5px; text-decoration:none;"
+                                                title="View Attendance PDF"><i
+                                                    class="fa-solid fa-file-pdf"></i>Attendance</a>
+                                        </td>
+                                    </form>
+
+                                    <!-- Hidden Unsettle Form -->
+                                    <form id="unsettle_form_t_<?php echo $ts['id']; ?>" method="POST" style="display:none;">
+                                        <input type="hidden" name="unsettle_salary" value="1">
+                                        <input type="hidden" name="user_id" value="<?php echo $ts['id']; ?>">
+                                        <input type="hidden" name="user_type" value="trainer">
+                                        <input type="hidden" name="month" value="<?php echo $view_month; ?>">
+                                    </form>
+                                </tr>
+                            <?php endwhile; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Shop Staff Salary Tab -->
+                <div id="salary-shop_staff-tab" class="user-tab-content" style="display:none;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Role</th>
+                                <th>Joined Date</th>
+                                <th>Basic Salary</th>
+                                <th>Incentive</th>
+                                <th>Deduction</th>
+                                <th>Net Salary</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $staff_salary_query = mysqli_query($link, "
+                            SELECT u.id, u.full_name, u.created_at as join_date, 
+                                COALESCE(setl.basic_salary, s.basic_salary, 0) as basic_salary, 
+                                COALESCE(setl.incentives, s.incentives, 0) as incentives, 
+                                COALESCE(setl.deductions, s.deductions, 0) as deductions,
+                                setl.id as is_settled
+                            FROM users u
+                            LEFT JOIN salary_settings s ON s.user_id = u.id AND s.user_type = 'shop_staff' AND s.month = '$view_month'
+                            LEFT JOIN salary_settlements setl ON setl.user_id = u.id AND setl.user_type = 'shop_staff' AND setl.month = '$view_month'
+                            WHERE u.role = 'shop_staff'
+                        ");
+                            while ($ss = mysqli_fetch_assoc($staff_salary_query)):
+                                $net = max(0, $ss['basic_salary'] + $ss['incentives'] - $ss['deductions']);
+                                ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($ss['full_name']); ?></td>
+                                    <td>Shop Staff</td>
+                                    <td style="color:var(--text-gray); font-size: 0.9em;">
+                                        <?php echo date('d M Y', strtotime($ss['join_date'])); ?>
+                                    </td>
+                                    <form method="POST">
+                                        <input type="hidden" name="update_salary_setting" value="1">
+                                        <input type="hidden" name="user_id" value="<?php echo $ss['id']; ?>">
+                                        <input type="hidden" name="user_type" value="shop_staff">
+                                        <input type="hidden" name="month" value="<?php echo $view_month; ?>">
+                                        <td><input type="number" step="0.01" name="basic_salary" min="0" required
+                                                oninput="validateSalaryRow(this)" value="<?php echo $ss['basic_salary']; ?>"
+                                                style="width:80px; padding:5px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:4px;">
+                                        </td>
+                                        <td><input type="number" step="0.01" name="incentives" min="0" required
+                                                oninput="validateSalaryRow(this)" value="<?php echo $ss['incentives']; ?>"
+                                                style="width:80px; padding:5px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:4px;">
+                                        </td>
+                                        <td><input type="number" step="0.01" name="deductions" min="0" required
+                                                oninput="validateSalaryRow(this)" value="<?php echo $ss['deductions']; ?>"
+                                                style="width:80px; padding:5px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:4px;">
+                                        </td>
+                                        <td style="color:var(--primary-color); font-weight:bold;" class="net-val">
+                                            ₹<?php echo number_format($net, 2); ?></td>
+                                        <td style="display:flex; gap:10px; align-items:center;">
+                                            <button type="submit" class="btn-action btn-view">Save Settings</button>
+
+                                            <?php if ($ss['is_settled']): ?>
+                                                <button type="submit" form="unsettle_form_s_<?php echo $ss['id']; ?>"
+                                                    class="btn-action"
+                                                    style="background:#dc3545; border:none; padding:8px 12px; color:#fff; border-radius:5px; cursor:pointer;"
+                                                    title="Revert Settlement">
+                                                    <i class="fa-solid fa-xmark"></i> Unsettle
+                                                </button>
+                                                <a href="payslip_pdf.php?uid=<?php echo $ss['id']; ?>&type=shop_staff&month=<?php echo $view_month; ?>"
+                                                    target="_blank" class="btn-action"
+                                                    style="background:#28a745; border:none; padding:8px 12px; color:#fff; border-radius:5px; text-decoration:none;">
+                                                    <i class="fa-solid fa-download"></i> Slip
+                                                </a>
+                                            <?php else: ?>
+                                                <button type="button" class="btn-action"
+                                                    style="background:#007bff; border:none; padding:8px 12px; color:#fff; border-radius:5px; cursor:pointer;"
+                                                    onclick="openSettleModal(<?php echo $ss['id']; ?>, 'shop_staff', <?php echo $net; ?>, <?php echo $ss['basic_salary']; ?>, <?php echo $ss['incentives']; ?>, <?php echo $ss['deductions']; ?>, '<?php echo htmlspecialchars(addslashes($ss['full_name'])); ?>')">
+                                                    Settle Payslip
+                                                </button>
+                                            <?php endif; ?>
+                                            <a href="attendance_pdf.php?uid=<?php echo $ss['id']; ?>&type=shop_staff"
+                                                target="_blank" class="btn-action"
+                                                style="background:#ff4d4d; border:none; padding:8px 12px; color:#fff; border-radius:5px; text-decoration:none;"
+                                                title="View Attendance PDF"><i class="fa-solid fa-file-pdf"></i>
+                                                Attendance</a>
+                                        </td>
+                                    </form>
+
+                                    <!-- Hidden Unsettle Form -->
+                                    <form id="unsettle_form_s_<?php echo $ss['id']; ?>" method="POST" style="display:none;">
+                                        <input type="hidden" name="unsettle_salary" value="1">
+                                        <input type="hidden" name="user_id" value="<?php echo $ss['id']; ?>">
+                                        <input type="hidden" name="user_type" value="shop_staff">
+                                        <input type="hidden" name="month" value="<?php echo $view_month; ?>">
+                                    </form>
+                                </tr>
+                            <?php endwhile; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="settle-modal" class="modal">
+            <div class="modal-content">
+                <div class="card-header">
+                    <h3>Settle Salary for <span id="settle_name"></span></h3>
+                    <button onclick="closeModal('settle-modal')"
+                        style="background:none; border:none; color:#fff; cursor:pointer; font-size:1.5rem;">&times;</button>
+                </div>
+                <form method="POST">
+                    <input type="hidden" name="settle_salary" value="1">
+                    <input type="hidden" name="user_id" id="settle_uid">
+                    <input type="hidden" name="user_type" id="settle_type">
+                    <input type="hidden" name="settle_basic" id="settle_basic">
+                    <input type="hidden" name="settle_incentives" id="settle_incentives">
+                    <input type="hidden" name="settle_deductions" id="settle_deductions">
+                    <div class="form-group">
+                        <label>Month</label>
+                        <input type="text" name="month" class="form-control flatpickr-month-picker" required
+                            style="cursor: pointer;" placeholder="Select Month ..." value="<?php echo $picker_val; ?>">
+                    </div>
+                    <div class="form-group">
+                        <label>Final Net Amount (₹)</label>
+                        <input type="number" step="0.01" name="total_amount" id="settle_amount" class="form-control"
+                            required>
+                    </div>
+                    <button type="submit" class="btn-action-modal">Record Payment</button>
+                </form>
+            </div>
+        </div>
+
         <!-- Shop Staff Section -->
         <div id="shop-staff" class="dashboard-section">
             <div class="card">
@@ -3749,7 +4191,7 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, visible_pass
                             </thead>
                             <tbody>
                                 <?php foreach ($shop_staff_att as $s):
-                                    $key = "user_" . $s['id'];
+                                    $key = "shop_staff_" . $s['id'];
                                     $status = isset($daily_att_map[$key]) ? $daily_att_map[$key] : 'absent';
                                     ?>
                                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
@@ -3771,14 +4213,14 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, visible_pass
                                             </div>
                                         </td>
                                         <td style="padding: 12px 15px;">
-                                            <span id="status-user-<?php echo $s['id']; ?>"
+                                            <span id="status-shop_staff-<?php echo $s['id']; ?>"
                                                 class="badge <?php echo $status == 'present' ? 'badge-success' : 'badge-warning'; ?>"
                                                 style="font-size: 0.7rem; padding: 4px 10px;">
                                                 <?php echo ucfirst($status); ?>
                                             </span>
                                         </td>
                                         <td style="padding: 12px 15px; text-align: right;">
-                                            <button onclick="toggleUserAtt(<?php echo $s['id']; ?>, 'user', this)"
+                                            <button onclick="toggleUserAtt(<?php echo $s['id']; ?>, 'shop_staff', this)"
                                                 class="btn-action <?php echo $status == 'present' ? 'btn-delete' : 'btn-view'; ?>"
                                                 style="font-size: 0.75rem; padding: 6px 14px; display:inline-flex; width: auto; min-width: 110px; justify-content: center;">
                                                 <?php echo $status == 'present' ? '<i class="fa-solid fa-xmark" style="margin-right:5px;"></i> Mark Absent' : '<i class="fa-solid fa-check" style="margin-right:5px;"></i> Mark Present'; ?>
@@ -5306,6 +5748,19 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, visible_pass
                     }
                 }
             });
+
+            // Salary Month Pickers (Standard Calendar but yielding Y-m internals mapped to full days)
+            flatpickr(".flatpickr-month-picker", {
+                theme: "dark",
+                altInput: true,
+                altFormat: "F Y",
+                dateFormat: "Y-m-d",
+                onChange: function (selectedDates, dateStr, instance) {
+                    if (instance.element.id === 'salary-month-picker' && dateStr) {
+                        window.location.href = '?salary_month=' + dateStr.substring(0, 7) + '#salary_mgmt';
+                    }
+                }
+            });
         });
 
         function openReplyModal(data) {
@@ -5450,6 +5905,25 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, visible_pass
                 toggleIcon.classList.add('fa-eye');
             }
         }
+
+        function switchSalaryTab(tab, el) {
+            document.getElementById('salary_mgmt').querySelectorAll('.user-tab').forEach(t => t.classList.remove('active'));
+            document.getElementById('salary_mgmt').querySelectorAll('.user-tab-content').forEach(c => c.style.display = 'none');
+            document.getElementById('salary-' + tab + '-tab').style.display = 'block';
+            el.classList.add('active');
+        }
+
+        function openSettleModal(uid, type, amount, basic, incentives, deductions, name) {
+            document.getElementById('settle_uid').value = uid;
+            document.getElementById('settle_type').value = type;
+            document.getElementById('settle_amount').value = Math.max(0, amount);
+            document.getElementById('settle_basic').value = basic;
+            document.getElementById('settle_incentives').value = incentives;
+            document.getElementById('settle_deductions').value = deductions;
+            document.getElementById('settle_name').innerText = name;
+            document.getElementById('settle-modal').style.display = 'flex';
+        }
+
         // --- REAL-TIME INVENTORY SYNC ---
         setInterval(async () => {
             try {
@@ -5469,6 +5943,32 @@ $shop_staff_res = mysqli_query($link, "SELECT id, full_name, email, visible_pass
                 // Silently fail to not disturb user
             }
         }, 5000); // Sync every 5 seconds
+        function validateSalaryRow(inputEl) {
+            const row = inputEl.closest('tr');
+            if (!row) return;
+            const basicInput = row.querySelector('input[name="basic_salary"]');
+            const incentInput = row.querySelector('input[name="incentives"]');
+            const deductInput = row.querySelector('input[name="deductions"]');
+            const netValEl = row.querySelector('.net-val');
+
+            if (!basicInput || !incentInput || !deductInput || !netValEl) return;
+
+            let basic = parseFloat(basicInput.value) || 0;
+            let incentives = parseFloat(incentInput.value) || 0;
+            let maxDeduction = basic + incentives;
+
+            if (inputEl.name === 'deductions' && parseFloat(inputEl.value) > maxDeduction) {
+                inputEl.value = maxDeduction.toFixed(2);
+            }
+
+            let deductions = parseFloat(deductInput.value) || 0;
+            if (deductions > maxDeduction) deductions = maxDeduction;
+
+            let net = basic + incentives - deductions;
+            if (net < 0) net = 0;
+
+            netValEl.innerText = '₹' + net.toFixed(2);
+        }
     </script>
 </body>
 

@@ -572,10 +572,22 @@ $inventory_res = mysqli_query($link, "SELECT * FROM inventory ORDER BY created_a
 $inventory_count = mysqli_num_rows($inventory_res);
 
 // Fetch All Payments
+$is_trainer = ($_SESSION["role"] === "trainer");
+$my_name = $_SESSION["full_name"];
+$my_name_esc = mysqli_real_escape_string($link, $my_name);
+
 $payments_sql = "SELECT t.*, u.full_name, u.email as user_email 
                 FROM transactions t 
-                JOIN users u ON t.user_id = u.id 
-                ORDER BY t.created_at DESC";
+                JOIN users u ON t.user_id = u.id ";
+
+if ($is_trainer) {
+    // If trainer: See all non-appointment payments OR appointments specifically for THIS trainer
+    $payments_sql .= " WHERE (t.plan_name NOT LIKE 'Trainer Appointment%') 
+                       OR (t.plan_name LIKE '% • $my_name_esc%') ";
+}
+
+$payments_sql .= " ORDER BY t.created_at DESC";
+
 $payments_res = mysqli_query($link, $payments_sql);
 
 // Group by User for cleaner display
@@ -625,11 +637,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['mark_member_attendance
         $_SESSION['msg'] = "Attendance already marked for this member today.";
     }
     // Redirect back to the reports section
-    header("Location: dashboard_staff.php#section=reports");
-    // Note: The hash won't be picked up by PHP but useful if JS handles it, 
-    // though here we rely on 'showSection' state which resets on reload usually.
-    // For now simple redirect is fine, user will navigate back.
-    header("Location: dashboard_staff.php");
+    header("Location: dashboard_staff.php#reports");
     exit;
 }
 
@@ -680,7 +688,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['log_client_measurement
 }
 
 // 2. Fetch Own History
-$att_type_check = ($_SESSION["role"] === "trainer") ? "trainer" : "user";
+$att_type_check = ($_SESSION["role"] === "trainer") ? "trainer" : "staff";
 $staff_att_res = mysqli_query($link, "SELECT date FROM attendance WHERE user_id = $user_id AND user_type = '$att_type_check' AND status = 'present' ORDER BY date DESC");
 $staff_dates = [];
 while ($r = mysqli_fetch_assoc($staff_att_res))
@@ -1456,14 +1464,14 @@ $mem_absent_count = $total_mem_count - $mem_present_count;
                         <?php echo $msg; ?>
                     </p>
                     <script>
-                                                                                                                                                            setT                                       imeout(() => {
-                                                                                                                                                                const msgBox = document.getElementById("staff-msg");
-                                                                                                                                                                if (msgBox) {
-                                                                                                                                                                    msgBox.style.transition = "opacity 0.5s";
-                                                                                                                                                                    msgBox.style.opacity = "0";
-                                                                                                                                                                    setTimeout(() => msgBox.remove(), 500);
-                                                                                                                                                                }
-                                                                                                                                                            }, 4000);
+                                                                                                                                                                            setT                                       imeout(() => {
+                                                                                                                                                                                const msgBox = document.getElementById("staff-msg");
+                                                                                                                                                                                if (msgBox) {
+                                                                                                                                                                                    msgBox.style.transition = "opacity 0.5s";
+                                                                                                                                                                                    msgBox.style.opacity = "0";
+                                                                                                                                                                                    setTimeout(() => msgBox.remove(), 500);
+                                                                                                                                                                                }
+                                                                                                                                                                            }, 4000);
                     </script>
                 <?php endif; ?>
 
