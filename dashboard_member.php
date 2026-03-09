@@ -5157,20 +5157,32 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                 "amount": amountInPaise,
                 "currency": "INR",
                 "name": "GymFit Fitness",
-                "description": options.plan,
+                "description": options.plan || "Gym Payment",
                 "image": "https://cdn-icons-png.flaticon.com/512/69/69840.png",
                 "handler": function (response) {
+                    console.log("Razorpay Success:", response);
                     verifyRazorpayOnServer(response.razorpay_payment_id, options);
                 },
                 "prefill": {
-                    "name": "<?php echo $_SESSION['full_name']; ?>",
-                    "email": "<?php echo $_SESSION['email']; ?>"
+                    "name": "<?php echo isset($_SESSION['full_name']) ? addslashes($_SESSION['full_name']) : 'User'; ?>",
+                    "email": "<?php echo isset($_SESSION['email']) ? $_SESSION['email'] : 'user@example.com'; ?>",
+                    "contact": "9828394560"
+                },
+                "notes": {
+                    "address": "GymFit Station",
+                    "context": options.context || "general"
                 },
                 "theme": {
                     "color": "#ceff00"
+                },
+                "modal": {
+                    "ondismiss": function () {
+                        console.log("Razorpay modal closed");
+                    }
                 }
             };
 
+            console.log("Final Razorpay Options:", JSON.stringify(rzpOptions, null, 2));
             const rzp = new Razorpay(rzpOptions);
             rzp.on('payment.failed', function (response) {
                 alert("Payment Failed: " + response.error.description);

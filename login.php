@@ -205,7 +205,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !empty($_POST['google_credential']))
             justify-content: center;
             align-items: center;
             padding: 20px;
-            background: url('assets/images/hero-new.png') no-repeat center center/cover;
+            background: url('assets/images/Gymen.png') no-repeat center center/cover;
             position: relative;
         }
 
@@ -347,7 +347,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !empty($_POST['google_credential']))
                 <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method="POST" autocomplete="nope">
                     <!-- Dummy fields to capture browser autofill -->
                     <input type="text" name="prevent_autofill" style="display:none" tabindex="-1">
-                    <input type="password" name="password_fake" style="display:none" tabindex="-1">
+                    <input type="password" name="password_fake" style="display:none" tabindex="-1"
+                        autocomplete="current-password">
 
                     <div class="input-group">
                         <label>Email Address</label>
@@ -401,7 +402,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !empty($_POST['google_credential']))
                 <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method="POST" autocomplete="nope">
                     <!-- Dummy fields to capture browser autofill -->
                     <input type="text" name="prevent_autofill_reg" style="display:none" tabindex="-1">
-                    <input type="password" name="password_fake_reg" style="display:none" tabindex="-1">
+                    <input type="password" name="password_fake_reg" style="display:none" tabindex="-1"
+                        autocomplete="new-password">
 
                     <div class="input-group">
                         <label>Full Name</label>

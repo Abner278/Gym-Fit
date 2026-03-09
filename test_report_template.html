@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: "Times New Roman", Times, serif;
+            font-size: 16px;
+            background-color: white;
+            margin: 40px;
+            color: black;
+        }
+
+        .title-area {
+            margin-bottom: 10px;
+        }
+
+        .title-text {
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .red-squiggle {
+            text-decoration: underline;
+            text-decoration-style: wavy;
+            text-decoration-color: red;
+            text-decoration-skip-ink: none;
+        }
+
+        .table-container {
+            position: relative;
+        }
+
+        .word-handle {
+            position: absolute;
+            top: -15px;
+            left: -15px;
+            width: 14px;
+            height: 14px;
+            border: 1px solid #999;
+            font-size: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #555;
+            background-color: white;
+            cursor: move;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            border: 2px solid black;
+        }
+
+        th,
+        td {
+            border: 1px solid black;
+            padding: 4px 6px;
+            vertical-align: top;
+            font-size: 15px;
+            line-height: 1.2;
+        }
+
+        .bold {
+            font-weight: bold;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        .step-row td {
+            height: 80px;
+            vertical-align: top;
+        }
+
+        .col-step {
+            width: 40px;
+        }
+
+        .col-test-step {
+            width: 120px;
+        }
+
+        .col-test-data {
+            width: 120px;
+        }
+
+        .col-expected {
+            width: 130px;
+        }
+
+        .col-actual {
+            width: 130px;
+        }
+
+        .col-status {
+            width: 110px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="title-area">
+        <span class="title-text"><span class="red-squiggle">Eg.Test</span> Report</span>
+    </div>
+
+    <div class="table-container">
+        <div class="word-handle">✥</div>
+        <table>
+            <tr>
+                <td colspan="6" class="bold" style="padding: 6px;">Test Case 4</td>
+            </tr>
+            <tr>
+                <td colspan="6" class="bold" style="padding: 4px 6px;">Project Name: Gym-Fit</td>
+            </tr>
+            <tr>
+                <td colspan="6" class="center bold" style="padding: 4px 6px;">Trainer Appointment Test Case</td>
+            </tr>
+            <tr>
+                <td colspan="3" width="50%"><span class="bold">Test Case ID: Test_4</span></td>
+                <td colspan="3" width="50%"><span class="bold">Test Designed By:</span> Abner Sam Jose</td>
+            </tr>
+            <tr>
+                <td colspan="3"><span class="bold">Test<br>Priority(Low/Medium/High):</span> High</td>
+                <td colspan="3"><span class="bold">Test Designed Date:</span> 3 March 2026</td>
+            </tr>
+            <tr>
+                <td colspan="3"><span class="bold">Module Name:</span> Member Dashboard</td>
+                <td colspan="3"><span class="bold">Test Executed By :</span> Ms.Sona Maria Sebastian</td>
+            </tr>
+            <tr>
+                <td colspan="3"><span class="bold">Test Title :</span> Trainer Appointment Booking</td>
+                <td colspan="3"><span class="bold">Test Execution Date:</span> 9 March 2026</td>
+            </tr>
+            <tr>
+                <td colspan="3"><span class="bold">Description:</span><br>Automate booking an appointment with trainer
+                    Samual and paying via Razorpay Netbanking.</td>
+                <td colspan="3"></td>
+            </tr>
+            <tr>
+                <td colspan="6" style="padding: 4px 6px;">
+                    <span class="bold">Pre-Condition :</span>User has valid username and password
+                </td>
+            </tr>
+            <tr>
+                <td class="bold col-step">Step</td>
+                <td class="bold col-test-step">Test Step</td>
+                <td class="bold col-test-data">Test Data</td>
+                <td class="bold col-expected">Expected<br>Result</td>
+                <td class="bold col-actual">Actual<br>Result</td>
+                <td class="bold col-status">Status(Pass/<br>Fail)</td>
+            </tr>
+            <!-- Row 1 -->
+            <tr>
+                <td class="col-step">1</td>
+                <td class="col-test-step">Login & Navigate</td>
+                <td class="col-test-data">member@gym.com</td>
+                <td class="col-expected">Dashboard Loaded</td>
+                <td class="col-actual">Dashboard Loaded</td>
+                <td class="col-status">Pass</td>
+            </tr>
+            <!-- Row 2 -->
+            <tr>
+                <td>2</td>
+                <td>Select Trainer</td>
+                <td>Samual</td>
+                <td rowspan="3">Modal displayed & time 06:00 AM selected</td>
+                <td rowspan="3">Modal displayed & 06:00 AM selected</td>
+                <td rowspan="3">Pass</td>
+            </tr>
+            <!-- Row 3 -->
+            <tr>
+                <td>3</td>
+                <td>Select Date & Time</td>
+                <td>Tomorrow, 06:00 AM</td>
+            </tr>
+            <!-- Row 4 -->
+            <tr>
+                <td>4</td>
+                <td>Click Pay ₹200</td>
+                <td>₹ 200</td>
+            </tr>
+            <!-- Row 5 -->
+            <tr>
+                <td>5</td>
+                <td>Start Razorpay</td>
+                <td>Netbanking</td>
+                <td rowspan="3">Payment verified & success shown</td>
+                <td rowspan="3">Payment verified & success shown</td>
+                <td rowspan="3">Pass</td>
+            </tr>
+            <!-- Row 6 -->
+            <tr>
+                <td>6</td>
+                <td>Choose Canara Bank</td>
+                <td>Canara Bank</td>
+            </tr>
+            <!-- Row 7 -->
+            <tr>
+                <td>7</td>
+                <td>Authorize Payment</td>
+                <td>Success</td>
+            </tr>
+            <tr>
+                <td colspan="6" style="padding: 10px 6px;">
+                    <span class="bold">Post-Condition:</span> Appointment confirmed in database and transaction
+                    recorded.
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <div style="position: absolute; bottom: 10px; right: 10px; width: 14px; height: 14px; border: 1px solid #999;">
+    </div>
+
+</body>
+
+</html>
