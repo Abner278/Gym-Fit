@@ -330,6 +330,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !empty($_POST['google_credential']))
         .hidden {
             display: none;
         }
+
+        @media (max-width: 480px) {
+            .auth-box {
+                padding: 20px;
+            }
+            .auth-box h2 {
+                font-size: 1.5rem;
+            }
+            .btn-google {
+                font-size: 0.8rem;
+                padding: 10px;
+            }
+        }
     </style>
 </head>
 

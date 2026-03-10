@@ -165,6 +165,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['forgot_password'])) {
             color: #00ff00;
             border: 1px solid rgba(0, 255, 0, 0.2);
         }
+
+        @media (max-width: 480px) {
+            .auth-box {
+                padding: 20px;
+            }
+            .auth-box h2 {
+                font-size: 1.5rem;
+            }
+        }
     </style>
 </head>
 

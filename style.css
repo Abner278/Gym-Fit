@@ -1393,6 +1393,15 @@ body {
 }
 
 /* Responsive */
+@media (max-width: 1024px) {
+    .hero-content .background-text {
+        font-size: 18vw;
+    }
+    .pricing-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
 @media (max-width: 900px) {
     .hero-content .background-text {
         font-size: 15vw;
@@ -1403,20 +1412,33 @@ body {
         grid-template-columns: 1fr;
     }
 
-    .nav-links {
-        display: none;
-        position: absolute;
-        top: 100%;
-        left: 0;
-        width: 100%;
-        background: rgba(5, 5, 5, 0.95);
+    .navbar {
+        padding: 15px 20px;
+    }
+
+    .navbar .container {
         flex-direction: column;
-        padding: 20px;
+        align-items: center;
+        gap: 15px;
+    }
+
+    .nav-links {
+        display: flex;
+        width: 100%;
+        overflow-x: auto;
+        white-space: nowrap;
         gap: 20px;
-        opacity: 1;
-        visibility: visible;
-        transform: none;
-        pointer-events: auto;
+        padding-bottom: 5px;
+        justify-content: flex-start;
+    }
+
+    .nav-links::-webkit-scrollbar {
+        height: 2px;
+    }
+
+    .nav-links::-webkit-scrollbar-thumb {
+        background: var(--primary-color);
+        border-radius: 2px;
     }
 
     .nav-links.active {
@@ -1424,7 +1446,7 @@ body {
     }
 
     .menu-toggle {
-        display: block;
+        display: none !important;
     }
 
     .contact-container {
@@ -1463,5 +1485,81 @@ body {
 
     .bmi-result-box #bmi-value {
         font-size: 1.5rem;
+    }
+    
+    .services-grid {
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .section-title {
+        font-size: 2.5rem;
+    }
+    
+    .why-gyming .section-title {
+        font-size: 2.5rem;
+    }
+
+    .services-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .pricing-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .hero-img {
+        height: 50%;
+    }
+    
+    .hero-content .background-text {
+        font-size: 20vw;
+    }
+    
+    .footer-title h2 {
+        font-size: 2rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .section-title {
+        font-size: 2rem;
+    }
+    
+    .why-gyming .section-title {
+        font-size: 2rem;
+    }
+    
+    .btn-primary {
+        padding: 12px 30px;
+        font-size: 0.9rem;
+    }
+    
+    .bmi-form {
+        padding: 25px 20px;
+    }
+    
+    .contact-form-wrapper {
+        padding: 30px 20px;
+    }
+    
+    .review-card {
+        min-width: 100%;
+        padding: 20px;
+    }
+    
+    .footer-title h2 {
+        font-size: 1.5rem;
+    }
+    
+    .social-icons a {
+        width: 35px;
+        height: 35px;
+        font-size: 0.9rem;
     }
 }

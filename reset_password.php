@@ -193,6 +193,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reset_password']) && $
         .requirement-list li.invalid {
             color: #ff4d4d;
         }
+
+        @media (max-width: 480px) {
+            .auth-box {
+                padding: 20px;
+            }
+            .auth-box h2 {
+                font-size: 1.5rem;
+            }
+        }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
