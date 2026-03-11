@@ -2932,10 +2932,10 @@ $is_beginner_completed = count($completed_weeks) >= 4;
                                             <td style="padding:15px; color:var(--primary-color); font-weight:bold;">
                                                 <?php echo date('M d, Y', strtotime($row['recorded_at'])); ?>
                                             </td>
-                                            <td style="padding:15px;"><?php echo $row['chest']; ?>"</td>
-                                            <td style="padding:15px;"><?php echo $row['waist']; ?>"</td>
-                                            <td style="padding:15px;"><?php echo $row['arms']; ?>"</td>
-                                            <td style="padding:15px;"><?php echo $row['thighs']; ?>"</td>
+                                            <td style="padding:15px;"><?php echo $row['chest']; ?></td>
+                                            <td style="padding:15px;"><?php echo $row['waist']; ?></td>
+                                            <td style="padding:15px;"><?php echo $row['arms']; ?></td>
+                                            <td style="padding:15px;"><?php echo $row['thighs']; ?></td>
                                             <td style="padding:15px; text-align:center;">
                                                 <button
                                                     onclick="editMeasurement('<?php echo $row['recorded_at']; ?>', '<?php echo $row['chest']; ?>', '<?php echo $row['waist']; ?>', '<?php echo $row['arms']; ?>', '<?php echo $row['thighs']; ?>')"
